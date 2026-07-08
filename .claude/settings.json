@@ -1,0 +1,14 @@
+{
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Read", "Edit", "Write",
+      "Bash(git add:*)", "Bash(git commit:*)", "Bash(git checkout:*)",
+      "Bash(git merge:*)", "Bash(git worktree:*)",
+      "Bash(npm test:*)", "Bash(npm run:*)", "Bash(python -m pytest:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)", "Bash(rm -rf:*)", "WebFetch"
+    ]
+  }
+}

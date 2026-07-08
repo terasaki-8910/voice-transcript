@@ -1,0 +1,41 @@
+# Declarative source of truth. Humans and Claude read this;
+# scripts/run.sh executes the same stages. Keep the two in sync.
+project: ""            # filled per project (also set in CLAUDE.md)
+has_ui: false          # true -> enables the design gate (touch state/has_ui to activate at runtime)
+models:
+  intake: opus         # spec Q&A
+  criteria: opus       # write failing tests + lint config
+  design: sonnet       # reference screen / tokens
+  plan: opus           # decomposition (opus-plan is an INTERACTIVE mode, not a headless model string)
+  build: sonnet        # implementation
+  escalate: fable      # MANUAL ONLY: hard architecture/debug. Never auto-invoked.
+stages:
+  - id: intake
+    owner: human+claude
+    mode: interactive
+    gate: human            # one-time; spend real time here
+    outputs: [SPEC.md, ACCEPTANCE.md, "design_brief.md (if UI)"]
+  - id: criteria
+    owner: claude
+    gate: human
+    outputs: [failing_tests, lint_config]
+  - id: design_gate
+    when: has_ui
+    owner: claude
+    gate: human            # one-time; approve aesthetic direction, then machine-enforce tokens
+    outputs: [design_tokens, reference_screen]
+  - id: plan
+    owner: claude
+    gate: none             # quick human skim only
+    outputs: [PLAN.md, "features.txt (one INDEPENDENT feature per line)"]
+  - id: build
+    owner: claude
+    parallel: true         # per feature, isolated git worktree = safety boundary
+    gate: machine          # tests + lint(no-emoji/tokens/a11y) + ui(responsive)
+    loop: bounded          # Ralph-style iterate until gates green OR MAX_BUILD_ITERS
+  - id: feature_accept
+    owner: human+ci
+    gate: machine+human    # green gates + diff + quick GUI look -> LOCAL merge (no push)
+  - id: integration_accept
+    owner: human+ci
+    gate: machine+human    # e2e + final smoke, once per project
