@@ -1,52 +1,59 @@
+<div align="right">
+
+[![English](https://img.shields.io/badge/lang-English-2b7489?style=flat-square)](./README.en.md)
+
+</div>
+
 # claude-pipeline-template
 
-A **GitHub template repository** for driving ONE project from a rough idea to a
-gated, tested result with Claude Code. Multiple projects run in parallel simply as
-separate repos (no shared state). Ralph-style iteration is used *inside* the build
-stage only, bounded and gated by tests -- not as an ungated overnight loop.
+Claude Code で **1 つのプロジェクト**を、ざっくりした案からゲート付き・テスト済みの
+成果物まで進めるための **GitHub テンプレートリポジトリ**。複数プロジェクトは別リポジトリ
+として並列に走らせるだけでよい（共有状態なし）。Ralph 式の反復は build ステージの内部に
+だけ、テストで束ねた有界ループとして使う（無人の朝までグラインドではない）。
 
-## Files
-- `pipeline.yaml`  -- declarative spec (source of truth). Keep in sync with run.sh.
-- `scripts/run.sh` -- POSIX driver: advances stages, stops at human gates (notifies).
-- `scripts/gates.sh` -- machine gates (tests / lint / ui). Customize per project.
-- `prompts/0X-*.md` -- the "contract" for each stage.
-- `CLAUDE.md`      -- project memory (imports your global UI rules).
-- `.claude/settings.json` -- SCOPED permissions (see Safety). Not global skip-permissions.
-- `Makefile`       -- optional shortcuts (`make plan`, `make build`, ...).
+## ファイル構成
+- `pipeline.yaml`  — 宣言的な仕様（単一の真実）。run.sh と同期を保つこと。
+- `scripts/run.sh` — POSIX ドライバ本体：段階を進め、人間ゲートで通知して停止。
+- `scripts/gates.sh` — 機械ゲート（テスト / lint / ui）。プロジェクトごとに調整。
+- `prompts/0X-*.md` — 各段階の「契約」。
+- `CLAUDE.md`      — プロジェクト記憶（グローバルの UI ルールを取り込む）。
+- `.claude/settings.json` — スコープ付き権限（安全性の項参照）。素の skip-permissions は使わない。
+- `Makefile`       — 任意の短縮（`make plan`, `make build` …）。
 
-## One-time GLOBAL setup (per machine, NOT in this repo)
-1. Stop the git co-author trailer everywhere:
-   `~/.claude/settings.json`  ->  { "includeCoAuthoredBy": false }
-2. Shared UI direction across all projects:
-   copy `docs/ui-rules.starter.md` to `~/.claude/rules/ui.md` and refine it over time.
-   `~/.claude/CLAUDE.md` / `~/.claude/rules/` load in every project; scope the UI rule
-   to frontend globs so it only loads for UI work (see the rules-directory docs).
+## マシン全体の一度きり設定（このリポジトリ外）
+1. git の co-author 行を全プロジェクトで止める：
+   `~/.claude/settings.json` → `{ "includeCoAuthoredBy": false }`
+2. 全プロジェクト共通の UI 方針：
+   `docs/ui-rules.starter.md` を `~/.claude/rules/ui.md` にコピーして継続的に洗練する。
+   `~/.claude/CLAUDE.md` と `~/.claude/rules/` は全プロジェクトで読み込まれる。フロントエンドの
+   glob にスコープすれば UI 作業時のみ読み込まれる（rules ディレクトリのドキュメント参照）。
 
-## Per-project use
-1. On GitHub: make this a Template repository (Settings -> Template repository).
-2. For each new project: "Use this template" -> new repo -> clone.
-3. Fill in CLAUDE.md (<name>, commands) and, if it has a UI, run `touch state/has_ui`.
-4. Run the pipeline:  `sh scripts/run.sh all`   (or stage by stage: `... intake`, etc.)
+## プロジェクトごとの使い方
+1. GitHub でこのリポジトリを Template repository に設定（Settings → Template repository）。
+2. 新規プロジェクトごとに Use this template → 新リポジトリ → clone。
+3. `CLAUDE.md`（`<name>`、コマンド）を記入。UI があるなら `touch state/has_ui`。
+4. パイプライン実行：`sh scripts/run.sh all`（段階ごとにも：`… intake` など）。
 
-## Stages (gates)
-0 intake (H, once)  1 criteria (H)  2 design_gate (UI only, H, once)
-3 plan (skim)  4 build (machine gates, parallel per worktree)
-5 feature_accept (machine + light H, LOCAL merge)  6 integration_accept (machine + H, once)
+## 段階（ゲート）
+0 intake（人間・1回）／1 criteria（人間）／2 design_gate（UI のみ・人間・1回）／
+3 plan（目視）／4 build（機械ゲート・worktree で並列）／
+5 feature_accept（機械＋軽い人間・ローカルマージ）／6 integration_accept（機械＋人間・1回）
 
-## Models
-Spec/criteria = Opus, design/build = Sonnet. Set per stage via env
-(MODEL_BUILD=sonnet etc.). `opus-plan` is an interactive mode, not a headless model
-string -- for headless `plan`, MODEL_PLAN stays a real model. Fable is MANUAL escalation
-only (write the blocker to state/BLOCKED-*.md and escalate by hand); never automated,
-because some Fable queries route to Opus and it has availability/safeguard caveats.
+## モデル
+仕様・基準 = Opus、design・build = Sonnet。段階ごとに環境変数で指定
+（`MODEL_BUILD=sonnet` など）。`opus-plan` は対話モードでありヘッドレスのモデル文字列では
+ないので、ヘッドレスの plan では `MODEL_PLAN` は実在モデルのまま。Fable は**手動エスカレー
+ションのみ**（ブロッカーを `state/BLOCKED-*.md` に書いて手で上げる）。一部の Fable クエリは
+Opus に迂回し可用性・セーフガードの注意もあるため、自動化はしない。
 
-## Safety (important)
-- Each feature builds in an isolated `git worktree`; that isolation is the safety boundary.
-- `.claude/settings.json` grants a SCOPED allowlist and denies push / rm -rf. Do NOT run
-  `--dangerously-skip-permissions` on your main machine; if you ever do, keep it inside a
-  worktree/sandbox only.
-- No push by default -- everything is local git.
+## 安全性（重要）
+- 各機能は隔離された `git worktree` でビルドする。この隔離が安全境界。
+- `.claude/settings.json` はスコープ付き許可リストを与え、push と rm -rf を deny する。
+  本番マシンで `--dangerously-skip-permissions` を使わないこと。使う場合も worktree /
+  サンドボックス内に限定する。
+- 既定では push しない — すべてローカル git。
 
-## Verify before first run
-`claude` flags evolve. Confirm headless invocation and the settings schema with
-`claude --help` and the current Claude Code docs; adjust run.sh / settings.json to match.
+## 初回実行前に確認
+`claude` のフラグと settings.json のスキーマはバージョンで変わりうる。初回だけ
+`claude --help` と現行ドキュメントで実際のヘッドレス起動と権限キーを突き合わせ、
+`run.sh` / `settings.json` を合わせること。
