@@ -14,7 +14,12 @@ stages:
     owner: human+claude
     mode: interactive
     gate: human            # one-time; spend real time here
-    outputs: [SPEC.md, ACCEPTANCE.md, "design_brief.md (if UI)"]
+    # After the spec is agreed, intake also PROPOSES per-project tools (MCP/plugins/
+    # skills) tailored to what you build. Claude proposes; you approve; you run
+    # init-tools.sh yourself. Tools are NEVER auto-installed.
+    outputs: [SPEC.md, ACCEPTANCE.md, "design_brief.md (if UI)",
+              "TOOLING.md (per-project tool proposal)",
+              "init-tools.sh (you review + run; nothing auto-installed)"]
   - id: criteria
     owner: claude
     gate: human
@@ -39,3 +44,8 @@ stages:
   - id: integration_accept
     owner: human+ci
     gate: machine+human    # e2e + final smoke, once per project
+
+# Optional utility (NOT in `all`): `run.sh survey` -- prior-art survey before committing
+# to build-from-scratch. Requires WebSearch enabled; must cite real repos (no memory).
+# Records the choice to state/BASE.md. An adopted base still passes ACCEPTANCE.md gates
+# + a license check -- it is not trusted just for existing.

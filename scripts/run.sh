@@ -15,6 +15,15 @@ MAIN=$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null || echo main)
 : "${MODEL_PLAN:=opus}"
 : "${MODEL_BUILD:=sonnet}"
 : "${MAX_BUILD_ITERS:=25}"
+# Headless permission mode. acceptEdits auto-approves edits + common fs commands so
+# unattended stages don't hang waiting for approval that a headless run can't answer.
+# settings.json still denies push/rm-rf/WebFetch; the allowlist governs test/git.
+: "${PERMISSION_MODE:=acceptEdits}"
+# INTERACTIVE=1 runs the single-agent stages (criteria/design/plan) in the visible
+# Claude Code TUI instead of headless: you watch progress, get native notifications,
+# can correct mid-course, and /exit to continue. Default 0 = headless/unattended.
+# (build always stays headless -- it runs features in parallel worktrees.)
+: "${INTERACTIVE:=0}"
 
 . "$ROOT/scripts/gates.sh"
 
@@ -38,41 +47,56 @@ confirm() {  # human gate. $1=message. 0 on yes.
 claude_run() {  # headless. $1=model $2=promptfile [extra args]
   model=$1; prompt=$2; shift 2
   have claude || { echo "ERROR: 'claude' CLI not found (install Claude Code)." >&2; exit 127; }
-  claude --model "$model" -p "$@" < "$prompt" 2>&1 \
+  # Headless: pass the prompt as the -p argument (documented invocation).
+  # --permission-mode keeps unattended runs from blocking on approval prompts.
+  claude --model "$model" --permission-mode "$PERMISSION_MODE" "$@" -p "$(cat "$prompt")" 2>&1 \
     | tee -a "$STATE/logs/$(date +%Y%m%d-%H%M%S).log"
 }
 
 claude_interactive() {  # human converses. $1=model $2=seed promptfile
   model=$1; prompt=$2
   have claude || { echo "ERROR: 'claude' CLI not found." >&2; exit 127; }
-  echo "--- seed prompt ($prompt) ---"; cat "$prompt"; echo "--- end seed ---"
-  claude --model "$model"
+  # Interactive session seeded with the prompt as the first message:
+  # `claude "<text>"` opens the REPL AND sends that as message 1, so Claude
+  # starts the intake Q&A itself instead of opening blank. (documented flag form)
+  claude --model "$model" "$(cat "$prompt")"
+}
+
+agent_stage() {  # single-agent stage. $1=model $2=promptfile. Honors INTERACTIVE.
+  if [ "$INTERACTIVE" = "1" ]; then claude_interactive "$1" "$2"
+  else claude_run "$1" "$2"; fi
 }
 
 stage_intake() {
   echo "== 0. intake (interactive, model=$MODEL_INTAKE) =="
+  # Intake also PROPOSES per-project tools (MCP/plugins/skills). Claude proposes,
+  # you approve, you run init-tools.sh. Nothing is installed automatically.
   claude_interactive "$MODEL_INTAKE" "$PROMPTS/00-intake.md"
-  confirm "Stage 0: SPEC.md / ACCEPTANCE.md frozen?" || { echo "Not approved."; exit 1; }
+  confirm "Stage 0: SPEC.md / ACCEPTANCE.md frozen AND tool proposal (state/TOOLING.md) approved?" \
+    || { echo "Not approved."; exit 1; }
+  if [ -f "$STATE/init-tools.sh" ]; then
+    notify "Optional: review state/init-tools.sh, then run it YOURSELF to add tools. Nothing was installed automatically."
+  fi
 }
 
 stage_criteria() {
   echo "== 1. author criteria (model=$MODEL_CRITERIA) =="
-  claude_run "$MODEL_CRITERIA" "$PROMPTS/01-criteria.md"
+  agent_stage "$MODEL_CRITERIA" "$PROMPTS/01-criteria.md"
   confirm "Stage 1: failing tests + lint config approved?" || { echo "Not approved."; exit 1; }
 }
 
 stage_design_gate() {
   [ -f "$STATE/has_ui" ] || { echo "== 2. design gate: skipped (no UI) =="; return 0; }
   echo "== 2. design gate (model=$MODEL_DESIGN) =="
-  claude_run "$MODEL_DESIGN" "$PROMPTS/02-design-gate.md"
+  agent_stage "$MODEL_DESIGN" "$PROMPTS/02-design-gate.md"
   confirm "Stage 2: aesthetic direction / tokens approved (ONE time)?" \
     || { echo "Iterate prompts/02, then rerun 'design'."; exit 1; }
 }
 
 stage_plan() {
   echo "== 3. plan (model=$MODEL_PLAN) =="
-  claude_run "$MODEL_PLAN" "$PROMPTS/03-plan.md"
-  echo "Skim state/PLAN.md and state/features.txt. Press Enter to continue."
+  agent_stage "$MODEL_PLAN" "$PROMPTS/03-plan.md"
+  echo "Skim PLAN.md and state/features.txt. Press Enter to continue."
   read _ || true
 }
 
@@ -90,6 +114,11 @@ build_feature() {  # $1=feature. Runs inside its worktree; bounded Ralph loop.
 stage_build() {
   echo "== 4. build (parallel per feature, model=$MODEL_BUILD) =="
   [ -f "$STATE/features.txt" ] || { echo "Missing state/features.txt (run plan)."; exit 1; }
+  # Commit approved scaffolding (spec + criteria + plan: SPEC/ACCEPTANCE/PLAN, package.json,
+  # tests, configs) to the base branch so each feature worktree inherits it. state/ is
+  # gitignored, so orchestration artifacts stay out of git.
+  git -C "$ROOT" add -A >/dev/null 2>&1 || true
+  git -C "$ROOT" commit -q -m "pipeline: baseline (spec + criteria + plan)" >/dev/null 2>&1 || true
   # create worktrees serially (avoid concurrent git metadata races)
   while IFS= read -r feat; do
     [ -n "$feat" ] || continue
@@ -127,6 +156,29 @@ stage_integration_accept() {
   echo "== 7. DONE =="
 }
 
+stage_survey() {  # OPTIONAL prior-art survey; NOT part of `all`. Needs WebSearch enabled.
+  echo "== survey: prior-art (interactive, model=$MODEL_INTAKE) =="
+  claude_interactive "$MODEL_INTAKE" "$PROMPTS/survey.md"
+}
+
+run_from() {  # run the given stage and every stage after it, in order
+  start=$1; on=0
+  for s in intake criteria design plan build accept integrate; do
+    [ "$s" = "$start" ] && on=1
+    [ "$on" = "1" ] || continue
+    case "$s" in
+      intake)    stage_intake ;;
+      criteria)  stage_criteria ;;
+      design)    stage_design_gate ;;
+      plan)      stage_plan ;;
+      build)     stage_build ;;
+      accept)    stage_feature_accept ;;
+      integrate) stage_integration_accept ;;
+    esac
+  done
+  [ "$on" = "1" ] || { echo "unknown stage: $start" >&2; exit 2; }
+}
+
 main() {
   case "${1:-all}" in
     intake)    stage_intake ;;
@@ -136,9 +188,10 @@ main() {
     build)     stage_build ;;
     accept)    stage_feature_accept ;;
     integrate) stage_integration_accept ;;
-    all) stage_intake; stage_criteria; stage_design_gate; stage_plan
-         stage_build; stage_feature_accept; stage_integration_accept ;;
-    *) echo "usage: run.sh [intake|criteria|design|plan|build|accept|integrate|all]"; exit 2 ;;
+    survey)    stage_survey ;;
+    from)      run_from "${2:-criteria}" ;;   # resume: run this stage -> end
+    all)       run_from intake ;;
+    *) echo "usage: run.sh [intake|criteria|design|plan|build|accept|integrate|survey|all|from <stage>]"; exit 2 ;;
   esac
 }
 main "$@"
