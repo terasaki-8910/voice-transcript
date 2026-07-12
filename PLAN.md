@@ -383,6 +383,38 @@ post-build/at integration_accept, never mid-build). See PLAN.md's Backlog
 section for the two items still deliberately parked (richer README,
 `core:menu` capability tightening).
 
+**Release step done (2026-07-13):** README.md/README.en.md regenerated via
+`sh scripts/run.sh readme` (now cover both front ends, the pnpm monorepo,
+Preferences/API-key, Postgres history); `.github/workflows/release.yml`
+added (workflow_dispatch only, title+version inputs, apps/desktop-only
+across the 3-OS matrix) -- ACCEPTANCE I1-I3, not vitest-checkable, YAML
+validated but the actual multi-platform build is unverified until run from
+GitHub after a push.
+
+**Post-integration fix batch (2026-07-13, real usage testing):** the user
+opened the built app and found real bugs, resolved via Q&A + a
+`fix/gui-history-actions` worktree:
+- Root cause of "History shows 'Unknown sidecar command'" / "my
+  transcribed file is gone": the compiled sidecar binary was stale
+  (predated F18), and `beforeDevCommand` never rebuilt it. Fixed directly
+  on main (no worktree needed for a 2-line tauri.conf.json change):
+  `beforeDevCommand`/`beforeBuildCommand` now run
+  `pnpm --filter @voice-transcript/core build:sidecar` first, every time.
+- History's Trash/Delete now require an OS-native `confirm()` dialog
+  first (new `dialog:allow-message` capability -- verified against the
+  plugin's own permission source that `allow-confirm`/`allow-ask` are
+  deprecated aliases of this exact permission). Q&A confirmed: OS-native
+  dialog (not an in-app modal), and keep the existing 2-action design
+  (trash-audio-only vs. delete-entry) rather than adding a third
+  transcript-only-delete action. Both actions render as icon buttons
+  (react-icons/fi) instead of plain text links, Delete in
+  `--color-danger`.
+- Export now works directly from a Queue/History row (previously only
+  reachable via the native menu after first clicking "View"), and the
+  Queue "View" collapse control's bare "−" was replaced with a proper
+  "Close" label.
+- `tauri-capability-reviewer` pre-merge review: clean, no blockers.
+
 ```
 
 ```
