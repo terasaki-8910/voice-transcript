@@ -222,21 +222,43 @@ F11, waves continue at Wave 6.
 
 ## Progress (new scope)
 
-- **Wave 6 -- ACTIVE:** F11 `monorepo-core` is the only feature whose dependencies
-  are all in `main`, so `state/features.txt` = the single line `monorepo-core`.
-  Its gate is `state/gates/monorepo-core` (scoped vitest on `packages/core/tests`,
-  throwaway-tsconfig typecheck of the 8 engine files, eslint on `packages/core/src`).
-- Waves 7+ stay in these notes until Wave 6 merges; re-running `plan` after the
-  merge advances `state/features.txt` to `cli-package`, `core-db`, `tauri-scaffold`.
+- **Wave 6 -- MERGED to `main`:** F11 `monorepo-core`. Gate green (19/19 unit
+  tests, typecheck, lint). Merged as `feature/monorepo-core` --no-ff.
+- **Wave 7 -- PARTIAL:**
+  - F12 `cli-package` -- MERGED. Gate green (14/14: cli.test.ts + hygiene.test.ts).
+    Also corrected ACCEPTANCE F4's scope note (packages/cli, not packages/core --
+    that's where the `process.env.GROQ_API_KEY` literal actually lives).
+  - F13 `core-db` -- MERGED. Gate green (5/5 db-hygiene.test.ts H3/H4, typecheck,
+    lint). Drizzle schema + client + history functions + an initial migration.
+  - F14 `tauri-scaffold` -- BLOCKED, not on dependencies (F11 is merged) but on
+    environment: this machine has neither `pnpm` nor `cargo`/`rustc` installed.
+    Rust install is in progress (user-run, out of band). Do not attempt to
+    scaffold `apps/desktop/src-tauri` without a working `cargo check`.
+- **Post-merge fixups (commit `6c7f933`, not a feature):** a `resolve.alias`
+  in root `vitest.config.ts` for `@voice-transcript/core` (Vite doesn't do
+  Node's per-file upward `node_modules` walk, so `tests/e2e/integration.test.ts`
+  -> `packages/cli/src/cli.ts` -> `@voice-transcript/core` didn't resolve from
+  the repo root); `@types/node` pinned to `^24.0.0` in `packages/core` (a
+  transitive dep pulled in `@types/node@26.x`, which broke `groq.ts`'s
+  `Blob`/`BlobPart` typing). Also: `packages/core` and `packages/cli` each
+  need their own `npm ci` run once per checkout (their `node_modules`,
+  including the local `@voice-transcript/core` `file:` dependency, only
+  existed inside the isolated build worktrees, not in `main`, until merged
+  and installed for real).
+- **Wave 8, F16 `cli-history-wiring` -- NOW UNBLOCKED.** Its declared deps
+  (F12, F13) are both merged, so it's buildable even though F15/F17-21 (same
+  or later waves) are still blocked on F14/Rust. This is exactly the
+  "advance whatever's unblocked, not strictly wave-by-wave" behavior
+  `prompts/03-plan.md` describes.
 
 ## Independent set to build now (-> state/features.txt)
 
-**Wave 6 = `monorepo-core` (F11) only.** Everything else depends transitively on
-`packages/core` existing (and on the workspace root/`pnpm-workspace.yaml` that F11
-creates), so no other new feature is buildable from today's `main`.
+**`cli-history-wiring` (F16) only.** F14 `tauri-scaffold` is dependency-ready
+but environment-blocked (no `cargo`/`rustc`); F15/F17-21 all transitively
+depend on F14. F16 depends only on F12+F13, both merged.
 
 ```
-monorepo-core
+cli-history-wiring
 ```
 
 ## Build order (waves, new scope)
