@@ -37,7 +37,9 @@ stages:
     owner: claude
     parallel: true         # per feature, isolated git worktree = safety boundary
     gate: machine          # tests + lint(no-emoji/tokens/a11y) + ui(responsive)
-    loop: bounded          # Ralph-style iterate until gates green OR MAX_BUILD_ITERS
+    loop: repair           # on gate failure, feed the error to an agent to FIX it (menu:
+                           # auto/hybrid/stop, default hybrid); not blind retry. Bounded by
+                           # REPAIR_ITERS / REPAIR_HARD_CAP; stops on no-progress.
   - id: feature_accept
     owner: human+ci
     gate: machine+human    # green gates + diff + quick GUI look -> LOCAL merge (no push)

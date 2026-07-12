@@ -61,29 +61,36 @@ unbuilt feature). Slugs match `state/features.txt` and `state/gates/<slug>` exac
   pipeline/formats (F9)` commits and by `src/` now containing all ten Wave-1..4
   modules (`types`, `config`, `chunk`, `audio`, `args`, `formats`, `stitch`,
   `groq`, `pipeline`, `cli`) -- i.e. every module except `index.ts`.
-- **Wave 5 -- ACTIVE (this `state/features.txt`).** Only F10 `index-bin`
-  (`index.ts`) is now buildable; it is the LAST unbuilt feature. After it merges,
-  every feature in this plan exists in `main`, so the next plan run writes an
-  EMPTY `state/features.txt` and the driver proceeds to integration acceptance.
+- **Wave 5 -- MERGED to `main`:** F10 `index-bin` (`index.ts`). Confirmed by the
+  `merge feature/index-bin` (`065a603`) + `feat(index): add bin entry wiring
+  process.env.GROQ_API_KEY into main (F10)` (`228a9cf`) commits, by
+  `git cat-file -e HEAD:src/index.ts`, and by `src/` now containing all ten
+  Wave-1..5 modules (`types`, `config`, `chunk`, `audio`, `args`, `formats`,
+  `stitch`, `groq`, `pipeline`, `cli`, `index`) -- i.e. EVERY module in the plan.
+- **BUILD COMPLETE (this plan run).** Every feature F1..F10 in this plan now
+  exists in `main` and the working tree is clean. Per the Stage 3 rule, this plan
+  run therefore writes an **EMPTY `state/features.txt`** -- the signal for the
+  driver to stop the build stage and proceed to one-time integration acceptance
+  (E1-E3, real ffmpeg + `GROQ_API_KEY`). There is no next wave to schedule; there
+  are no `state/gates/*` to regenerate. Re-running plan again will re-observe an
+  all-built tree and keep `state/features.txt` empty (idempotent).
 
 ## Independent set to build now (-> `state/features.txt`)
 
-**Wave 5 = F10 `index-bin` (single feature).** `index.ts` depends only on F9 `cli`
-(`cli.ts`) -- plus the already-merged `audio.ts`, `groq.ts`, `config.ts` it re-exports
-into the bin -- all now committed in `main`, so every prerequisite is satisfied. It is
-the LAST unbuilt feature in the plan, so this final wave is necessarily a single feature
-(the `cli` -> `index` tail of the dependency chain is inherently serial).
+**Nothing to build -- `state/features.txt` is EMPTY.** All ten features F1..F10 are
+merged to `main`; there is no unbuilt feature whose dependencies are satisfied, because
+there is no unbuilt feature at all. The empty file is the terminal signal: the driver
+stops the build stage and advances to one-time integration acceptance.
 
-Behaviourally, `index.ts` is the bin entry that reads `process.env` and calls
-`main(process.argv.slice(2))`. It is also the file that finally satisfies the F4
-key-handling invariant: NO merged module contains the literal
-`process.env.GROQ_API_KEY` yet (`cli.ts` reads via the injected `deps.env`, defaulting
-to `process.env`, and references `env.GROQ_API_KEY` -- not the concatenated literal
-`hygiene.test` greps for). So `index.ts` must wire the real environment such that the
-string `process.env.GROQ_API_KEY` appears in `src/**`, and `hygiene.test` is its gate.
+(For the historical record, the final wave was Wave 5 = F10 `index-bin`, a single
+feature -- the `cli` -> `index` tail of the dependency chain is inherently serial.
+`index.ts` is the bin entry that reads `process.env` and calls
+`main(process.argv.slice(2))`; it is the file that finally satisfied the F4
+key-handling invariant by making the literal `process.env.GROQ_API_KEY` appear in
+`src/**`, gated by `hygiene.test`. It is now merged.)
 
 ```
-index-bin
+(empty)
 ```
 
 ## Build order (waves)
@@ -92,9 +99,10 @@ index-bin
 - **Wave 2 (parallel, after F1 merges):** F4, F5, F6, F7  -- DONE, merged to `main`.
 - **Wave 3:** F8 pipeline (needs F1, F2, F3, F6, F7)  -- DONE, merged to `main`.
 - **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8)  -- DONE, merged to `main`.
-- **Wave 5:** F10 index/bin (needs F9)  <- this is `state/features.txt`.
+- **Wave 5:** F10 index/bin (needs F9)  -- DONE, merged to `main`.
 - **Integration accept (once):** E1-E3 in `tests/e2e/integration.test.ts` with real
-  ffmpeg on `PATH` and `GROQ_API_KEY` set.
+  ffmpeg on `PATH` and `GROQ_API_KEY` set  <- NOW ACTIVE (all features merged;
+  `state/features.txt` is empty).
 
 After each wave, `feature_accept` merges green features to `main` (`--no-ff`, local
 only) so the next wave branches from a tree where its prerequisites exist. To advance a
@@ -107,10 +115,12 @@ A single-feature worktree contains ONLY that feature's source (branched from `ma
 it also inherits the already-merged Wave-1..4 modules), so the whole-repo `npm test` /
 `npm run typecheck` can NEVER pass there (sibling test files -- e.g. the e2e suite --
 import behaviour that is exercised only with real ffmpeg / network). Each **active**
-feature therefore has a gate that verifies ONLY its own target(s). The current
-`state/gates/*` is the Wave-5 gate:
+feature therefore has a gate that verifies ONLY its own target(s). With
+`state/features.txt` now EMPTY, there is no active feature and thus **no gate to
+regenerate** -- the driver reads gates only for slugs listed in `features.txt`.
+`state/gates/index-bin` remains on disk as the (now inert) record of the final wave:
 
-| Feature slug | Gate runs                                                                       |
+| Feature slug | Gate runs (historical -- Wave 5, F10)                                            |
 | ------------ | ------------------------------------------------------------------------------- |
 | `index-bin`  | `vitest run tests/hygiene.test.ts`; typecheck + eslint `src/index.ts` (F4, F3, F1) |
 

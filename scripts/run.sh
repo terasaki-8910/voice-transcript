@@ -18,7 +18,8 @@ trap 'trap - INT TERM; echo; echo "[run.sh] interrupted -- stopping." >&2; kill 
 : "${MODEL_DESIGN:=sonnet}"
 : "${MODEL_PLAN:=opus}"
 : "${MODEL_BUILD:=sonnet}"
-: "${MAX_BUILD_ITERS:=6}"   # keep low: each iter is a full paid agent run
+: "${REPAIR_ITERS:=4}"      # hybrid mode: auto-repair attempts before stopping for you
+: "${REPAIR_HARD_CAP:=12}"  # absolute cap on repair attempts (cost safety, all modes)
 # Headless permission mode. acceptEdits auto-approves edits + common fs commands so
 # unattended stages don't hang waiting for approval that a headless run can't answer.
 # settings.json still denies push/rm-rf/WebFetch; the allowlist governs test/git.
@@ -149,23 +150,71 @@ gate_feature() {  # $1=feature. Gate ONLY this feature if a per-feature gate exi
   if [ -f "$gf" ]; then ( sh "$gf" ); else gate_all; fi
 }
 
-build_feature() {  # $1=feature. Runs inside its worktree; bounded, self-limiting loop.
-  feat=$1; wt="$STATE/worktrees/$feat"; i=0; prev=""
-  while [ "$i" -lt "$MAX_BUILD_ITERS" ]; do
-    i=$((i+1)); echo "-- build $feat: iter $i/$MAX_BUILD_ITERS --"
-    ( cd "$wt" && claude_run "$MODEL_BUILD" "$PROMPTS/04-build.md" ) || true
-    if ( cd "$wt" && gate_feature "$feat" ); then echo "$feat: gates GREEN."; return 0; fi
-    # No-progress guard: if the agent made no new commit (stuck / API error / spend
-    # limit hit), STOP now instead of burning the remaining paid iterations.
-    head=$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo none)
-    if [ "$head" = "$prev" ]; then
-      echo "$feat: no progress (HEAD unchanged) -- stopping. See state/BLOCKED-$feat.md." >&2
-      return 1
-    fi
+choose_repair_mode() {  # print auto|hybrid|stop on stdout. Numbered menu, default hybrid.
+  # Arrow-key selection is not portable/robust in POSIX sh, so this is a numbered prompt.
+  {
+    echo ""
+    echo "  A gate failed. How should the pipeline handle it?"
+    echo "    1) auto   -- keep feeding the error to an agent until the gate passes"
+    echo "    2) hybrid -- auto-repair up to ${REPAIR_ITERS:-4}x, then stop for you   [default]"
+    echo "    3) stop   -- stop now; you fix it, then resume"
+    printf "  choose [1/2/3, Enter=2]: "
+  } >&2
+  read c </dev/tty 2>/dev/null || read c || c=2
+  case "$c" in 1) echo auto ;; 3) echo stop ;; *) echo hybrid ;; esac
+}
+
+repair_agent() {  # $1=model $2=gatelog -- feed the FAILING gate output to a repair agent
+  claude --model "$1" --permission-mode "$PERMISSION_MODE" -p \
+"$(cat "$PROMPTS/repair.md")
+
+--- FAILING GATE OUTPUT (fix ONLY what makes this pass) ---
+$(cat "$2")" 2>&1 | tee -a "$STATE/logs/$(date +%Y%m%d-%H%M%S).log"
+  record_session "$PROMPTS/repair.md"
+}
+
+run_and_repair() {  # $1=label $2=cwd $3=gate(command string) $4=repair model
+  label=$1; cwd=$2; gate=$3; rmodel=$4
+  if ( cd "$cwd" && eval "$gate" ); then return 0; fi          # visible run; pass -> done
+  log="$STATE/logs/gate-$label-$(date +%Y%m%d-%H%M%S).log"
+  ( cd "$cwd" && eval "$gate" ) >"$log" 2>&1 || true           # capture the failure for the agent
+  echo ""; echo "[$label] gate FAILED. last lines:"; tail -n 20 "$log" 2>/dev/null || true
+  mode=$(choose_repair_mode)
+  if [ "$mode" = "stop" ]; then
+    echo "[$label] opening an INTERACTIVE Claude (not headless) with the error loaded."
+    echo "        Fix it in the session, then /exit -- the gate is re-checked afterwards."
+    have claude && ( cd "$cwd" && claude --model "$rmodel" \
+"$(cat "$PROMPTS/repair.md")
+
+--- FAILING GATE OUTPUT ---
+$(cat "$log")" ) || true
+    if ( cd "$cwd" && eval "$gate" ); then echo "[$label] gate GREEN after your session."; return 0; fi
+    echo "[$label] still failing -- rerun this stage when ready."; return 1
+  fi
+  n=0; prev=""
+  while :; do
+    n=$((n + 1)); echo "[$label] repair attempt $n (mode=$mode) -- feeding the error to an agent..."
+    ( cd "$cwd" && repair_agent "$rmodel" "$log" ) || true
+    if ( cd "$cwd" && eval "$gate" ) >"$log" 2>&1; then echo "[$label] gate GREEN after repair."; return 0; fi
+    echo "[$label] still failing:"; tail -n 15 "$log" 2>/dev/null || true
+    head=$(git -C "$cwd" rev-parse HEAD 2>/dev/null || echo none)   # no-progress guard
+    if [ "$head" = "$prev" ]; then echo "[$label] repair made no new commit -- stopping."; return 1; fi
     prev=$head
+    if [ "$mode" = "hybrid" ] && [ "$n" -ge "${REPAIR_ITERS:-4}" ]; then
+      echo "[$label] hybrid cap ($n) reached -- stopping for you. Fix or rerun."; return 1
+    fi
+    if [ "$n" -ge "${REPAIR_HARD_CAP:-12}" ]; then echo "[$label] hard cap reached -- stopping."; return 1; fi
   done
-  echo "$feat: MAX_BUILD_ITERS reached, gates not green. See state/BLOCKED-$feat.md." >&2
-  return 1
+}
+
+build_feature() {  # $1=feature. Build in its worktree, gate it; on failure REPAIR (feed the
+  feat=$1; wt="$STATE/worktrees/$feat"                          # error to an agent), never blind-retry.
+  echo "-- build $feat --"
+  ( cd "$wt" && claude_run "$MODEL_BUILD" "$PROMPTS/04-build.md" ) || true
+  if run_and_repair "build-$feat" "$wt" "gate_feature '$feat'" "$MODEL_BUILD"; then
+    echo "$feat: gates GREEN."; return 0
+  fi
+  echo "$feat: not green. See state/BLOCKED-* and state/logs." >&2; return 1
 }
 
 stage_build() {
@@ -222,11 +271,33 @@ stage_integration_accept() {
   echo "== 6. integration acceptance (once) =="
   # gates run in the MAIN repo; deps were installed in the worktrees, so install here too.
   if [ -f "$ROOT/package.json" ]; then ( cd "$ROOT" && npm install >/dev/null 2>&1 || true ); fi
-  ( cd "$ROOT" && gate_all ) \
-    || { echo "Integration gates failed. Fix, then resume: sh scripts/run.sh from integrate"; exit 1; }
+  if ! run_and_repair "integration" "$ROOT" "gate_all" "$MODEL_BUILD"; then
+    echo "Integration gates failed. Fix, then resume: sh scripts/run.sh from integrate"; exit 1
+  fi
   confirm "Final smoke test passed on device/browser?" || { echo "Not accepted."; exit 1; }
   echo "== 7. DONE =="
   mark_done integrate
+  stage_done
+}
+
+stage_done() {  # print what the human still has to do: configure secrets/env, how to run,
+  spec="$ROOT/SPEC.md"                                   # and what integration left unverified.
+  echo ""
+  echo "==================== NEXT STEPS ===================="
+  echo "Build complete and integration-accepted. Local git only (not pushed)."
+  echo "Full install / usage / setup: README.md."
+  echo ""
+  echo "Before running it for real, configure what SPEC.md requires:"
+  if [ -f "$spec" ]; then
+    grep -hoE "[A-Z][A-Z0-9]{2,}(_[A-Z0-9]+)*_(KEY|TOKEN|SECRET|URL|ID|PASSWORD)" "$spec" 2>/dev/null \
+      | sort -u | while IFS= read -r v; do echo "  - env var: $v   (export $v=...  or add to .env)"; done
+    for t in ffmpeg ffprobe docker psql redis; do
+      if grep -qiw "$t" "$spec" 2>/dev/null; then echo "  - tool on PATH: $t"; fi
+    done
+  fi
+  echo "  - tests SKIPPED in integration (e.g. live E2E) run only once the above is set."
+  echo "  - run them for real, then re-run: sh scripts/run.sh from integrate"
+  echo "===================================================="
 }
 
 stage_survey() {  # OPTIONAL prior-art survey; NOT part of `all`. Needs WebSearch enabled.
