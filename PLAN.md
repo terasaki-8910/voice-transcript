@@ -282,6 +282,15 @@ F11, waves continue at Wave 6.
   build sequentially too. F21's "Open history" menu item (SPEC.md > Native
   OS menu integration) needs a real History screen to invoke, so F18 goes
   first.
+- **F18 `gui-history` -- MERGED.** F21 `native-menu` is now the last Wave 9
+  feature. Its scope stays exactly as originally specified (Add files, Open
+  history, Export, View on GitHub) -- it does NOT yet include a
+  "Preferences" menu item / Cmd+,, even though the user asked for that in
+  the same conversation turn this merged, because that item opens the
+  API-key-configuration screen from the Backlog section above, which is
+  blocked on a still-unanswered storage-design question (OS keychain vs.
+  local config file). F21 builds now with its original 4 items; Preferences
+  gets its own SPEC.md addition + feature once that question is answered.
 
 ## Independent set to build now (-> state/features.txt)
 
@@ -317,10 +326,29 @@ F11, waves continue at Wave 6.
   apps/desktop 14/14 (incl. 3 new queue test files), desktop-hygiene (G2)
   4/4, typecheck+lint clean, `cargo check`/`clippy -D warnings` clean,
   sidecar rebuild + binary smoke test pass.
-- **F18 `gui-history` -- still to build**, same sequential approach.
+- **F18 `gui-history` -- MERGED.** HistoryContext (fetch-on-mount list,
+  local optimistic state for the two delete actions), HistoryRow/HistoryView
+  (empty/loading/error/populated states -- the History tab now switches
+  immediately even with zero entries, fixing the earlier design feedback
+  that it must respond instead of staying inert). `list_history` proxies to
+  a new sidecar `list-history` action; `trash_audio`/`delete_history_entry`
+  proxy to `get-history`/`delete-history-entry` for a DB-backed path lookup,
+  then move the file via the `trash` crate (never a permanent delete) --
+  both take only an integer id from the webview, never a raw path.
+  `tauri-capability-reviewer` pre-merge review caught a real bug before
+  merge: `HistoryFileRef` was missing `#[serde(rename_all = "camelCase")]`,
+  so both destructive commands always failed to parse the sidecar's
+  response -- and for delete, the DB row was already gone by the time that
+  surfaced. Fixed, with 2 new Rust unit tests decoding literal camelCase
+  JSON through the real structs, plus HistoryContext.trash()/remove() now
+  catch and surface per-row errors instead of an unhandled rejection. Gate
+  green (after the fix): apps/desktop 25/25, desktop-hygiene (G2) 4/4,
+  typecheck+lint clean, `cargo check`/`clippy -D warnings`/`cargo test`
+  (2/2) clean, sidecar rebuild + ping/list-history binary smoke test pass.
+- **F21 `native-menu` -- next.**
 
 ```
-gui-history
+native-menu
 ```
 
 ## Build order (waves, new scope)
@@ -395,16 +423,21 @@ tracked here so they aren't lost, not started.
 
 - **API key configuration in a Preferences/Settings screen.** Today
   `GROQ_API_KEY` is read from the environment only (CLI and the desktop
-  sidecar both). User wants a GUI way to set it too; placement left to me --
-  likely candidates: a "Preferences..." entry under the native app menu
-  (natural fit alongside F21 `native-menu`'s items) opening a small settings
-  view, or a tab next to Queue/History. This is genuinely new scope, not a
-  bug fix -- before it can enter `state/features.txt` it needs its own
-  SPEC.md addition (what does "set the key" mean concretely: write to
-  `.env`? OS keychain via a Tauri plugin? a local config file the sidecar
-  also reads? -- the secret-handling answer changes the trust-boundary
-  design in SPEC's Architecture section) and a criteria/design-gate pass
-  before a build wave, same as any other new feature.
+  sidecar both). Concrete requirements now given by the user (2026-07-13):
+  Cmd+, opens Preferences on macOS, Ctrl+, on Windows (matches VS Code/
+  Slack/Discord convention on that platform too), and a native menu entry
+  reaches it as well -- so this is now scoped as an extension of F21
+  `native-menu`'s item list, not a separate standalone screen's placement
+  question. What's still unresolved and blocks starting the build: HOW the
+  key is stored. Asked the user to choose between (a) OS keychain via a
+  Tauri/Rust `keyring`-style crate (more secure, one more dependency,
+  needs per-OS behavior verified) or (b) a local config file in the OS's
+  app-config directory, written by the Rust shell and read by the sidecar
+  at startup (simpler, matches this app's existing "personal tool" scope).
+  Once answered: needs its own SPEC.md addition (the chosen storage
+  mechanism changes the trust-boundary design in SPEC's Architecture
+  section) and a criteria/design-gate pass before a build wave, same as any
+  other new feature -- not a bug fix.
 - **Richer README with screenshots, post-integration_accept.** CLAUDE.md's
   existing Release step (1) says the README is regenerated from SPEC.md via
   `run.sh readme` specifically because that keeps it reproducible, not
