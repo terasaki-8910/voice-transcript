@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "identifier": "com.voicetranscript.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "pnpm --filter @voice-transcript/core build:sidecar && pnpm dev",
+    "beforeBuildCommand": "pnpm --filter @voice-transcript/core build:sidecar && pnpm build",
     "devUrl": "http://localhost:5183",
     "frontendDist": "../dist"
   },
