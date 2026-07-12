@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
 import { HistoryView } from "../../src/features/history/HistoryView";
+import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import type { HistoryEntry, TrashResult } from "../../src/lib/tauri";
 
 function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
@@ -27,9 +28,11 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
 function renderView(listHistoryFn: () => Promise<HistoryEntry[]>) {
   return render(
     <I18nProvider>
-      <HistoryProvider listHistoryFn={listHistoryFn}>
-        <HistoryView />
-      </HistoryProvider>
+      <SelectionProvider>
+        <HistoryProvider listHistoryFn={listHistoryFn}>
+          <HistoryView />
+        </HistoryProvider>
+      </SelectionProvider>
     </I18nProvider>,
   );
 }
@@ -53,12 +56,14 @@ describe("HistoryView", () => {
   it("Trash audio disables itself once trashed", async () => {
     render(
       <I18nProvider>
-        <HistoryProvider
-          listHistoryFn={async () => [makeEntry()]}
-          trashAudioFn={vi.fn(async (): Promise<TrashResult> => ({ trashed: true }))}
-        >
-          <HistoryView />
-        </HistoryProvider>
+        <SelectionProvider>
+          <HistoryProvider
+            listHistoryFn={async () => [makeEntry()]}
+            trashAudioFn={vi.fn(async (): Promise<TrashResult> => ({ trashed: true }))}
+          >
+            <HistoryView />
+          </HistoryProvider>
+        </SelectionProvider>
       </I18nProvider>,
     );
 
@@ -71,12 +76,14 @@ describe("HistoryView", () => {
   it("Delete removes the entry from the list", async () => {
     render(
       <I18nProvider>
-        <HistoryProvider
-          listHistoryFn={async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]}
-          deleteHistoryEntryFn={vi.fn(async (): Promise<TrashResult> => ({ trashed: false }))}
-        >
-          <HistoryView />
-        </HistoryProvider>
+        <SelectionProvider>
+          <HistoryProvider
+            listHistoryFn={async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]}
+            deleteHistoryEntryFn={vi.fn(async (): Promise<TrashResult> => ({ trashed: false }))}
+          >
+            <HistoryView />
+          </HistoryProvider>
+        </SelectionProvider>
       </I18nProvider>,
     );
 

@@ -23,6 +23,12 @@ export const translations = {
     trashAudio: "Trash audio",
     audioTrashed: "Audio trashed",
     deleteEntry: "Delete",
+    preferences: "Preferences",
+    apiKeySet: "API key is set.",
+    apiKeyNotSet: "No API key is set yet.",
+    apiKeyLabel: "Groq API key",
+    close: "Close",
+    save: "Save",
   },
   ja: {
     queue: "キュー",
@@ -44,6 +50,12 @@ export const translations = {
     trashAudio: "音声をゴミ箱へ",
     audioTrashed: "ゴミ箱へ移動済み",
     deleteEntry: "削除",
+    preferences: "環境設定",
+    apiKeySet: "APIキーは設定済みです。",
+    apiKeyNotSet: "APIキーはまだ設定されていません。",
+    apiKeyLabel: "Groq APIキー",
+    close: "閉じる",
+    save: "保存",
   },
 } as const;
 

@@ -1,11 +1,14 @@
 // F18 (gui-history). Same row shape as QueueRow (queue/QueueRow.tsx) for
 // visual consistency, with two distinct actions instead of one: "Trash
 // audio" (G7, keeps the record) and "Delete" (G9, removes the record and
-// trashes the audio too if it's still there).
+// trashes the audio too if it's still there). F21: "View" also records this
+// item as the current selection, so the native menu's Export item has
+// something to act on.
 import { useState } from "react";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import type { HistoryEntry } from "../../lib/tauri";
+import { useSelection } from "../selection/SelectionContext";
 
 function basename(filePath: string): string {
   const parts = filePath.split(/[/\\]/);
@@ -15,8 +18,16 @@ function basename(filePath: string): string {
 export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTrashed: boolean }) {
   const { t } = useI18n();
   const { trash, remove, actionErrors } = useHistory();
+  const { setSelection } = useSelection();
   const [expanded, setExpanded] = useState(false);
   const actionError = actionErrors.get(item.id);
+
+  const handleView = () => {
+    setExpanded((v) => !v);
+    if (item.transcriptText) {
+      setSelection({ fileName: basename(item.sourceFileName), text: item.transcriptText, format: "txt" });
+    }
+  };
 
   return (
     <div className="row">
@@ -42,7 +53,7 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
         )}
       </div>
       {item.transcriptText && (
-        <button type="button" className="row-action btn-link" onClick={() => setExpanded((v) => !v)}>
+        <button type="button" className="row-action btn-link" onClick={handleView}>
           {expanded ? "−" : t("view")}
         </button>
       )}

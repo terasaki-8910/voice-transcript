@@ -6,7 +6,7 @@
 // Rust structs by hand (no codegen wired up) -- see
 // .claude/skills/tauri-command-scaffold/SKILL.md.
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 // Import from the "./types" subpath, not the package root -- the root
 // barrel (src/index.ts) re-exports groq.ts, which apps/desktop's tsconfig
 // (lib: DOM+node, unlike packages/core's node-only lib) transitively
@@ -116,4 +116,29 @@ export function trashAudio(id: number): Promise<TrashResult> {
 // still there).
 export function deleteHistoryEntry(id: number): Promise<TrashResult> {
   return invoke("delete_history_entry", { id });
+}
+
+// F21 (native-menu): the Export menu item. pickSavePath() is the same
+// class of grant as pickFiles() above (dialog:allow-save, not
+// dialog:allow-open) -- it only returns a path the user interactively
+// chose via a native dialog, it doesn't write anything itself.
+// export_transcript() then does the actual write, given that path.
+export async function pickSavePath(defaultFileName: string): Promise<string | null> {
+  return save({ defaultPath: defaultFileName });
+}
+
+export function exportTranscript(path: string, content: string): Promise<void> {
+  return invoke("export_transcript", { path, content });
+}
+
+// F21 (native-menu, Preferences). ACCEPTANCE G11: saveApiKey() sends a key
+// to Rust to persist; there is deliberately no getApiKey() -- only a
+// boolean status, so the webview can never read the secret back out once
+// saved.
+export function saveApiKey(key: string): Promise<void> {
+  return invoke("save_api_key", { key });
+}
+
+export function getApiKeyStatus(): Promise<boolean> {
+  return invoke("get_api_key_status");
 }

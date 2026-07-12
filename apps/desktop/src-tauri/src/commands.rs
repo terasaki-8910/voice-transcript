@@ -42,12 +42,32 @@ async fn call_sidecar<T: for<'de> Deserialize<'de>>(
     command: &str,
     arg_json: &str,
 ) -> Result<T, String> {
-    let sidecar_command = app
+    call_sidecar_with_env(app, command, arg_json, None).await
+}
+
+/// Same as `call_sidecar`, but can inject one extra environment variable
+/// into the spawned sidecar process (used only by `transcribe`, to pass
+/// along the locally-configured API key -- see its call site). This sets
+/// the variable on the CHILD PROCESS's environment, the same place
+/// GROQ_API_KEY already lives when it comes from the shell -- never as a
+/// command-line argument, which would be visible to other processes on the
+/// machine via a process listing.
+async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
+    app: &tauri::AppHandle,
+    command: &str,
+    arg_json: &str,
+    extra_env: Option<(&str, String)>,
+) -> Result<T, String> {
+    let mut sidecar_command = app
         .shell()
         .sidecar("core-sidecar")
         .map_err(|e| format!("sidecar not found: {e}"))?
         .arg(command)
         .arg(arg_json);
+
+    if let Some((key, value)) = extra_env {
+        sidecar_command = sidecar_command.env(key, value);
+    }
 
     let output = sidecar_command
         .output()
@@ -87,7 +107,19 @@ pub async fn transcribe(
         "format": request.format,
     })
     .to_string();
-    call_sidecar(&app, "transcribe", &arg_json).await
+
+    // ACCEPTANCE G11: GROQ_API_KEY from the environment always wins; the
+    // locally-saved Preferences key (config.rs) is only a fallback used
+    // when the environment doesn't already provide one. Injected into the
+    // spawned sidecar's own process environment, never into arg_json --
+    // see call_sidecar_with_env's doc comment on why.
+    let key_fallback = if std::env::var("GROQ_API_KEY").is_err() {
+        crate::config::read_api_key(&app)
+    } else {
+        None
+    };
+
+    call_sidecar_with_env(&app, "transcribe", &arg_json, key_fallback.map(|k| ("GROQ_API_KEY", k))).await
 }
 
 // F18 (gui-history). The sidecar owns all DB access (list/get/delete); this
@@ -161,6 +193,17 @@ pub async fn delete_history_entry(app: tauri::AppHandle, id: i64) -> Result<Tras
     let arg_json = serde_json::json!({ "id": id }).to_string();
     let record: HistoryFileRef = call_sidecar(&app, "delete-history-entry", &arg_json).await?;
     Ok(TrashResult { trashed: trash_if_exists(&record.source_file_name) })
+}
+
+// F21 (native-menu): the Export menu item. Unlike trash_audio/
+// delete_history_entry, `path` here is genuinely arbitrary -- but it comes
+// from a native OS save dialog the user interactively drove
+// (@tauri-apps/plugin-dialog's save(), same class of grant as F17's
+// pickFiles/open()), not a path the webview invents on its own. `content`
+// is just rendered transcript text, never a secret.
+#[tauri::command]
+pub fn export_transcript(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("failed to write export file: {e}"))
 }
 
 #[cfg(test)]
