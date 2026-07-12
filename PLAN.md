@@ -52,31 +52,34 @@ unbuilt feature). Slugs match `state/features.txt` and `state/gates/<slug>` exac
   (`formats.ts`), F6 `stitch` (`stitch.ts`), F7 `groq-client` (`groq.ts`). Confirmed by
   the four `merge feature/*` commits (`args-parser`, `formats-renderer`, `stitch`,
   `groq-client`) and by `src/` now containing all eight Wave-1+2 modules.
-- **Wave 3 -- ACTIVE (this `state/features.txt`).** Only F8 `pipeline` is now buildable;
-  F9 `cli` and F10 `index-bin` stay below until their prerequisites merge.
+- **Wave 3 -- MERGED to `main`:** F8 `pipeline` (`pipeline.ts`). Confirmed by the
+  `merge feature/pipeline` + `feat(pipeline): add runPipeline orchestration (F8)`
+  commits and by `src/` now containing all nine Wave-1..3 modules (`types`, `config`,
+  `chunk`, `audio`, `args`, `formats`, `stitch`, `groq`, `pipeline`).
+- **Wave 4 -- ACTIVE (this `state/features.txt`).** Only F9 `cli` is now buildable;
+  F10 `index-bin` stays below until F9 merges.
 
 ## Independent set to build now (-> `state/features.txt`)
 
-**Wave 3 = F8 `pipeline` (single feature).** `pipeline.ts` depends on F1
-`foundation-contracts` (`types.ts`, `config.ts`), F2 `chunk-planner` (`chunk.ts`), F3
-`audio-backend` (`audio.ts`), F6 `stitch` (`stitch.ts`) and F7 `groq-client` (`groq.ts`
-via the `Transcriber` port) -- all now committed in `main`, so every prerequisite is
-satisfied. It is the ONLY unbuilt feature whose deps are fully merged: F9 `cli` imports
-the still-unbuilt `pipeline.ts`, and F10 `index-bin` imports `cli.ts`, so both remain
-**dependent** and stay in this plan (NOT in `state/features.txt`) until F8 merges. A
-single-feature wave is expected here -- the remaining dependency chain (`pipeline` ->
-`cli` -> `index`) is inherently serial.
+**Wave 4 = F9 `cli` (single feature).** `cli.ts` depends on F1 `foundation-contracts`
+(`types.ts`, `config.ts`), F3 `audio-backend` (`audio.ts`), F4 `args-parser` (`args.ts`),
+F5 `formats-renderer` (`formats.ts`), F7 `groq-client` (`groq.ts`) and F8 `pipeline`
+(`pipeline.ts`) -- all now committed in `main`, so every prerequisite is satisfied. It is
+the ONLY unbuilt feature whose deps are fully merged: F10 `index-bin` imports the
+still-unbuilt `cli.ts`, so it remains **dependent** and stays in this plan (NOT in
+`state/features.txt`) until F9 merges. A single-feature wave is expected here -- the
+remaining dependency chain (`cli` -> `index`) is inherently serial.
 
 ```
-pipeline
+cli
 ```
 
 ## Build order (waves)
 
 - **Wave 1 (parallel):** F1, F2, F3  -- DONE, merged to `main`.
 - **Wave 2 (parallel, after F1 merges):** F4, F5, F6, F7  -- DONE, merged to `main`.
-- **Wave 3:** F8 pipeline (needs F1, F2, F3, F6, F7)  <- this is `state/features.txt`.
-- **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8).
+- **Wave 3:** F8 pipeline (needs F1, F2, F3, F6, F7)  -- DONE, merged to `main`.
+- **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8)  <- this is `state/features.txt`.
 - **Wave 5:** F10 index/bin (needs F9).
 - **Integration accept (once):** E1-E3 in `tests/e2e/integration.test.ts` with real
   ffmpeg on `PATH` and `GROQ_API_KEY` set.
@@ -89,31 +92,33 @@ features and rerun `run.sh build`.
 ## Per-feature gates (`state/gates/<slug>`)
 
 A single-feature worktree contains ONLY that feature's source (branched from `main`, so
-it also inherits the already-merged Wave-1+2 modules), so the whole-repo `npm test` /
+it also inherits the already-merged Wave-1..3 modules), so the whole-repo `npm test` /
 `npm run typecheck` can NEVER pass there (sibling test files import src modules that do
-not exist yet -- `cli.test` / `hygiene.test` / e2e). Each **active** feature therefore
-has a gate that verifies ONLY its own target(s). The current `state/gates/*` is the
-Wave-3 gate:
+not exist yet -- `hygiene.test` / e2e both need the still-unbuilt `index.ts` wiring the
+env read). Each **active** feature therefore has a gate that verifies ONLY its own
+target(s). The current `state/gates/*` is the Wave-4 gate:
 
-| Feature slug | Gate runs                                                                       |
-| ------------ | ------------------------------------------------------------------------------- |
-| `pipeline`   | `vitest run tests/pipeline.test.ts`; typecheck + eslint `src/pipeline.ts` (B1, B2, D2) |
+| Feature slug | Gate runs                                                                  |
+| ------------ | -------------------------------------------------------------------------- |
+| `cli`        | `vitest run tests/cli.test.ts`; typecheck + eslint `src/cli.ts` (A1-A5, B4) |
 
-`pipeline.test` imports `../src/pipeline.js` plus TYPE-only imports from the merged
-`../src/audio.js` and `../src/types.js`, and mocks the audio backend + transcriber (no
-real ffmpeg/network), so it runs green in a partial worktree. The Wave-2 gates
-(`args-parser`, `formats-renderer`, `stitch`, `groq-client`) were removed now that those
-features are merged; a later wave regenerates `state/gates/*` again for F9 / F10.
+`cli.test` imports `../src/cli.js` (the feature under build) plus a VALUE import of
+`FfmpegNotFoundError` and TYPE-only imports from the merged `../src/audio.js` and
+`../src/types.js`; it injects/mocks every IO dependency (`env`, `stdout`, `stderr`,
+audio backend, transcriber factory, `writeFile`, `fileExists`), so there is no real
+ffmpeg or network. It therefore runs green in a partial worktree. The Wave-3 gate
+(`pipeline`) was removed now that F8 is merged; the final wave regenerates
+`state/gates/*` once more for F10 `index-bin`.
 
 Typecheck fidelity: each gate writes a throwaway tsconfig in the worktree root that
 `extends ./tsconfig.json` (exact project compiler options) but sets `"include": []`
 and `"files": [<the feature's files>]`. The `include: []` override is required --
 otherwise the base `include: ["src","tests"]` unions in the test files and typecheck
 fails on unbuilt modules. The config must live in the worktree root (not `/tmp`) so
-`@types/node` resolves from this worktree's `node_modules`. Because a Wave-3 worktree
-branches from `main`, the imported dependency modules (`types.ts`, `config.ts`,
-`chunk.ts`, `audio.ts`, `stitch.ts`) are all present and `tsc` follows the imports
-automatically -- listing only the feature's own file in `files` is sufficient.
+`@types/node` resolves from this worktree's `node_modules`. Because a Wave-4 worktree
+branches from `main`, every module `cli.ts` imports (`types.ts`, `config.ts`, `args.ts`,
+`formats.ts`, `audio.ts`, `groq.ts`, `pipeline.ts`) is present and `tsc` follows the
+imports automatically -- listing only `cli.ts` in `files` is sufficient.
 
 ## Notes
 
