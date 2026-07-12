@@ -39,9 +39,9 @@ describe("B3 - offset + monotonic stitch", () => {
     expect(merged.segments.map((s) => [s.start, s.end])).toEqual([
       [0, 2],
       [2, 5],
+      [5, 6.5], // 5 + 0, 5 + 1.5
       [6.5, 9], // 5 + 1.5, 5 + 4
-      [7, 10],
-      [14, 17], // 9 + ...
+      [9, 12], // 9 + 0, 9 + 3
     ]);
     expect(merged.segments.map((s) => s.text)).toEqual([
       "one",
