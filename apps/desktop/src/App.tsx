@@ -1,41 +1,41 @@
-// Scaffold placeholder (F14, tauri-scaffold). The real queue/history/i18n/
-// theme UI (matching design/reference-screen.html) lands in later features
-// (gui-queue, gui-history, gui-i18n, gui-theme, PLAN.md Wave 9) -- this
-// component only proves the Tauri + React + token-styled wiring works.
+// F14 scaffold, now growing incrementally: F20 (gui-theme) adds the
+// toolbar shell + theme toggle. Queue/history/tabs land in F17/F18/F19
+// (PLAN.md Wave 9) -- each adds to this toolbar rather than replacing it.
+import { ThemeToggle } from "./theme/ThemeToggle";
+
 export function App() {
   return (
-    <main
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        gap: "var(--space-3)",
-        textAlign: "center",
-        padding: "var(--space-5)",
-      }}
-    >
-      <h1
+    <div className="app">
+      <header className="toolbar">
+        <p className="brand">Voice Transcript</p>
+        <div className="spacer" />
+        <div className="settings">
+          <ThemeToggle />
+        </div>
+      </header>
+      <main
         style={{
-          fontSize: "var(--text-lg)",
-          fontWeight: "var(--weight-semibold)",
-          margin: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "60vh",
+          gap: "var(--space-3)",
+          textAlign: "center",
+          padding: "var(--space-5)",
         }}
       >
-        Voice Transcript
-      </h1>
-      <p
-        style={{
-          fontSize: "var(--text-sm)",
-          color: "var(--color-ink-muted)",
-          margin: 0,
-          maxWidth: "40ch",
-        }}
-      >
-        Desktop scaffold -- queue, history, and settings land in upcoming
-        builds.
-      </p>
-    </main>
+        <p
+          style={{
+            fontSize: "var(--text-sm)",
+            color: "var(--color-ink-muted)",
+            margin: 0,
+            maxWidth: "40ch",
+          }}
+        >
+          Queue, history, and language settings land in upcoming builds.
+        </p>
+      </main>
+    </div>
   );
 }
