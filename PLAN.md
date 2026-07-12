@@ -56,22 +56,34 @@ unbuilt feature). Slugs match `state/features.txt` and `state/gates/<slug>` exac
   `merge feature/pipeline` + `feat(pipeline): add runPipeline orchestration (F8)`
   commits and by `src/` now containing all nine Wave-1..3 modules (`types`, `config`,
   `chunk`, `audio`, `args`, `formats`, `stitch`, `groq`, `pipeline`).
-- **Wave 4 -- ACTIVE (this `state/features.txt`).** Only F9 `cli` is now buildable;
-  F10 `index-bin` stays below until F9 merges.
+- **Wave 4 -- MERGED to `main`:** F9 `cli` (`cli.ts`). Confirmed by the
+  `merge feature/cli` + `feat(cli): add main(argv, deps) wiring args/audio/
+  pipeline/formats (F9)` commits and by `src/` now containing all ten Wave-1..4
+  modules (`types`, `config`, `chunk`, `audio`, `args`, `formats`, `stitch`,
+  `groq`, `pipeline`, `cli`) -- i.e. every module except `index.ts`.
+- **Wave 5 -- ACTIVE (this `state/features.txt`).** Only F10 `index-bin`
+  (`index.ts`) is now buildable; it is the LAST unbuilt feature. After it merges,
+  every feature in this plan exists in `main`, so the next plan run writes an
+  EMPTY `state/features.txt` and the driver proceeds to integration acceptance.
 
 ## Independent set to build now (-> `state/features.txt`)
 
-**Wave 4 = F9 `cli` (single feature).** `cli.ts` depends on F1 `foundation-contracts`
-(`types.ts`, `config.ts`), F3 `audio-backend` (`audio.ts`), F4 `args-parser` (`args.ts`),
-F5 `formats-renderer` (`formats.ts`), F7 `groq-client` (`groq.ts`) and F8 `pipeline`
-(`pipeline.ts`) -- all now committed in `main`, so every prerequisite is satisfied. It is
-the ONLY unbuilt feature whose deps are fully merged: F10 `index-bin` imports the
-still-unbuilt `cli.ts`, so it remains **dependent** and stays in this plan (NOT in
-`state/features.txt`) until F9 merges. A single-feature wave is expected here -- the
-remaining dependency chain (`cli` -> `index`) is inherently serial.
+**Wave 5 = F10 `index-bin` (single feature).** `index.ts` depends only on F9 `cli`
+(`cli.ts`) -- plus the already-merged `audio.ts`, `groq.ts`, `config.ts` it re-exports
+into the bin -- all now committed in `main`, so every prerequisite is satisfied. It is
+the LAST unbuilt feature in the plan, so this final wave is necessarily a single feature
+(the `cli` -> `index` tail of the dependency chain is inherently serial).
+
+Behaviourally, `index.ts` is the bin entry that reads `process.env` and calls
+`main(process.argv.slice(2))`. It is also the file that finally satisfies the F4
+key-handling invariant: NO merged module contains the literal
+`process.env.GROQ_API_KEY` yet (`cli.ts` reads via the injected `deps.env`, defaulting
+to `process.env`, and references `env.GROQ_API_KEY` -- not the concatenated literal
+`hygiene.test` greps for). So `index.ts` must wire the real environment such that the
+string `process.env.GROQ_API_KEY` appears in `src/**`, and `hygiene.test` is its gate.
 
 ```
-cli
+index-bin
 ```
 
 ## Build order (waves)
@@ -79,8 +91,8 @@ cli
 - **Wave 1 (parallel):** F1, F2, F3  -- DONE, merged to `main`.
 - **Wave 2 (parallel, after F1 merges):** F4, F5, F6, F7  -- DONE, merged to `main`.
 - **Wave 3:** F8 pipeline (needs F1, F2, F3, F6, F7)  -- DONE, merged to `main`.
-- **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8)  <- this is `state/features.txt`.
-- **Wave 5:** F10 index/bin (needs F9).
+- **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8)  -- DONE, merged to `main`.
+- **Wave 5:** F10 index/bin (needs F9)  <- this is `state/features.txt`.
 - **Integration accept (once):** E1-E3 in `tests/e2e/integration.test.ts` with real
   ffmpeg on `PATH` and `GROQ_API_KEY` set.
 
@@ -92,33 +104,35 @@ features and rerun `run.sh build`.
 ## Per-feature gates (`state/gates/<slug>`)
 
 A single-feature worktree contains ONLY that feature's source (branched from `main`, so
-it also inherits the already-merged Wave-1..3 modules), so the whole-repo `npm test` /
-`npm run typecheck` can NEVER pass there (sibling test files import src modules that do
-not exist yet -- `hygiene.test` / e2e both need the still-unbuilt `index.ts` wiring the
-env read). Each **active** feature therefore has a gate that verifies ONLY its own
-target(s). The current `state/gates/*` is the Wave-4 gate:
+it also inherits the already-merged Wave-1..4 modules), so the whole-repo `npm test` /
+`npm run typecheck` can NEVER pass there (sibling test files -- e.g. the e2e suite --
+import behaviour that is exercised only with real ffmpeg / network). Each **active**
+feature therefore has a gate that verifies ONLY its own target(s). The current
+`state/gates/*` is the Wave-5 gate:
 
-| Feature slug | Gate runs                                                                  |
-| ------------ | -------------------------------------------------------------------------- |
-| `cli`        | `vitest run tests/cli.test.ts`; typecheck + eslint `src/cli.ts` (A1-A5, B4) |
+| Feature slug | Gate runs                                                                       |
+| ------------ | ------------------------------------------------------------------------------- |
+| `index-bin`  | `vitest run tests/hygiene.test.ts`; typecheck + eslint `src/index.ts` (F4, F3, F1) |
 
-`cli.test` imports `../src/cli.js` (the feature under build) plus a VALUE import of
-`FfmpegNotFoundError` and TYPE-only imports from the merged `../src/audio.js` and
-`../src/types.js`; it injects/mocks every IO dependency (`env`, `stdout`, `stderr`,
-audio backend, transcriber factory, `writeFile`, `fileExists`), so there is no real
-ffmpeg or network. It therefore runs green in a partial worktree. The Wave-3 gate
-(`pipeline`) was removed now that F8 is merged; the final wave regenerates
-`state/gates/*` once more for F10 `index-bin`.
+`hygiene.test` (ACCEPTANCE F4) imports NO `src/` module -- it reads every `src/**/*.ts`
+off disk with `node:fs` and asserts statically: (a) source files exist, (b) no hardcoded
+`gsk_...` key literal, (c) some file contains `process.env.GROQ_API_KEY`. In a Wave-5
+worktree every Wave-1..4 module plus the new `index.ts` is present, so it runs green in a
+partial worktree -- and assertion (c) flips from red to green EXACTLY when `index.ts`
+wires the real env. That is why `hygiene.test` is F10's own gate, not a whole-tree
+concern: it is the machine check that this feature satisfies the F4 invariant. (The e2e
+suite still imports `../src/cli.js`, not `index.ts`, and remains integration-only.)
 
-Typecheck fidelity: each gate writes a throwaway tsconfig in the worktree root that
+Typecheck fidelity: the gate writes a throwaway tsconfig in the worktree root that
 `extends ./tsconfig.json` (exact project compiler options) but sets `"include": []`
-and `"files": [<the feature's files>]`. The `include: []` override is required --
-otherwise the base `include: ["src","tests"]` unions in the test files and typecheck
-fails on unbuilt modules. The config must live in the worktree root (not `/tmp`) so
-`@types/node` resolves from this worktree's `node_modules`. Because a Wave-4 worktree
-branches from `main`, every module `cli.ts` imports (`types.ts`, `config.ts`, `args.ts`,
-`formats.ts`, `audio.ts`, `groq.ts`, `pipeline.ts`) is present and `tsc` follows the
-imports automatically -- listing only `cli.ts` in `files` is sufficient.
+and `"files": ["./src/index.ts"]`. The `include: []` override is required -- otherwise
+the base `include: ["src","tests"]` unions in the test files and typecheck fails on the
+still-red e2e/hygiene expectations. The config must live in the worktree root (not
+`/tmp`) so `@types/node` resolves from this worktree's `node_modules`. Because a Wave-5
+worktree branches from `main`, every module `index.ts` imports (`cli.ts`, `audio.ts`,
+`groq.ts`, `config.ts`) is present and `tsc` follows the imports automatically -- listing
+only `index.ts` in `files` is sufficient. This is the final wave; after F10 merges there
+are no more `state/gates/*` to regenerate.
 
 ## Notes
 
@@ -129,12 +143,15 @@ imports automatically -- listing only `cli.ts` in `files` is sufficient.
 2. **Cross-cutting gates are not features.** Lint + no-emoji (ACCEPTANCE F1) and
    `tsc --noEmit` (F3) apply to every feature's own files -- each feature must leave
    lint and typecheck green for the files it adds. The no-hardcoded-key invariant
-   (`hygiene.test`, F4) is different: it asserts that SOME `src` file reads
-   `process.env.GROQ_API_KEY`, which only becomes true once the env is actually read
-   (F9 cli / F10 bin). It is therefore an integration-level invariant, NOT part of any
-   Wave-1 feature gate, and stays red until Wave 4. (`npm test` / `npm run lint` /
-   `npm run typecheck` over the whole tree are the integration-acceptance gate, not a
-   per-feature gate.)
+   (`hygiene.test`, F4) asserts that SOME `src` file contains the literal
+   `process.env.GROQ_API_KEY`. Confirmed at plan time: NO merged Wave-1..4 module
+   contains that literal (`cli.ts` reads via the injected `deps.env` and references
+   `env.GROQ_API_KEY`, not the concatenated string), so assertion (c) stays red through
+   Wave 4 and flips green only when F10 `index.ts` wires `process.env`. That makes
+   `hygiene.test` the natural per-feature gate for F10 (Wave 5) -- it is included in
+   `state/gates/index-bin` above. (`npm test` / `npm run lint` / `npm run typecheck`
+   over the whole tree remain the final integration-acceptance gate, not a per-feature
+   gate.)
 
 3. **Two units have no isolatable unit test** and are gated by typecheck (+ lint) of
    their own files, then verified behaviourally at a later wave:
