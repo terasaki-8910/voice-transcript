@@ -245,20 +245,29 @@ F11, waves continue at Wave 6.
   including the local `@voice-transcript/core` `file:` dependency, only
   existed inside the isolated build worktrees, not in `main`, until merged
   and installed for real).
-- **Wave 8, F16 `cli-history-wiring` -- NOW UNBLOCKED.** Its declared deps
-  (F12, F13) are both merged, so it's buildable even though F15/F17-21 (same
-  or later waves) are still blocked on F14/Rust. This is exactly the
-  "advance whatever's unblocked, not strictly wave-by-wave" behavior
-  `prompts/03-plan.md` describes.
+- **Wave 8, F16 `cli-history-wiring` -- MERGED.** Injects `recordHistory` into
+  `CliDeps`; wires `createDb()` + `recordHistorySafe()`; H5 enforced in
+  `cli.ts` itself (not just trusted from the injected function). Gate green
+  (packages/cli 17/17, packages/core 19/19, typecheck+lint clean on both).
+- **Everything else remaining (F14/F15/F17-21) is now blocked on Rust/`cargo`
+  only** -- no other feature has its dependencies satisfied without
+  `apps/desktop/src-tauri` existing. `state/features.txt` is intentionally
+  left EMPTY until Rust is available; re-run `plan` once `cargo --version`
+  works to schedule `tauri-scaffold` (F14).
 
 ## Independent set to build now (-> state/features.txt)
 
-**`cli-history-wiring` (F16) only.** F14 `tauri-scaffold` is dependency-ready
-but environment-blocked (no `cargo`/`rustc`); F15/F17-21 all transitively
-depend on F14. F16 depends only on F12+F13, both merged.
+**Nothing buildable right now.** F14 `tauri-scaffold` is the only feature
+with satisfied dependencies (F11, merged) but it needs a Rust toolchain this
+machine doesn't have yet; every other remaining feature (F15, F17-21)
+transitively depends on F14. Per the Stage 3 rule ("if every feature ...
+already exists OR cannot proceed, write an empty state/features.txt"),
+that's the correct signal here too -- not "done", but "blocked", so the
+driver doesn't spin on an impossible build. Re-run `plan` once
+`cargo --version` succeeds.
 
 ```
-cli-history-wiring
+(empty -- blocked on Rust, not on dependencies)
 ```
 
 ## Build order (waves, new scope)
