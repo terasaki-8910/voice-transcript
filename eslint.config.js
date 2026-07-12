@@ -37,7 +37,7 @@ const local = { rules: { "no-emoji": noEmoji } };
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "coverage/**", "tests/**/*.m4a"],
+    ignores: ["dist/**", "node_modules/**", "coverage/**", "tests/**/*.m4a", "state/**"],
   },
   ...tseslint.configs.recommended,
   {
@@ -45,6 +45,10 @@ export default tseslint.config(
     plugins: { local },
     rules: {
       "local/no-emoji": "error",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
 );
