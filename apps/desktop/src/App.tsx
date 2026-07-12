@@ -1,9 +1,15 @@
-// F14 scaffold, now growing incrementally: F20 (gui-theme) adds the
-// toolbar shell + theme toggle. Queue/history/tabs land in F17/F18/F19
-// (PLAN.md Wave 9) -- each adds to this toolbar rather than replacing it.
+// F14 scaffold, now growing incrementally: F20 (gui-theme) added the
+// toolbar shell + theme toggle; F19 (gui-i18n) adds the language toggle and
+// switches the placeholder copy through the shared i18n system. Queue/
+// history/tabs land in F17/F18 (PLAN.md Wave 9) -- each adds to this same
+// toolbar rather than replacing it.
 import { ThemeToggle } from "./theme/ThemeToggle";
+import { LanguageToggle } from "./i18n/LanguageToggle";
+import { useI18n } from "./i18n/I18nContext";
 
 export function App() {
+  const { t } = useI18n();
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -11,6 +17,7 @@ export function App() {
         <div className="spacer" />
         <div className="settings">
           <ThemeToggle />
+          <LanguageToggle />
         </div>
       </header>
       <main
@@ -33,7 +40,7 @@ export function App() {
             maxWidth: "40ch",
           }}
         >
-          Queue, history, and language settings land in upcoming builds.
+          {t("placeholder")}
         </p>
       </main>
     </div>

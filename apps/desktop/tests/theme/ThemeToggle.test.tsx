@@ -1,14 +1,19 @@
-// F20: pins ThemeProvider/useTheme/ThemeToggle in src/theme/**.
+// F20: pins ThemeProvider/useTheme/ThemeToggle in src/theme/**. ThemeToggle
+// also reads its labels through the shared i18n system (F19), so it needs
+// an I18nProvider ancestor too.
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
 import { ThemeToggle } from "../../src/theme/ThemeToggle";
+import { I18nProvider } from "../../src/i18n/I18nContext";
 
 function renderToggle() {
   return render(
-    <ThemeProvider>
-      <ThemeToggle />
-    </ThemeProvider>,
+    <I18nProvider>
+      <ThemeProvider>
+        <ThemeToggle />
+      </ThemeProvider>
+    </I18nProvider>,
   );
 }
 
