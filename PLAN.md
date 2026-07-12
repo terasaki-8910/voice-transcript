@@ -345,10 +345,46 @@ F11, waves continue at Wave 6.
   green (after the fix): apps/desktop 25/25, desktop-hygiene (G2) 4/4,
   typecheck+lint clean, `cargo check`/`clippy -D warnings`/`cargo test`
   (2/2) clean, sidecar rebuild + ping/list-history binary smoke test pass.
-- **F21 `native-menu` -- next.**
+- **F21 `native-menu` -- MERGED.** Real OS menu (menu.rs): Add files, Open
+  history, Export, Preferences... (Cmd+,/Ctrl+,), View on GitHub, built
+  alongside the platform's standard predefined items rather than replacing
+  them. Preferences (G10/G11): API key storage decided mid-session (user,
+  2026-07-13) as a local config file, not OS keychain -- written with
+  owner-only permissions from file creation (not write-then-chmod), read by
+  the sidecar only as a fallback when `GROQ_API_KEY` isn't already in the
+  environment, injected into the spawned sidecar's own process env, never
+  argv. `get_api_key_status` returns only a boolean -- no command ever
+  returns the key itself once saved. Export: native save dialog (new
+  `dialog:allow-save`) + a new SelectionContext tracking whichever row was
+  last "View"-expanded in Queue or History. `tauri-capability-reviewer`
+  pre-merge review: no blockers; traced the export path-provenance chain
+  and the API-key never-leaves-Rust chain against the real regenerated ACL
+  manifest. Applied its two cheap hardening suggestions (fixed a TOCTOU
+  window on the key file's permissions; added a `gsk_`-literal check to
+  desktop-hygiene.test.ts alongside the existing GROQ_API_KEY name check).
+  Deferred its one larger suggestion (tightening `core:default` to drop the
+  unused `core:menu` grant) -- see Backlog. Gate green: apps/desktop 37/37,
+  desktop-hygiene (G2) 5/5, typecheck+lint clean, `cargo check`/
+  `clippy -D warnings`/`cargo test` (4/4) clean, sidecar rebuild + ping
+  binary smoke test pass. Verified the app actually launches and the menu
+  constructs without panicking (the failure mode a bad MenuItem id/
+  accelerator/duplicate-id would produce) -- not vitest-checkable, so this
+  was a manual `tauri dev` run during the build, per G8/G10's stated
+  verifier.
+
+**All of Wave 6-10 (F11-F21, the entire GUI/DB/Postgres/native-menu new
+scope from this session) is now merged.** `state/features.txt` is empty --
+no more build-wave features to schedule. What's left is entirely
+non-vitest/integration work already itemized in ACCEPTANCE.md: G1 (CI
+build matrix), G4 (CLI/GUI transcript parity), G6-G9 (exercised in the
+built app), H1/H2/H5 (integration), and the release step (CLAUDE.md >
+Release: README regen + `.github/workflows/release.yml`, explicitly
+post-build/at integration_accept, never mid-build). See PLAN.md's Backlog
+section for the two items still deliberately parked (richer README,
+`core:menu` capability tightening).
 
 ```
-native-menu
+
 ```
 
 ## Build order (waves, new scope)
@@ -416,27 +452,10 @@ native-menu
     are added at/after integration_accept per CLAUDE.md > Release, so they are NOT a
     buildable wave feature.
 
-## Backlog (requested 2026-07-13, not yet scheduled into a wave)
+## Backlog (not yet scheduled into a wave)
 
-Both items below were explicitly deferred by the user ("まだやらなくていい") --
-tracked here so they aren't lost, not started.
-
-- **API key configuration in a Preferences/Settings screen -- DECIDED,
-  ready to schedule.** Today `GROQ_API_KEY` is read from the environment
-  only (CLI and the desktop sidecar both). Requirements (user, 2026-07-13):
-  Cmd+, opens Preferences on macOS, Ctrl+, on Windows (matches VS Code/
-  Slack/Discord convention there too), and a native menu entry reaches it
-  as well -- folded into F21 `native-menu`'s item list, not a separate
-  screen's placement question. Storage mechanism (user chose, 2026-07-13):
-  a local config file in the OS's app-config directory (not OS keychain) --
-  written by the Rust shell, read by the sidecar at startup. Tradeoff to
-  state plainly, not hide: this is plaintext-on-disk, not
-  encrypted-at-rest like a keychain entry would be; mitigated only by OS
-  file permissions (owner-only, e.g. 0600) and living outside the git repo
-  (never committed). Acceptable for a single-user personal tool; would need
-  revisiting before any multi-user or shared-machine use. See SPEC.md >
-  Preferences (API key) for the full write-up.
-- **Richer README with screenshots, post-integration_accept.** CLAUDE.md's
+- **Richer README with screenshots, post-integration_accept.** Requested
+  2026-07-13, explicitly deferred by the user ("まだやらなくていい"). CLAUDE.md's
   existing Release step (1) says the README is regenerated from SPEC.md via
   `run.sh readme` specifically because that keeps it reproducible, not
   hand-authored. The user now wants something closer to a well-known OSS
@@ -447,3 +466,18 @@ tracked here so they aren't lost, not started.
   for README authoring before hand-rolling one. Requires the user's
   explicit go-ahead once implementation is complete (their words: "実装が
   完了して私の許可を得られたら").
+- **Tighten `capabilities/default.json`'s `core:default` grant.** Flagged
+  by `tauri-capability-reviewer` during F21's review, deferred as
+  non-blocking for a personal-project gate. `core:default` bundles
+  `core:menu:default` (broad menu-manipulation permissions --
+  `allow-remove`, `allow-set-as-app-menu`, `allow-popup`, `allow-set-text`,
+  etc.) reachable from the webview via `@tauri-apps/api/menu`, currently
+  unused by the frontend (menu.rs owns the entire menu lifecycle from
+  Rust). Low risk today, but F21 is the point where the native menu became
+  functionally load-bearing (Preferences/Export/GitHub link all hang off
+  real menu items), so a compromised webview could now meaningfully abuse
+  this grant (relabel/remove "Preferences", trigger arbitrary native
+  popups) even though it still couldn't fabricate new privileged Rust-side
+  actions. Fix: enumerate the specific `core:*` sub-permissions actually
+  needed (path/event/window/webview/app/image/resources/tray) in place of
+  the blanket `core:default`, and confirm nothing breaks end to end.
