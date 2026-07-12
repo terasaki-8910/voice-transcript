@@ -133,6 +133,36 @@ remote-URL input (local files only); multi-user accounts or auth (one local user
 no login); DB provisioning/hosting/backup automation; cross-device sync beyond pointing
 installs at the same DB (last-write-wins, no conflict resolution). See `SPEC.md` for detail.
 
+## Architecture
+One shared `packages/core` engine (ffmpeg normalize, silence-based chunking, Groq
+client + retry, stitching, format renderers — no UI, no DB) sits behind two front ends.
+`packages/cli` wraps it directly. `apps/desktop` reaches it only through the Rust shell,
+which owns every privileged operation (ffmpeg, Groq calls, DB access) and runs
+`packages/core` (engine and DB layer) as a supervised Node **sidecar** over stdio/IPC —
+Rust itself runs no SQL; the sidecar is the only process that reaches ffmpeg, Groq, and the
+database on the GUI's behalf. The webview never touches secrets, the filesystem, or the
+database directly.
+
+```mermaid
+flowchart TD
+    cli["packages/cli<br/>transcribe (single file)"]
+    subgraph desktop["apps/desktop (Tauri)"]
+        webview["webview: React + Vite<br/>no secrets / fs / DB"]
+        rust["src-tauri Rust shell<br/>owns ffmpeg, Groq, DB access"]
+        webview -->|"invoke() — Tauri command"| rust
+    end
+    core["packages/core<br/>engine: normalize · silence-chunk · Groq client + retry · stitch · render<br/>+ history/DB layer (Drizzle ORM over pg)"]
+    ffmpeg(["ffmpeg on PATH"])
+    groq(["Groq hosted Whisper — HTTP API"])
+    db[("PostgreSQL — DATABASE_URL")]
+
+    cli -->|"import (thin wrapper + DB layer)"| core
+    rust -->|"spawn, stdio/IPC — sidecar"| core
+    core -->|"normalize + split at silence"| ffmpeg
+    core -->|"HTTP transcription requests"| groq
+    core -->|"history read/write/delete (Drizzle/pg)"| db
+```
+
 ## Developed via the gated pipeline
 This repo is built by the gated pipeline in `scripts/run.sh` (spec → failing tests →
 design gate → plan → per-feature build → acceptance). Resume from any stage:

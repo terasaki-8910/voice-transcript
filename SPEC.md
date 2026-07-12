@@ -20,21 +20,31 @@ history of past runs.
 - **Auth:** `GROQ_API_KEY` read from the environment only.
 
 ## Architecture (monorepo)
-- `packages/core` — the engine (ffmpeg normalize, silence-based chunking,
-  Groq client + retry, stitching, format renderers). No UI, no DB. Both the
-  CLI and the desktop app depend on this and must never re-implement it.
+- `packages/core` — no UI. Two parts: the **engine** (ffmpeg normalize,
+  silence-based chunking, Groq client + retry, stitching, format renderers)
+  and the **history/DB layer** (`src/db/**` — Drizzle ORM over `pg`,
+  read/write/delete for the `transcriptions` table). Both the CLI and the
+  desktop app depend on this package directly and must never re-implement
+  either part.
 - `packages/cli` — the existing `transcribe` command; a thin wrapper over
-  `packages/core`. Behavior unchanged from today.
+  `packages/core`'s engine, and (since the history feature) also calls
+  `packages/core`'s DB layer directly to record each run — the CLI is a
+  plain Node process with no Rust/Tauri involved, so there is no shell to
+  proxy through on this path.
 - `apps/desktop` — the Tauri app (`src-tauri/` Rust shell + a React + Vite
-  webview). The Rust shell owns every privileged operation (ffmpeg, Groq
-  calls, DB access) and exposes narrow `#[tauri::command]`s; the webview
-  never touches secrets, the filesystem, or the database directly (see
-  `.claude/agents/tauri-capability-reviewer.md`).
+  webview). The Rust shell owns every privileged operation the GUI needs
+  (ffmpeg, Groq calls, DB access) and exposes narrow `#[tauri::command]`s;
+  the webview never touches secrets, the filesystem, or the database
+  directly (see `.claude/agents/tauri-capability-reviewer.md`). Concretely,
+  Rust never runs SQL itself — it spawns and supervises the sidecar (below),
+  which is the only process that actually calls into `packages/core`'s
+  engine and DB layer on the GUI's behalf.
 - **Reuse strategy:** `packages/core` is TypeScript and already tested; it is
   **not** rewritten in Rust. `apps/desktop` runs it as a Tauri **sidecar**
-  process (a bundled Node executable running `packages/core`'s logic, spawned
-  and supervised by the Rust shell over stdio/local IPC — never reachable
-  from the webview). Rust proxies exactly the commands the UI needs.
+  process (a bundled Node executable running `packages/core`'s logic —
+  engine and DB layer both — spawned and supervised by the Rust shell over
+  stdio/local IPC — never reachable from the webview). Rust proxies exactly
+  the commands the UI needs.
 - **Scaffolding tools added for this:** `.claude/skills/tauri-command-scaffold/`
   (keeps a Rust command and its TS `invoke()` wrapper in sync) and
   `.claude/agents/tauri-capability-reviewer.md` (reviews capability scope and
