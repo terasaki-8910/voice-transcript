@@ -28,3 +28,14 @@ export { stitchChunks } from "./stitch.js";
 export { GroqClient, GroqApiError } from "./groq.js";
 
 export { runPipeline } from "./pipeline.js";
+
+export { transcriptions, transcriptionStatus } from "./db/schema.js";
+export { createDb } from "./db/client.js";
+export type { Db } from "./db/client.js";
+export {
+  recordHistory,
+  recordHistorySafe,
+  listHistory,
+  getHistoryById,
+} from "./db/history.js";
+export type { HistoryRecordInput, HistoryRecord } from "./db/history.js";

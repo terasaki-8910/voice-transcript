@@ -1,6 +1,6 @@
 import { access, writeFile as fsWriteFile } from "node:fs/promises";
-import type { AudioBackend, Transcriber } from "@voice-transcript/core";
-import { createFfmpegBackend, render, GroqClient, runPipeline } from "@voice-transcript/core";
+import type { AudioBackend, Transcriber, HistoryRecordInput } from "@voice-transcript/core";
+import { createFfmpegBackend, render, GroqClient, runPipeline, createDb, recordHistorySafe } from "@voice-transcript/core";
 import { parseArgs, UsageError } from "./args.js";
 
 export interface CliDeps {
@@ -11,6 +11,12 @@ export interface CliDeps {
   makeTranscriber?: (apiKey: string) => Transcriber;
   writeFile?: (path: string, data: string) => Promise<void>;
   fileExists?: (path: string) => Promise<boolean>;
+  // ACCEPTANCE H1/H5: records one history entry per completed run (success
+  // or failure). Must never throw -- the default wires createDb() +
+  // recordHistorySafe() (packages/core/src/db), which already guarantees
+  // that: no DATABASE_URL or an unreachable DB never blocks or corrupts the
+  // transcription result, it only logs and returns.
+  recordHistory?: (input: HistoryRecordInput) => Promise<void>;
 }
 
 async function defaultFileExists(path: string): Promise<boolean> {
@@ -26,6 +32,22 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// ACCEPTANCE H5, enforced here (not just trusted from the injected
+// recordHistory): a history-recording failure must never surface as a
+// thrown error out of main() -- it can only ever affect the exit code via
+// the transcription's OWN success/failure, never via history bookkeeping.
+async function safeRecordHistory(
+  recordHistory: (input: HistoryRecordInput) => Promise<void>,
+  input: HistoryRecordInput,
+  stderr: (s: string) => void,
+): Promise<void> {
+  try {
+    await recordHistory(input);
+  } catch (err) {
+    stderr(`[history] failed to record history (non-blocking): ${errorMessage(err)}\n`);
+  }
+}
+
 // Order: parseArgs -> fileExists(input) -> GROQ_API_KEY present ->
 //        audio.assertAvailable -> runPipeline -> render -> stdout | writeFile.
 // This ordering is what makes A2 (no API/ffmpeg call on missing file) and A3
@@ -38,6 +60,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   const makeTranscriber = deps.makeTranscriber ?? ((apiKey: string) => new GroqClient({ apiKey }));
   const writeFile = deps.writeFile ?? ((path: string, data: string) => fsWriteFile(path, data));
   const fileExists = deps.fileExists ?? defaultFileExists;
+  const recordHistory = deps.recordHistory ?? ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input));
 
   let options;
   try {
@@ -83,8 +106,31 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     } else {
       stdout(rendered);
     }
+    await safeRecordHistory(
+      recordHistory,
+      {
+        sourceFileName: options.input,
+        model: options.model,
+        language: options.language,
+        formats: [options.format],
+        status: "success",
+        result,
+      },
+      stderr,
+    );
     return 0;
   } catch (err) {
+    await safeRecordHistory(
+      recordHistory,
+      {
+        sourceFileName: options.input,
+        model: options.model,
+        language: options.language,
+        formats: [options.format],
+        status: "failed",
+      },
+      stderr,
+    );
     stderr(`${errorMessage(err)}\n`);
     return 1;
   }
