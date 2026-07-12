@@ -8,14 +8,17 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { QueueRow } from "../../src/features/queue/QueueRow";
+import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
 function RowHarness({ transcribeFn }: { transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> }) {
   return (
     <I18nProvider>
-      <QueueProvider transcribeFn={transcribeFn}>
-        <RowList />
-      </QueueProvider>
+      <SelectionProvider>
+        <QueueProvider transcribeFn={transcribeFn}>
+          <RowList />
+        </QueueProvider>
+      </SelectionProvider>
     </I18nProvider>
   );
 }

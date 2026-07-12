@@ -10,6 +10,8 @@ import { I18nProvider } from "../../src/i18n/I18nContext";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
 import { QueueProvider } from "../../src/features/queue/QueueContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
+import { NavProvider } from "../../src/features/nav/NavContext";
+import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import { QueueView } from "../../src/features/queue/QueueView";
 import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
@@ -29,11 +31,15 @@ function renderView(transcribeFn: (request: TranscribeRequest) => Promise<Transc
   return render(
     <I18nProvider>
       <ThemeProvider>
-        <QueueProvider transcribeFn={transcribeFn}>
-          <HistoryProvider listHistoryFn={async () => []}>
-            <QueueView />
-          </HistoryProvider>
-        </QueueProvider>
+        <NavProvider>
+          <SelectionProvider>
+            <QueueProvider transcribeFn={transcribeFn}>
+              <HistoryProvider listHistoryFn={async () => []}>
+                <QueueView />
+              </HistoryProvider>
+            </QueueProvider>
+          </SelectionProvider>
+        </NavProvider>
       </ThemeProvider>
     </I18nProvider>,
   );

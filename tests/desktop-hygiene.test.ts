@@ -42,6 +42,15 @@ describe("G2 - webview never holds secrets or talks to Groq/DB directly", () => 
     expect(offenders.map((f) => f.path)).toEqual([]);
   });
 
+  // F21 (native-menu, Preferences): the webview now handles a key the user
+  // types in (to send to save_api_key), so it's also worth catching an
+  // actual key literal (a real key or a copy-pasted test fixture) landing
+  // in source, not just the env-var name above.
+  it("contains no gsk_-prefixed API key literal", () => {
+    const offenders = files.filter((f) => /\bgsk_[A-Za-z0-9]{10,}\b/.test(f.text));
+    expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
   it("contains no DATABASE_URL or hardcoded DB connection string", () => {
     const CONN_STRING = /(?:postgres(?:ql)?|mysql):\/\//;
     const offenders = files.filter(
