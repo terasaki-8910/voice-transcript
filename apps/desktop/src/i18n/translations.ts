@@ -18,6 +18,11 @@ export const translations = {
     retry: "Retry",
     dropHint: "Drop audio files here, or use Add files",
     emptyQueue: "No files yet",
+    historyLoading: "Loading history...",
+    historyEmpty: "No history yet",
+    trashAudio: "Trash audio",
+    audioTrashed: "Audio trashed",
+    deleteEntry: "Delete",
   },
   ja: {
     queue: "キュー",
@@ -34,6 +39,11 @@ export const translations = {
     retry: "再試行",
     dropHint: "音声ファイルをここにドロップ、または「ファイルを追加」",
     emptyQueue: "まだファイルがありません",
+    historyLoading: "履歴を読み込み中...",
+    historyEmpty: "まだ履歴がありません",
+    trashAudio: "音声をゴミ箱へ",
+    audioTrashed: "ゴミ箱へ移動済み",
+    deleteEntry: "削除",
   },
 } as const;
 

@@ -89,3 +89,113 @@ pub async fn transcribe(
     .to_string();
     call_sidecar(&app, "transcribe", &arg_json).await
 }
+
+// F18 (gui-history). The sidecar owns all DB access (list/get/delete); this
+// file only additionally owns the actual "move to OS trash" step, since
+// that's a plain local filesystem operation with no need to round-trip
+// through Node. The webview only ever passes a history `id` (never a raw
+// path) into trash_audio/delete_history_entry -- the real path always comes
+// from a DB-backed sidecar lookup, so the webview can't ask Rust to trash an
+// arbitrary file.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRecordDto {
+    pub id: i64,
+    pub source_file_name: String,
+    pub started_at: String,
+    pub model: String,
+    pub language: Option<String>,
+    pub formats: Vec<String>,
+    pub status: String,
+    pub transcript_text: Option<String>,
+    pub segments: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryFileRef {
+    source_file_name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TrashResult {
+    pub trashed: bool,
+}
+
+/// Moves `path` to the OS trash/recycle bin if it still exists on disk.
+/// Never a permanent delete (ACCEPTANCE G7/G9); a missing file, or one the
+/// OS refuses to trash, is reported as `trashed: false`, not an error --
+/// the caller's own DB-level result (list refresh / entry-deleted) is still
+/// valid either way.
+fn trash_if_exists(path: &str) -> bool {
+    if !std::path::Path::new(path).exists() {
+        return false;
+    }
+    trash::delete(path).is_ok()
+}
+
+#[tauri::command]
+pub async fn list_history(app: tauri::AppHandle) -> Result<Vec<HistoryRecordDto>, String> {
+    call_sidecar(&app, "list-history", "null").await
+}
+
+// No standalone get_history command: list_history's rows already include
+// transcriptText, so "opening" an entry in the UI is just expanding
+// already-fetched data, not a new fetch. The sidecar's "get-history" action
+// still exists and is used internally by trash_audio/delete_history_entry
+// below (to look up a single record's path), just not exposed to the
+// webview as its own command.
+
+/// ACCEPTANCE G7: trash the source audio, keep the history record.
+#[tauri::command]
+pub async fn trash_audio(app: tauri::AppHandle, id: i64) -> Result<TrashResult, String> {
+    let arg_json = serde_json::json!({ "id": id }).to_string();
+    let record: HistoryFileRef = call_sidecar(&app, "get-history", &arg_json).await?;
+    Ok(TrashResult { trashed: trash_if_exists(&record.source_file_name) })
+}
+
+/// ACCEPTANCE G9: delete the history record entirely, and also trash the
+/// source audio if it still exists on disk.
+#[tauri::command]
+pub async fn delete_history_entry(app: tauri::AppHandle, id: i64) -> Result<TrashResult, String> {
+    let arg_json = serde_json::json!({ "id": id }).to_string();
+    let record: HistoryFileRef = call_sidecar(&app, "delete-history-entry", &arg_json).await?;
+    Ok(TrashResult { trashed: trash_if_exists(&record.source_file_name) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test for a real bug caught in pre-merge review: the
+    // sidecar (packages/core/src/sidecar.ts) always emits camelCase JSON
+    // keys (e.g. `sourceFileName`), so any struct decoding its output
+    // needs `#[serde(rename_all = "camelCase")]` -- without it, every
+    // trash_audio/delete_history_entry call failed to parse the sidecar's
+    // response, and for delete_history_entry specifically, the DB row was
+    // already deleted by the time that parse failure surfaced.
+    #[test]
+    fn history_file_ref_decodes_camel_case_sidecar_json() {
+        let json = r#"{"sourceFileName":"/audio/a.m4a"}"#;
+        let parsed: HistoryFileRef = serde_json::from_str(json).expect("must decode camelCase sourceFileName");
+        assert_eq!(parsed.source_file_name, "/audio/a.m4a");
+    }
+
+    #[test]
+    fn history_record_dto_decodes_camel_case_sidecar_json() {
+        let json = r#"{
+            "id": 1,
+            "sourceFileName": "/audio/a.m4a",
+            "startedAt": "2026-07-13T00:00:00.000Z",
+            "model": "whisper-large-v3-turbo",
+            "language": null,
+            "formats": ["txt"],
+            "status": "success",
+            "transcriptText": "hello",
+            "segments": null
+        }"#;
+        let parsed: HistoryRecordDto = serde_json::from_str(json).expect("must decode camelCase history record");
+        assert_eq!(parsed.source_file_name, "/audio/a.m4a");
+        assert_eq!(parsed.transcript_text.as_deref(), Some("hello"));
+    }
+}
