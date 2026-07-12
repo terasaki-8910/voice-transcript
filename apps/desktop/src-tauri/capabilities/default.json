@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window. F14 (tauri-scaffold) registers zero custom commands, so this grants only Tauri's standard core baseline (app/window/event basics) -- no fs, shell, http, or dialog access. Later features (F15/F17/F18/F21) add exactly the permission their own new command needs, reviewed by .claude/agents/tauri-capability-reviewer.md (ACCEPTANCE G3).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
