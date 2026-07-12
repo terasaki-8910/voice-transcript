@@ -3,9 +3,13 @@
 Read SPEC.md and ACCEPTANCE.md. Produce (exact paths matter -- run.sh reads them):
 - PLAN.md (repo root): decompose into the smallest useful feature units; note
   dependencies. Root, so it is committed and visible inside build worktrees.
-- state/features.txt: ONE INDEPENDENT feature per line (no dependency on another
-  unbuilt feature). These build in isolated worktrees, so they must not share mutable
-  state. Dependent features go in PLAN.md notes, NOT in state/features.txt.
+- state/features.txt: the NEXT buildable WAVE -- the unbuilt features whose dependencies
+  are ALL already committed in main (inspect which src/ modules already exist). One
+  feature per line, mutually independent (disjoint files, no shared mutable state) so they
+  build in parallel worktrees. Dependent features stay in PLAN.md notes until their wave.
+  **If every feature in PLAN.md already exists in main, write an EMPTY state/features.txt**
+  -- that signals the driver the project is fully built and to stop. Re-running plan after
+  a wave merges naturally advances to the next wave.
 - state/gates/<feature>: for EACH feature in features.txt, a shell snippet that gates
   ONLY that feature -- run just its own test file(s) and typecheck/lint its own source
   (e.g. `npx vitest run tests/chunk.test.ts` plus eslint/tsc on that feature's files).

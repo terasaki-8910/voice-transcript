@@ -5,3 +5,7 @@ node_modules/
 __pycache__/
 dist/
 coverage/
+# secrets -- never commit. build does `git add -A`, so an untracked .env WOULD be committed.
+.env
+.env.*
+!.env.example

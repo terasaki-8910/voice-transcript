@@ -43,25 +43,34 @@ unbuilt feature). Slugs match `state/features.txt` and `state/gates/<slug>` exac
 | F9  | `cli`                  | `cli.ts`                 | F1, F3, F4, F5, F7, F8 | `cli.test` -> A1-A5, B4                                    | 4    |
 | F10 | `index-bin`            | `index.ts`               | F9                     | typecheck + integration (E1-E3)                            | 5    |
 
+## Progress
+
+- **Wave 1 -- MERGED to `main`:** F1 `foundation-contracts` (`types.ts`, `config.ts`),
+  F2 `chunk-planner` (`chunk.ts`), F3 `audio-backend` (`audio.ts`). Confirmed by the
+  three `merge feature/*` commits and by `src/` containing exactly those four files.
+- **Wave 2 -- ACTIVE (this `state/features.txt`).** Everything below is still unbuilt.
+
 ## Independent set to build now (-> `state/features.txt`)
 
-Only **F1, F2, F3** have zero dependency on an unbuilt feature and touch disjoint
-files, so only they may build in parallel in the first round. They share no mutable
-state (`types.ts`+`config.ts` / `chunk.ts` / `audio.ts` are disjoint, and none of the
-three imports another). Everything else is a **dependent** feature and stays in this
-plan until its prerequisites merge to `main` -- per pipeline rules it does NOT go in
-`state/features.txt` yet.
+**Wave 2 = F4, F5, F6, F7.** Each depends only on F1 `foundation-contracts`, which is
+now committed in `main`, so all of their prerequisites are satisfied. They touch a
+**disjoint** set of files and share no mutable state -- `args.ts` / `formats.ts` /
+`stitch.ts` / `groq.ts` -- and none of the four imports another (each imports only the
+already-merged `types.ts`, and `groq.ts` also `config.ts`). So they build in parallel
+in isolated worktrees. F8-F10 remain **dependent** features and stay in this plan (NOT
+in `state/features.txt`) until their prerequisites merge.
 
 ```
-foundation-contracts
-chunk-planner
-audio-backend
+args-parser
+formats-renderer
+stitch
+groq-client
 ```
 
 ## Build order (waves)
 
-- **Wave 1 (parallel):** F1, F2, F3  <- this is `state/features.txt`.
-- **Wave 2 (parallel, after F1 merges):** F4, F5, F6, F7 (each depends only on F1).
+- **Wave 1 (parallel):** F1, F2, F3  -- DONE, merged to `main`.
+- **Wave 2 (parallel, after F1 merges):** F4, F5, F6, F7  <- this is `state/features.txt`.
 - **Wave 3:** F8 pipeline (needs F1, F2, F3, F6, F7).
 - **Wave 4:** F9 cli (needs F1, F3, F4, F5, F7, F8).
 - **Wave 5:** F10 index/bin (needs F9).
@@ -75,24 +84,33 @@ features and rerun `run.sh build`.
 
 ## Per-feature gates (`state/gates/<slug>`)
 
-A single-feature worktree contains ONLY that feature's source, so the whole-repo
-`npm test` / `npm run typecheck` can NEVER pass there (sibling test files import
-src modules that do not exist yet). Each Wave-1 feature therefore has a gate that
-verifies ONLY its own target(s):
+A single-feature worktree contains ONLY that feature's source (branched from `main`,
+so it also inherits the already-merged Wave-1 modules `types.ts` / `config.ts`), so the
+whole-repo `npm test` / `npm run typecheck` can NEVER pass there (sibling test files
+import src modules that do not exist yet). Each **active** feature therefore has a gate
+that verifies ONLY its own target(s). The current `state/gates/*` are the Wave-2 gates:
 
-| Feature slug           | Gate runs                                                                 |
-| ---------------------- | ------------------------------------------------------------------------- |
-| `foundation-contracts` | typecheck `src/types.ts` + `src/config.ts`; eslint the same (no unit test) |
-| `chunk-planner`        | `vitest run tests/chunk.test.ts`; typecheck + eslint `src/chunk.ts`        |
-| `audio-backend`        | typecheck `src/audio.ts`; eslint the same (no isolatable unit test)        |
+| Feature slug        | Gate runs                                                                     |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `args-parser`       | typecheck `src/args.ts`; eslint the same (no isolatable unit test -- see note 3) |
+| `formats-renderer`  | `vitest run tests/formats.test.ts`; typecheck + eslint `src/formats.ts` (C1-C4) |
+| `stitch`            | `vitest run tests/stitch.test.ts`; typecheck + eslint `src/stitch.ts` (B3)     |
+| `groq-client`       | `vitest run tests/groq.test.ts`; typecheck + eslint `src/groq.ts` (D1)         |
+
+Each Wave-2 test imports only its own new module plus the already-merged `types.ts`
+(`groq.test` also mocks the network), so it runs green in a partial worktree. The
+Wave-1 gates (`foundation-contracts`, `chunk-planner`, `audio-backend`) were removed
+now that those features are merged; a later wave regenerates `state/gates/*` again.
 
 Typecheck fidelity: each gate writes a throwaway tsconfig in the worktree root that
 `extends ./tsconfig.json` (exact project compiler options) but sets `"include": []`
 and `"files": [<the feature's files>]`. The `include: []` override is required --
 otherwise the base `include: ["src","tests"]` unions in the test files and typecheck
 fails on unbuilt modules. The config must live in the worktree root (not `/tmp`) so
-`@types/node` resolves from this worktree's `node_modules`. All three gates were dry-run
-against the current built worktrees and pass green.
+`@types/node` resolves from this worktree's `node_modules`. Because a Wave-2 worktree
+branches from `main`, the imported Wave-1 modules (`types.ts`, `config.ts`) are present
+and `tsc` follows the imports automatically -- listing only the feature's own file in
+`files` is sufficient.
 
 ## Notes
 

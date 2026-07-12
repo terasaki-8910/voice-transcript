@@ -35,6 +35,21 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 mark_done() { mkdir -p "$STATE/done"; : > "$STATE/done/$1"; }  # checkpoint read by `status`
 
+record_session() {  # best-effort: map the Claude session just run (in CWD) to a stage label
+  prompt=$1
+  cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  slug=$(printf '%s' "$PWD" | sed 's#/#-#g')          # Claude keys sessions by cwd path
+  f=$(ls -t "$cfg/projects/$slug/"*.jsonl 2>/dev/null | head -1)
+  [ -n "$f" ] || return 0
+  id=$(basename "$f" .jsonl)
+  label=$(basename "$prompt" .md | sed 's/^[0-9][0-9]*-//')   # 04-build.md -> build
+  case "$PWD" in *"/worktrees/"*) label="$label-$(basename "$PWD")" ;; esac
+  mkdir -p "$STATE/sessions"
+  printf '%s\t%-26s\t%s\n' "$(date +%H:%M:%S)" "$label" "$id" >> "$STATE/sessions/index.tsv"
+  printf '%s\n' "$id" > "$STATE/sessions/$label"
+  echo ">> session[$label] = $id   (resume: claude --resume $id)"
+}
+
 notify() {  # best-effort desktop notification; always prints
   m=$1
   if have terminal-notifier; then terminal-notifier -title pipeline -message "$m" >/dev/null 2>&1 || true
@@ -60,6 +75,7 @@ claude_run() {  # headless. $1=model $2=promptfile [extra args]
   # --permission-mode keeps unattended runs from blocking on approval prompts.
   claude --model "$model" --permission-mode "$PERMISSION_MODE" "$@" -p "$(cat "$prompt")" 2>&1 \
     | tee -a "$STATE/logs/$(date +%Y%m%d-%H%M%S).log"
+  record_session "$prompt"
 }
 
 claude_interactive() {  # human converses. $1=model $2=seed promptfile
@@ -228,6 +244,14 @@ stage_status() {  # show which stages are done + the command to continue
   echo "  watch in TUI:  INTERACTIVE=1 sh scripts/run.sh from $next"
 }
 
+stage_sessions() {  # list recorded Claude session ids (resume a headless run by id)
+  f="$STATE/sessions/index.tsv"
+  [ -f "$f" ] || { echo "No sessions recorded yet (they are written as stages run)."; return 0; }
+  echo "== recorded sessions -- resume any with: claude --resume <id> =="
+  printf 'time\t\tstage\t\t\tsession-id\n'
+  cat "$f"
+}
+
 stage_reset() {  # clear BUILD artifacts (worktrees, feature/* branches, checkpoints) so you
   # can cleanly re-run. Keeps spec/criteria/plan (SPEC/ACCEPTANCE/PLAN/tests/gates/features).
   git -C "$ROOT" worktree prune 2>/dev/null || true
@@ -244,9 +268,26 @@ stage_reset() {  # clear BUILD artifacts (worktrees, feature/* branches, checkpo
   echo "re-run:  sh scripts/run.sh from build   (or  from plan  to redo planning)"
 }
 
+stage_waves() {  # plan -> build -> accept, looped over successive dependency waves
+  w=0
+  while [ "$w" -lt 12 ]; do
+    w=$((w + 1)); echo "== wave $w =="
+    stage_plan   # re-plans: writes the NEXT wave to features.txt, or EMPTY when all built
+    if ! grep -q '[^[:space:]]' "$STATE/features.txt" 2>/dev/null; then
+      echo "== all planned features are built =="; return 0
+    fi
+    stage_build
+    stage_feature_accept
+  done
+  echo "waves: safety cap (12) hit -- a wave is not clearing; check PLAN.md / features.txt." >&2
+  exit 1
+}
+
 run_from() {  # run the given stage and every stage after it, in order
-  start=$1; on=0
-  for s in intake readme criteria design plan build accept integrate; do
+  start=$1
+  case "$start" in plan|build|accept|waves) start=waves ;; esac  # these collapse into the wave loop
+  on=0
+  for s in intake readme criteria design waves integrate; do
     [ "$s" = "$start" ] && on=1
     [ "$on" = "1" ] || continue
     case "$s" in
@@ -254,9 +295,7 @@ run_from() {  # run the given stage and every stage after it, in order
       readme)    stage_readme ;;
       criteria)  stage_criteria ;;
       design)    stage_design_gate ;;
-      plan)      stage_plan ;;
-      build)     stage_build ;;
-      accept)    stage_feature_accept ;;
+      waves)     stage_waves ;;
       integrate) stage_integration_accept ;;
     esac
   done
@@ -271,14 +310,16 @@ main() {
     plan)      stage_plan ;;
     build)     stage_build ;;
     accept)    stage_feature_accept ;;
+    waves)     stage_waves ;;                  # build ALL remaining dependency waves
     integrate) stage_integration_accept ;;
     survey)    stage_survey ;;
     readme)    stage_readme ;;
     status)    stage_status ;;                # show progress + next command
+    sessions)  stage_sessions ;;              # list recorded session ids (resume/inspect)
     reset)     stage_reset ;;                 # clear build artifacts to recover cleanly
     from)      run_from "${2:-criteria}" ;;   # resume: run this stage -> end
     all)       run_from intake ;;
-    *) echo "usage: run.sh [status|intake|readme|criteria|design|plan|build|accept|integrate|survey|reset|all|from <stage>]"; exit 2 ;;
+    *) echo "usage: run.sh [status|sessions|intake|readme|criteria|design|plan|build|accept|waves|integrate|survey|reset|all|from <stage>]"; exit 2 ;;
   esac
 }
 main "$@"
