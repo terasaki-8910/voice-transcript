@@ -1,0 +1,72 @@
+name: Release
+
+# Manually triggered only -- never runs on push or tag (SPEC.md > Release
+# automation, ACCEPTANCE I1). Exactly two inputs by explicit design choice:
+# no release-notes body, no draft/prerelease toggle, no build-target picker.
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Release title"
+        required: true
+        type: string
+      version:
+        description: "Version/tag (e.g. v0.2.0)"
+        required: true
+        type: string
+
+jobs:
+  release:
+    # Mirrors G1's CI build matrix. Builds apps/desktop (the Tauri app) ONLY
+    # -- packages/cli is never built or published here, it stays
+    # used-from-source (ACCEPTANCE I2).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build needs these system libs; macOS/Windows runners
+      # already have what's needed out of the box.
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # generate_context!() validates bundle.externalBin resources at Rust
+      # COMPILE time, not just bundle time -- the sidecar binary for this
+      # runner's platform must exist before `tauri build` runs (same
+      # requirement as every local build:sidecar step in this project's
+      # feature gates).
+      - name: Build the sidecar for this platform
+        run: pnpm --filter @voice-transcript/core build:sidecar
+
+      - name: Build and publish the desktop app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ inputs.version }}
+          releaseName: ${{ inputs.title }}
+          releaseDraft: false
+          prerelease: false
