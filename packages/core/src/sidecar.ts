@@ -18,8 +18,8 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
-import { recordHistorySafe } from "./db/history.js";
-import type { HistoryRecordInput } from "./db/history.js";
+import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry } from "./db/history.js";
+import type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
 import type { OutputFormat } from "./types.js";
 
 export interface TranscribeArgs {
@@ -43,6 +43,9 @@ export interface SidecarDeps {
   audio?: AudioBackend;
   makeTranscriber?: (apiKey: string) => Transcriber;
   recordHistory?: (input: HistoryRecordInput) => Promise<void>;
+  listHistory?: () => Promise<HistoryRecord[]>;
+  getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
+  deleteHistoryEntry?: (id: number) => Promise<void>;
 }
 
 export async function handlePing(): Promise<string> {
@@ -90,6 +93,58 @@ export async function handleTranscribe(
   }
 }
 
+// ACCEPTANCE H2: list past runs for the GUI's history view. Returns []
+// (not an error) when DATABASE_URL is unset -- an empty history list is a
+// valid, displayable state, not a failure (mirrors H5's "never blocking"
+// spirit for reads too).
+export async function handleListHistory(deps: SidecarDeps = {}): Promise<HistoryRecord[]> {
+  if (deps.listHistory) return deps.listHistory();
+  const db = createDb();
+  if (!db) return [];
+  return listHistory(db);
+}
+
+// ACCEPTANCE H2: open one past run and read its stored transcript. Throws
+// (surfaced as a domain error) if the id doesn't exist -- this only happens
+// via a stale id (e.g. deleted in another window between list and open),
+// not the normal path, so an error is the right signal here.
+export async function handleGetHistory(
+  args: { id: number },
+  deps: SidecarDeps = {},
+): Promise<HistoryRecord> {
+  const record = deps.getHistory
+    ? await deps.getHistory(args.id)
+    : await (async () => {
+        const db = createDb();
+        if (!db) throw new Error("DATABASE_URL not set; no history to read.");
+        return getHistoryById(db, args.id);
+      })();
+  if (!record) throw new Error(`History entry ${args.id} not found.`);
+  return record;
+}
+
+// ACCEPTANCE G9: delete a history record and hand back its sourceFileName
+// so the Rust side can also move the still-existing source audio to the OS
+// trash. Looks the record up first (for its path) since a plain SQL DELETE
+// doesn't return the deleted row's data.
+export async function handleDeleteHistoryEntry(
+  args: { id: number },
+  deps: SidecarDeps = {},
+): Promise<{ sourceFileName: string }> {
+  if (deps.deleteHistoryEntry) {
+    const record = deps.getHistory ? await deps.getHistory(args.id) : undefined;
+    if (!record) throw new Error(`History entry ${args.id} not found.`);
+    await deps.deleteHistoryEntry(args.id);
+    return { sourceFileName: record.sourceFileName };
+  }
+  const db = createDb();
+  if (!db) throw new Error("DATABASE_URL not set; no history to delete.");
+  const record = await getHistoryById(db, args.id);
+  if (!record) throw new Error(`History entry ${args.id} not found.`);
+  await deleteHistoryEntry(db, args.id);
+  return { sourceFileName: record.sourceFileName };
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -107,6 +162,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       case "transcribe": {
         const args = JSON.parse(argJson ?? "{}") as TranscribeArgs;
         data = await handleTranscribe(args);
+        break;
+      }
+      case "list-history":
+        data = await handleListHistory();
+        break;
+      case "get-history": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number };
+        data = await handleGetHistory(args);
+        break;
+      }
+      case "delete-history-entry": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number };
+        data = await handleDeleteHistoryEntry(args);
         break;
       }
       default:

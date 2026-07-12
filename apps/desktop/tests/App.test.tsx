@@ -5,6 +5,8 @@
 // App -> QueueProvider -> QueueView -> useDragDrop mounts
 // getCurrentWebview().onDragDropEvent() unconditionally, which has no
 // __TAURI_INTERNALS__ bridge under jsdom -- mocked so this stays hermetic.
+// App -> HistoryProvider (F18) also calls the real listHistory() -> invoke()
+// unconditionally on mount, so @tauri-apps/api/core is mocked too.
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { App } from "../src/App";
@@ -13,6 +15,10 @@ import { I18nProvider } from "../src/i18n/I18nContext";
 
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => []),
 }));
 
 describe("App", () => {

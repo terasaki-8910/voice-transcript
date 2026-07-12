@@ -63,3 +63,11 @@ export async function getHistoryById(db: Db, id: number): Promise<HistoryRecord 
   const rows = await db.select().from(transcriptions).where(eq(transcriptions.id, id)).limit(1);
   return rows[0];
 }
+
+// ACCEPTANCE G9: remove a history record entirely. A no-op (not an error)
+// if the id no longer exists -- callers that need to know whether a record
+// existed should look it up first (e.g. to read sourceFileName before
+// deleting, so the caller can also trash the audio file).
+export async function deleteHistoryEntry(db: Db, id: number): Promise<void> {
+  await db.delete(transcriptions).where(eq(transcriptions.id, id));
+}

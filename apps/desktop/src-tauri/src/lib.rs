@@ -10,6 +10,14 @@
 // dialog plugin only returns the paths of files the USER explicitly picked
 // through a native OS picker, it can't read arbitrary files, so it doesn't
 // cross the same trust boundary ffmpeg/Groq/DB access does.
+//
+// F18 (gui-history) adds list_history/trash_audio/delete_history_entry. The
+// webview only ever passes a history `id`; the actual file path always
+// comes from a DB-backed sidecar lookup inside commands.rs, never from the
+// webview directly, so no new capability grant is needed for these (same as
+// ping/transcribe: app-defined commands, not a plugin's ACL surface). The
+// `trash` crate call happens here in Rust, not in the sidecar, since it's a
+// plain local filesystem operation with no need to round-trip through Node.
 mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,7 +25,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![commands::ping, commands::transcribe])
+        .invoke_handler(tauri::generate_handler![
+            commands::ping,
+            commands::transcribe,
+            commands::list_history,
+            commands::trash_audio,
+            commands::delete_history_entry,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
