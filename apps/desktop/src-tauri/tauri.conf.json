@@ -11,10 +11,11 @@
   },
   "app": {
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline'"
     },
     "windows": [
       {
+        "label": "main",
         "title": "Voice Transcript",
         "width": 960,
         "height": 640,
