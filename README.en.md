@@ -77,6 +77,14 @@ pnpm --filter desktop tauri dev                        # development loop
   txt/srt/vtt/json), **View on GitHub**, and **Preferences...** — the last bound to the
   platform shortcut (Cmd+, on macOS, Ctrl+, on Windows/Linux).
 
+<p>
+  <img src="docs/screenshots/queue-dark.png" alt="Queue view, dark theme" width="49%">
+  <img src="docs/screenshots/history-light.png" alt="History view with per-row actions, light theme" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/preferences-dark.png" alt="Preferences view" width="49%">
+</p>
+
 ### Preferences (API key)
 The Preferences view sets `GROQ_API_KEY` from the GUI instead of only via an environment
 variable. The key is written by the Rust shell to a **local config file** in the OS's

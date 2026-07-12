@@ -76,6 +76,14 @@ pnpm --filter desktop tauri dev                        # 開発ループ
   で書き出し）/ **View on GitHub** / **Preferences...** を公開。Preferences はプラット
   フォーム標準ショートカット（macOS: Cmd+, / Windows・Linux: Ctrl+,）に割り当て。
 
+<p>
+  <img src="docs/screenshots/queue-dark.png" alt="Queue ビュー（ダークテーマ）" width="49%">
+  <img src="docs/screenshots/history-light.png" alt="History ビュー、行ごとの操作アイコン（ライトテーマ）" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/preferences-dark.png" alt="Preferences ビュー" width="49%">
+</p>
+
 ### Preferences（API キー）
 Preferences ビューで、環境変数ではなく GUI から `GROQ_API_KEY` を設定できる。キーは Rust
 シェルが OS のユーザーごとの設定ディレクトリ内の**ローカル設定ファイル**（macOS:
