@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window. F15 (desktop-ipc) adds shell:allow-execute, scoped to ONLY the core-sidecar binary (not a general shell-exec grant) -- the two commands in commands.rs (ping, transcribe) are the sole callers. Later features (F17/F18/F21) add exactly the permission their own new command needs, reviewed by .claude/agents/tauri-capability-reviewer.md (ACCEPTANCE G3).",
+  "description": "Capability for the main window. F15 (desktop-ipc) added shell:allow-execute, scoped to ONLY the core-sidecar binary (not a general shell-exec grant) -- ping/transcribe in commands.rs are the sole callers. F17 (gui-queue) adds dialog:allow-open -- the native file picker for \"Add files\"; it only returns paths the user explicitly picked, it cannot read arbitrary files. Both reviewed by .claude/agents/tauri-capability-reviewer.md (ACCEPTANCE G3).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -13,6 +13,7 @@
           "sidecar": true
         }
       ]
-    }
+    },
+    "dialog:allow-open"
   ]
 }
