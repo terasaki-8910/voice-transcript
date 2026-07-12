@@ -230,10 +230,15 @@ F11, waves continue at Wave 6.
     that's where the `process.env.GROQ_API_KEY` literal actually lives).
   - F13 `core-db` -- MERGED. Gate green (5/5 db-hygiene.test.ts H3/H4, typecheck,
     lint). Drizzle schema + client + history functions + an initial migration.
-  - F14 `tauri-scaffold` -- BLOCKED, not on dependencies (F11 is merged) but on
-    environment: this machine has neither `pnpm` nor `cargo`/`rustc` installed.
-    Rust install is in progress (user-run, out of band). Do not attempt to
-    scaffold `apps/desktop/src-tauri` without a working `cargo check`.
+  - F14 `tauri-scaffold` -- MERGED, once Rust/pnpm became available. Tauri v2
+    app shell (React 19 + Vite webview, Rust src-tauri/), zero custom commands
+    registered yet. `capabilities/default.json` grants only `core:default`.
+    Pre-merge `tauri-capability-reviewer` review found 2 issues, both fixed
+    before merge: `security.csp` was `null` (now an explicit policy) and the
+    main window had no explicit `"label"` (now `"main"`, stated not inferred).
+    Gate green: desktop-hygiene.test.ts (G2) 4/4, own smoke test 1/1,
+    typecheck+lint clean, `cargo check` + `cargo clippy -D warnings` clean,
+    vite production build succeeds.
 - **Post-merge fixups (commit `6c7f933`, not a feature):** a `resolve.alias`
   in root `vitest.config.ts` for `@voice-transcript/core` (Vite doesn't do
   Node's per-file upward `node_modules` walk, so `tests/e2e/integration.test.ts`
@@ -249,25 +254,22 @@ F11, waves continue at Wave 6.
   `CliDeps`; wires `createDb()` + `recordHistorySafe()`; H5 enforced in
   `cli.ts` itself (not just trusted from the injected function). Gate green
   (packages/cli 17/17, packages/core 19/19, typecheck+lint clean on both).
-- **Everything else remaining (F14/F15/F17-21) is now blocked on Rust/`cargo`
-  only** -- no other feature has its dependencies satisfied without
-  `apps/desktop/src-tauri` existing. `state/features.txt` is intentionally
-  left EMPTY until Rust is available; re-run `plan` once `cargo --version`
-  works to schedule `tauri-scaffold` (F14).
+- **Between F16 and F14, also did an infra migration (commit `7ecc710`,
+  merged as `chore/pnpm-migration`, not an F-numbered feature):** replaced
+  the npm `file:../core` bridge with real pnpm `workspace:*` linking, now
+  that `pnpm` was available -- removed all `package-lock.json` files, added
+  one root `pnpm-lock.yaml`. Done *before* F14 specifically so the new
+  `apps/desktop` package wouldn't need the same bridge-then-migrate cycle.
+- **Wave 8, F15 `desktop-ipc` -- NOW UNBLOCKED.** Its declared deps (F11, F13,
+  F14) are all merged. F17-21 (Wave 9) still depend on F15.
 
 ## Independent set to build now (-> state/features.txt)
 
-**Nothing buildable right now.** F14 `tauri-scaffold` is the only feature
-with satisfied dependencies (F11, merged) but it needs a Rust toolchain this
-machine doesn't have yet; every other remaining feature (F15, F17-21)
-transitively depends on F14. Per the Stage 3 rule ("if every feature ...
-already exists OR cannot proceed, write an empty state/features.txt"),
-that's the correct signal here too -- not "done", but "blocked", so the
-driver doesn't spin on an impossible build. Re-run `plan` once
-`cargo --version` succeeds.
+**`desktop-ipc` (F15) only.** Everything in Wave 9 (F17-F21) depends on F15,
+which just became buildable now that F11/F13/F14 are all merged.
 
 ```
-(empty -- blocked on Rust, not on dependencies)
+desktop-ipc
 ```
 
 ## Build order (waves, new scope)
