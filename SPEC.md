@@ -78,15 +78,42 @@ history of past runs.
      disappears from history). If the source audio file still exists on
      disk, it is also moved to the OS trash (same recoverable guarantee as
      action 1) as part of the same action.
-- **Native OS menu integration** (confirmed 2026-07-12): the app exposes
-  real OS-level menus (macOS global menu bar / Windows app menu, via Tauri's
-  Menu API), not just controls inside the webview. App-specific items:
-  **Add files**, **Open history**, **Export** (the currently-open/selected
-  transcript, in one of the existing formats — txt/srt/vtt/json, no new
-  format), and **View on GitHub** (opens the project repo in the default
-  browser; likely under a Help menu). Standard OS/Tauri menu conventions
-  (About, Quit, Edit commands, Window menu on macOS, etc.) are included by
-  platform convention and aren't itemized here.
+- **Native OS menu integration** (confirmed 2026-07-12; Preferences item
+  added 2026-07-13): the app exposes real OS-level menus (macOS global menu
+  bar / Windows app menu, via Tauri's Menu API), not just controls inside
+  the webview. App-specific items: **Add files**, **Open history**,
+  **Export** (the currently-open/selected transcript, in one of the
+  existing formats — txt/srt/vtt/json, no new format), **View on GitHub**
+  (opens the project repo in the default browser; likely under a Help
+  menu), and **Preferences...** (opens the Preferences view — see
+  "Preferences (API key)" below), bound to the platform-conventional
+  shortcut: Cmd+, on macOS, Ctrl+, on Windows/Linux. Standard OS/Tauri menu
+  conventions (About, Quit, Edit commands, Window menu on macOS, etc.) are
+  included by platform convention and aren't itemized here.
+
+## Preferences (API key)
+- A Preferences view lets the user set `GROQ_API_KEY` from the GUI instead
+  of only via an environment variable. Reachable via the native menu's
+  **Preferences...** item and its platform shortcut (Cmd+,/Ctrl+,).
+- **Storage (decided 2026-07-13): a local config file**, not the OS
+  keychain. Written by the Rust shell to a file in the OS's per-user
+  app-config directory (e.g. via Tauri's `path` API — platform-appropriate:
+  `~/Library/Application Support/...` on macOS, `%APPDATA%\...` on Windows,
+  `~/.config/...` on Linux), outside the git repo, never committed. The
+  Node sidecar reads this file at startup as a fallback when the
+  `GROQ_API_KEY` environment variable isn't set (environment variable still
+  wins if both are present, for CLI/scripting use).
+- **Tradeoff, stated plainly:** this is plaintext-on-disk, not
+  encrypted-at-rest the way an OS keychain entry would be. Mitigated only
+  by OS file permissions (owner-read/write only, e.g. `0600` on
+  macOS/Linux) and the file living outside the repo. Acceptable for this
+  app's current scope (a single-user personal tool); would need revisiting
+  (e.g. moving to OS keychain storage) before any multi-user or
+  shared-machine use.
+- The webview never reads or writes this file directly — the Preferences
+  view sends the entered key to a Rust command, which alone touches the
+  filesystem, same trust-boundary pattern as every other secret/fs/DB
+  operation in this app (see Architecture above).
 
 ## Transcription history (persistence)
 - Every completed run (CLI and GUI both write to the same store) records:

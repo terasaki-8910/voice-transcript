@@ -217,7 +217,7 @@ F11, waves continue at Wave 6.
 | F18 | `gui-history`        | `apps/desktop/src/features/history/**`; trash/delete commands in `src-tauri/src/commands.rs`                                                               | F15          | G7,G9,H2 -> NOT vitest (built app / integration); `tauri-capability-reviewer` for new fs/trash grants | 9    |
 | F19 | `gui-i18n`           | `apps/desktop/src/i18n/**` + language-setting store                                                                                                        | F14          | G6 -> NOT vitest (exercised in built app); typecheck/eslint                                       | 9    |
 | F20 | `gui-theme`          | `apps/desktop/src/theme/**`                                                                                                                                | F14          | design-gate confirmed; NOT vitest (built app); `no-hardcoded-hex` enforces tokens                | 9    |
-| F21 | `native-menu`        | `apps/desktop/src-tauri/src/menu.rs` (+register); menu->command handlers                                                                                   | F15          | G8 -> NOT vitest (exercised via native OS menu in built app); `tauri-capability-reviewer`         | 9/10 |
+| F21 | `native-menu`        | `apps/desktop/src-tauri/src/menu.rs` (+register); menu->command handlers; Preferences view (`apps/desktop/src/features/preferences/**`); `save_api_key`/`get_api_key_status` Rust commands (local config file I/O, path via Tauri's `path` API); sidecar reads the config file as a `GROQ_API_KEY` fallback | F15          | G8,G10,G11 -> NOT vitest (exercised via native OS menu/shortcut in built app); `tauri-capability-reviewer` for the new fs write         | 9/10 |
 | --  | `release-workflow`   | `.github/workflows/release.yml` + README regen                                                                                                             | ALL merged   | I1-I3 -> run once as a manual smoke test. **Post-build only**, per CLAUDE.md > Release -- never a build-wave feature | post-build |
 
 ## Progress (new scope)
@@ -421,23 +421,21 @@ native-menu
 Both items below were explicitly deferred by the user ("まだやらなくていい") --
 tracked here so they aren't lost, not started.
 
-- **API key configuration in a Preferences/Settings screen.** Today
-  `GROQ_API_KEY` is read from the environment only (CLI and the desktop
-  sidecar both). Concrete requirements now given by the user (2026-07-13):
+- **API key configuration in a Preferences/Settings screen -- DECIDED,
+  ready to schedule.** Today `GROQ_API_KEY` is read from the environment
+  only (CLI and the desktop sidecar both). Requirements (user, 2026-07-13):
   Cmd+, opens Preferences on macOS, Ctrl+, on Windows (matches VS Code/
-  Slack/Discord convention on that platform too), and a native menu entry
-  reaches it as well -- so this is now scoped as an extension of F21
-  `native-menu`'s item list, not a separate standalone screen's placement
-  question. What's still unresolved and blocks starting the build: HOW the
-  key is stored. Asked the user to choose between (a) OS keychain via a
-  Tauri/Rust `keyring`-style crate (more secure, one more dependency,
-  needs per-OS behavior verified) or (b) a local config file in the OS's
-  app-config directory, written by the Rust shell and read by the sidecar
-  at startup (simpler, matches this app's existing "personal tool" scope).
-  Once answered: needs its own SPEC.md addition (the chosen storage
-  mechanism changes the trust-boundary design in SPEC's Architecture
-  section) and a criteria/design-gate pass before a build wave, same as any
-  other new feature -- not a bug fix.
+  Slack/Discord convention there too), and a native menu entry reaches it
+  as well -- folded into F21 `native-menu`'s item list, not a separate
+  screen's placement question. Storage mechanism (user chose, 2026-07-13):
+  a local config file in the OS's app-config directory (not OS keychain) --
+  written by the Rust shell, read by the sidecar at startup. Tradeoff to
+  state plainly, not hide: this is plaintext-on-disk, not
+  encrypted-at-rest like a keychain entry would be; mitigated only by OS
+  file permissions (owner-only, e.g. 0600) and living outside the git repo
+  (never committed). Acceptable for a single-user personal tool; would need
+  revisiting before any multi-user or shared-machine use. See SPEC.md >
+  Preferences (API key) for the full write-up.
 - **Richer README with screenshots, post-integration_accept.** CLAUDE.md's
   existing Release step (1) says the README is regenerated from SPEC.md via
   `run.sh readme` specifically because that keeps it reproducible, not

@@ -70,13 +70,25 @@ integration acceptance.
 - **G8** — The app's native OS menu (macOS global menu bar / Windows app
   menu, via Tauri's Menu API) exposes at minimum: Add files, Open history,
   Export (the current transcript, in an existing format — txt/srt/vtt/json),
-  and View on GitHub. These are reachable from the native menu, not only
-  from in-webview controls. (Confirmed 2026-07-12.)
+  View on GitHub, and Preferences.... These are reachable from the native
+  menu, not only from in-webview controls. (Confirmed 2026-07-12; Preferences
+  item added 2026-07-13.)
 - **G9** — Deleting a history entry removes its history record (it no
   longer appears in the history list, and an H2-style lookup for it returns
   nothing); if the source audio file still exists on disk, it is also moved
   to the OS trash (same recoverable guarantee as G7, never a permanent
   delete). (Confirmed 2026-07-12.)
+- **G10** — Preferences opens via the native menu's Preferences... item and
+  via its platform shortcut (Cmd+, macOS / Ctrl+, Windows/Linux); both reach
+  the same view. (Confirmed 2026-07-13.)
+- **G11** — Saving an API key in Preferences writes it to a local config
+  file in the OS's per-user app-config directory (never inside the git
+  repo, never committed — grep/test-enforced, same pattern as F4/H3); the
+  webview never reads or writes that file directly, only a Rust command
+  does (G3-style capability review applies). The sidecar uses this file's
+  key only when the `GROQ_API_KEY` environment variable is unset; the
+  environment variable always takes priority when both are present.
+  (Confirmed 2026-07-13.)
 
 ## H. Transcription history (Postgres)
 - **H1** — Every completed run (CLI or GUI) writes one history record:
