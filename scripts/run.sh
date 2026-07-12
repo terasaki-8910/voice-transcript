@@ -33,6 +33,8 @@ trap 'trap - INT TERM; echo; echo "[run.sh] interrupted -- stopping." >&2; kill 
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+mark_done() { mkdir -p "$STATE/done"; : > "$STATE/done/$1"; }  # checkpoint read by `status`
+
 notify() {  # best-effort desktop notification; always prints
   m=$1
   if have terminal-notifier; then terminal-notifier -title pipeline -message "$m" >/dev/null 2>&1 || true
@@ -44,7 +46,10 @@ notify() {  # best-effort desktop notification; always prints
 
 confirm() {  # human gate. $1=message. 0 on yes.
   notify "$1"; printf 'Approve? [y/N] '
-  read ans || ans=n
+  # Read from the terminal, NOT the caller's stdin -- feature_accept calls this inside
+  # `while read feat < features.txt`, so a plain `read` would eat feature lines instead
+  # of your keypress. Fall back to stdin, then to N, for headless/CI runs.
+  read ans </dev/tty 2>/dev/null || read ans || ans=n
   case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
@@ -81,20 +86,23 @@ stage_intake() {
   if [ -f "$STATE/init-tools.sh" ]; then
     notify "Optional: review state/init-tools.sh, then run it YOURSELF to add tools. Nothing was installed automatically."
   fi
+  mark_done intake
 }
 
 stage_criteria() {
   echo "== 1. author criteria (model=$MODEL_CRITERIA) =="
   agent_stage "$MODEL_CRITERIA" "$PROMPTS/01-criteria.md"
   confirm "Stage 1: failing tests + lint config approved?" || { echo "Not approved."; exit 1; }
+  mark_done criteria
 }
 
 stage_design_gate() {
-  [ -f "$STATE/has_ui" ] || { echo "== 2. design gate: skipped (no UI) =="; return 0; }
+  [ -f "$STATE/has_ui" ] || { echo "== 2. design gate: skipped (no UI) =="; mark_done design; return 0; }
   echo "== 2. design gate (model=$MODEL_DESIGN) =="
   agent_stage "$MODEL_DESIGN" "$PROMPTS/02-design-gate.md"
   confirm "Stage 2: aesthetic direction / tokens approved (ONE time)?" \
     || { echo "Iterate prompts/02, then rerun 'design'."; exit 1; }
+  mark_done design
 }
 
 stage_plan() {
@@ -102,6 +110,7 @@ stage_plan() {
   agent_stage "$MODEL_PLAN" "$PROMPTS/03-plan.md"
   echo "Skim PLAN.md and state/features.txt. Press Enter to continue."
   read _ || true
+  mark_done plan
 }
 
 gate_feature() {  # $1=feature. Gate ONLY this feature if a per-feature gate exists,
@@ -161,7 +170,8 @@ stage_build() {
       build_feature "$feat" || rc=1
     done < "$STATE/features.txt"
   fi
-  [ "$rc" -eq 0 ] || echo "Some features failed gates; check state/logs and BLOCKED-*.md."
+  [ "$rc" -eq 0 ] || { echo "Some features failed gates; see state/BLOCKED-*.md. Resume: sh scripts/run.sh from build"; exit 1; }
+  mark_done build
 }
 
 stage_feature_accept() {
@@ -176,13 +186,18 @@ stage_feature_accept() {
     git -C "$ROOT" merge --no-ff "feature/$feat" -m "merge feature/$feat"
     git worktree remove "$STATE/worktrees/$feat" 2>/dev/null || true
   done < "$STATE/features.txt"
+  mark_done accept
 }
 
 stage_integration_accept() {
   echo "== 6. integration acceptance (once) =="
-  ( cd "$ROOT" && gate_all ) || { echo "Integration gates failed."; exit 1; }
+  # gates run in the MAIN repo; deps were installed in the worktrees, so install here too.
+  if [ -f "$ROOT/package.json" ]; then ( cd "$ROOT" && npm install >/dev/null 2>&1 || true ); fi
+  ( cd "$ROOT" && gate_all ) \
+    || { echo "Integration gates failed. Fix, then resume: sh scripts/run.sh from integrate"; exit 1; }
   confirm "Final smoke test passed on device/browser?" || { echo "Not accepted."; exit 1; }
   echo "== 7. DONE =="
+  mark_done integrate
 }
 
 stage_survey() {  # OPTIONAL prior-art survey; NOT part of `all`. Needs WebSearch enabled.
@@ -194,6 +209,39 @@ stage_readme() {  # generate project README.md + README.en.md from SPEC (reprodu
   [ -f "$ROOT/SPEC.md" ] || { echo "readme: SPEC.md missing (run intake first)."; return 0; }
   echo "== readme: generate project README(s) from SPEC (model=$MODEL_INTAKE) =="
   claude_run "$MODEL_INTAKE" "$PROMPTS/readme.md"
+}
+
+stage_status() {  # show which stages are done + the command to continue
+  echo "== pipeline status: $(basename "$ROOT") =="
+  next=""
+  for s in intake criteria design plan build accept integrate; do
+    if [ "$s" = design ] && [ ! -f "$STATE/has_ui" ] && [ ! -f "$STATE/done/design" ]; then
+      printf '  [-] %s (n/a: no UI)\n' "$s"; continue
+    fi
+    if [ -f "$STATE/done/$s" ]; then printf '  [x] %s\n' "$s"
+    else printf '  [ ] %s\n' "$s"; [ -z "$next" ] && next="$s"; fi
+  done
+  echo ""
+  if [ -z "$next" ]; then echo "All stages complete."; return 0; fi
+  echo "Next: $next"
+  echo "  run:           sh scripts/run.sh from $next"
+  echo "  watch in TUI:  INTERACTIVE=1 sh scripts/run.sh from $next"
+}
+
+stage_reset() {  # clear BUILD artifacts (worktrees, feature/* branches, checkpoints) so you
+  # can cleanly re-run. Keeps spec/criteria/plan (SPEC/ACCEPTANCE/PLAN/tests/gates/features).
+  git -C "$ROOT" worktree prune 2>/dev/null || true
+  for w in "$STATE"/worktrees/*/; do
+    [ -d "$w" ] && git -C "$ROOT" worktree remove --force "$w" 2>/dev/null || true
+  done
+  for b in $(git -C "$ROOT" branch --list 'feature/*' 2>/dev/null | sed 's/[* ]//g'); do
+    git -C "$ROOT" branch -D "$b" 2>/dev/null || true
+  done
+  rm -rf "$STATE/worktrees" "$STATE/done" 2>/dev/null || true
+  rm -f "$STATE"/BLOCKED-*.md 2>/dev/null || true
+  mkdir -p "$STATE/worktrees"
+  echo "reset: worktrees + feature/* branches + checkpoints cleared. spec/criteria/plan kept."
+  echo "re-run:  sh scripts/run.sh from build   (or  from plan  to redo planning)"
 }
 
 run_from() {  # run the given stage and every stage after it, in order
@@ -226,9 +274,11 @@ main() {
     integrate) stage_integration_accept ;;
     survey)    stage_survey ;;
     readme)    stage_readme ;;
+    status)    stage_status ;;                # show progress + next command
+    reset)     stage_reset ;;                 # clear build artifacts to recover cleanly
     from)      run_from "${2:-criteria}" ;;   # resume: run this stage -> end
     all)       run_from intake ;;
-    *) echo "usage: run.sh [intake|readme|criteria|design|plan|build|accept|integrate|survey|all|from <stage>]"; exit 2 ;;
+    *) echo "usage: run.sh [status|intake|readme|criteria|design|plan|build|accept|integrate|survey|reset|all|from <stage>]"; exit 2 ;;
   esac
 }
 main "$@"
