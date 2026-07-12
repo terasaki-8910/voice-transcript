@@ -1,5 +1,5 @@
-import type { OutputFormat } from "./types.js";
-import { DEFAULT_MODEL, OUTPUT_FORMATS } from "./config.js";
+import type { OutputFormat } from "@voice-transcript/core";
+import { DEFAULT_MODEL, OUTPUT_FORMATS } from "@voice-transcript/core";
 
 export interface CliOptions {
   input: string;

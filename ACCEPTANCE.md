@@ -39,7 +39,7 @@ integration acceptance.
 - **F2** — `pnpm -r test` (vitest) passes with all non-integration tests green,
   across `packages/core`, `packages/cli`, and `apps/desktop`.
 - **F3** — `pnpm -r typecheck` (`tsc --noEmit`) reports no errors in any package.
-- **F4** — No hardcoded API key in the repo; the key is read only from `process.env.GROQ_API_KEY` (grep/test-enforced, `packages/core` + `apps/desktop/src-tauri`).
+- **F4** — No hardcoded API key in the repo; the key is read only from `process.env.GROQ_API_KEY` (grep/test-enforced, `packages/cli` -- where the CLI entry point reads it from `process.env` -- and `apps/desktop/src-tauri`; corrected 2026-07-12 during the `cli-package` build, since the env-read lives in the CLI entry point, not `packages/core`).
 
 ## G. Desktop GUI (Tauri, Windows/Linux/macOS)
 - **G1** — The desktop app builds and produces a runnable bundle on all three

@@ -11,11 +11,9 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { main } from "../../src/cli.js";
-import { GroqClient } from "../../src/groq.js";
-import { createFfmpegBackend } from "../../src/audio.js";
-import { MAX_UPLOAD_BYTES } from "../../src/config.js";
-import type { TranscriptResult } from "../../src/types.js";
+import { main } from "../../packages/cli/src/cli.js";
+import { GroqClient, createFfmpegBackend, MAX_UPLOAD_BYTES } from "../../packages/core/src/index.js";
+import type { TranscriptResult } from "../../packages/core/src/index.js";
 
 const AUDIO = fileURLToPath(new URL("../test.m4a", import.meta.url));
 const TIMEOUT_MS = 30 * 60 * 1000; // transcribing ~78 min of audio is slow.
