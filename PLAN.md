@@ -276,6 +276,12 @@ F11, waves continue at Wave 6.
 - **Wave 9 (F17-F21) now unblocked** -- all five depend only on F15 (F17,
   F19, F20) or on F15 (F18, F21 also touch `src-tauri/src/commands.rs` --
   see Note 11 on why they may not all be truly parallel).
+- **F17 `gui-queue` -- MERGED.** F17/F19/F20 (the file-disjoint first batch of
+  Wave 9) are now all merged. F18 `gui-history` and F21 `native-menu` remain
+  -- both touch `src-tauri/src/commands.rs`/new files, so per Note 11 they
+  build sequentially too. F21's "Open history" menu item (SPEC.md > Native
+  OS menu integration) needs a real History screen to invoke, so F18 goes
+  first.
 
 ## Independent set to build now (-> state/features.txt)
 
@@ -299,10 +305,22 @@ F11, waves continue at Wave 6.
   language flips an unrelated consumer's labels in the same render, no
   remount). Gate green: apps/desktop 6/6, desktop-hygiene (G2) 4/4,
   typecheck+lint clean.
-- **F17 `gui-queue` -- still to build**, same sequential approach.
+- **F17 `gui-queue` -- MERGED.** QueueContext (sequential one-at-a-time
+  processing via an injectable `transcribeFn`; a failed item never blocks
+  the next queued one, ACCEPTANCE G5), QueueRow (status chip, inline "View"
+  expand, "Retry"), QueueView (native "Add files" picker via
+  `tauri-plugin-dialog`'s scoped `dialog:allow-open`, native OS drag-and-drop
+  via the core webview API). `tauri-capability-reviewer` pre-merge review:
+  clean, `dialog:allow-open` confirmed minimal (not the broader
+  `dialog:default`), no trust-boundary violation (the picker only returns
+  user-selected paths, no file-content/broader-fs access). Gate green:
+  apps/desktop 14/14 (incl. 3 new queue test files), desktop-hygiene (G2)
+  4/4, typecheck+lint clean, `cargo check`/`clippy -D warnings` clean,
+  sidecar rebuild + binary smoke test pass.
+- **F18 `gui-history` -- still to build**, same sequential approach.
 
 ```
-gui-queue
+gui-history
 ```
 
 ## Build order (waves, new scope)
