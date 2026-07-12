@@ -29,6 +29,9 @@ export const translations = {
     apiKeyLabel: "Groq API key",
     close: "Close",
     save: "Save",
+    export: "Export",
+    confirmTrashAudioBody: "Move the source audio file to the trash? The history entry and transcript are kept.",
+    confirmDeleteEntryBody: "Delete this history entry? If the source audio file still exists, it will also be moved to the trash.",
   },
   ja: {
     queue: "キュー",
@@ -56,6 +59,9 @@ export const translations = {
     apiKeyLabel: "Groq APIキー",
     close: "閉じる",
     save: "保存",
+    export: "エクスポート",
+    confirmTrashAudioBody: "音声ファイルをゴミ箱に移動しますか?履歴と文字起こしは保持されます。",
+    confirmDeleteEntryBody: "この履歴を削除しますか?音声ファイルが残っていれば、それもゴミ箱に移動します。",
   },
 } as const;
 

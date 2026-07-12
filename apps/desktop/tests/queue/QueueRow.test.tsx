@@ -3,13 +3,29 @@
 // real QueueProvider (injectable transcribeFn) rather than a hand-built
 // item prop, so the status transitions match what QueueContext actually
 // produces.
-import { describe, it, expect } from "vitest";
+//
+// Post-integration fix batch (2026-07-13): pins the per-row Export button,
+// which calls pickSavePath (-> @tauri-apps/plugin-dialog's save()) and
+// exportTranscript (-> invoke()) directly -- both mocked at the module
+// level since QueueRow has no injectable seam for them (consistent with
+// how other direct Tauri API calls are mocked elsewhere in this suite).
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { QueueRow } from "../../src/features/queue/QueueRow";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
+
+const save = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: (...args: unknown[]) => save(...args),
+}));
+
+const invoke = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invoke(...args),
+}));
 
 function RowHarness({ transcribeFn }: { transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> }) {
   return (
@@ -48,7 +64,7 @@ describe("QueueRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByText("hello world")).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "−" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByText("hello world")).toBeNull();
   });
 
@@ -69,5 +85,32 @@ describe("QueueRow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+  });
+
+  it("Export picks a save path and writes the transcript directly, without needing View first", async () => {
+    save.mockResolvedValue("/tmp/a.m4a.txt");
+    invoke.mockResolvedValue(undefined);
+    render(<RowHarness transcribeFn={() => Promise.resolve({ text: "hello world", rendered: "hello world" })} />);
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ defaultPath: "a.m4a.txt" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("export_transcript", { path: "/tmp/a.m4a.txt", content: "hello world" }));
+  });
+
+  it("Export does nothing when the save dialog is cancelled", async () => {
+    save.mockReset();
+    invoke.mockReset();
+    save.mockResolvedValue(null);
+    render(<RowHarness transcribeFn={() => Promise.resolve({ text: "hello world", rendered: "hello world" })} />);
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

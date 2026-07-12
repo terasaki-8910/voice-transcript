@@ -120,3 +120,43 @@
 .fail-reason {
   color: var(--color-danger);
 }
+
+/* Icon-only row actions (Trash/Delete/Export) -- post-integration fix
+   batch, 2026-07-13. Deliberately larger than the default 44x44pt touch
+   target minimum isn't needed on desktop, but kept comfortably clickable;
+   see ~/.claude/rules/ui.md > Icon sourcing for why react-icons is the
+   default fallback here (React/DOM app, no icon in the design tokens). */
+.icon-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+}
+
+.icon-btn:disabled {
+  color: var(--color-line);
+  cursor: default;
+}
+
+.icon-btn-danger {
+  color: var(--color-danger);
+}
+
+.icon-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
