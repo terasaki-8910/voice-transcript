@@ -260,16 +260,39 @@ F11, waves continue at Wave 6.
   that `pnpm` was available -- removed all `package-lock.json` files, added
   one root `pnpm-lock.yaml`. Done *before* F14 specifically so the new
   `apps/desktop` package wouldn't need the same bridge-then-migrate cycle.
-- **Wave 8, F15 `desktop-ipc` -- NOW UNBLOCKED.** Its declared deps (F11, F13,
-  F14) are all merged. F17-21 (Wave 9) still depend on F15.
+- **Wave 8, F15 `desktop-ipc` -- MERGED.** Node sidecar
+  (`packages/core/src/sidecar.ts` + `sidecar-bin.ts` entry) exposing
+  `ping`/`transcribe`; Rust `commands.rs` proxies both via
+  `tauri_plugin_shell::ShellExt`; `shell:allow-execute` scoped to the
+  sidecar binary name only. `tauri-capability-reviewer` pre-merge review:
+  clean, no findings. Sidecar build
+  (`packages/core/scripts/build-sidecar.mjs`): esbuild bundles to CJS,
+  `@yao-pkg/pkg` (not the unmaintained original `pkg` -- no prebuilt
+  binaries past ~Node 18) compiles a standalone binary named
+  `core-sidecar-<rust-target-triple>`. Gate green: packages/core 25/25
+  (incl. 6 sidecar tests), desktop-hygiene (G2) 4/4, apps/desktop smoke
+  test 1/1, typecheck+lint clean, `cargo check`/`clippy -D warnings`
+  clean, compiled-binary smoke test passes.
+- **Wave 9 (F17-F21) now unblocked** -- all five depend only on F15 (F17,
+  F19, F20) or on F15 (F18, F21 also touch `src-tauri/src/commands.rs` --
+  see Note 11 on why they may not all be truly parallel).
 
 ## Independent set to build now (-> state/features.txt)
 
-**`desktop-ipc` (F15) only.** Everything in Wave 9 (F17-F21) depends on F15,
-which just became buildable now that F11/F13/F14 are all merged.
+**F17 `gui-queue`, F19 `gui-i18n`, F20 `gui-theme`** -- these three are
+genuinely file-disjoint (`apps/desktop/src/features/queue/**`,
+`apps/desktop/src/i18n/**`, `apps/desktop/src/theme/**`) and depend only on
+F15, which is merged. F18 `gui-history` and F21 `native-menu` both also
+touch `apps/desktop/src-tauri/src/commands.rs` (F18) /
+`apps/desktop/src-tauri/src/menu.rs` (F21, new file, but registered
+alongside commands in `lib.rs`) -- held back this round per Note 11 to keep
+the wave's file sets provably disjoint; scheduled next once this wave
+merges.
 
 ```
-desktop-ipc
+gui-queue
+gui-i18n
+gui-theme
 ```
 
 ## Build order (waves, new scope)
