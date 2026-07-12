@@ -9,3 +9,9 @@ coverage/
 .env
 .env.*
 !.env.example
+# 音声ファイル
+*.wav
+*.mp3
+*.m4a
+
+
