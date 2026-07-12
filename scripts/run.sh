@@ -50,12 +50,25 @@ record_session() {  # best-effort: map the Claude session just run (in CWD) to a
   echo ">> session[$label] = $id   (resume: claude --resume $id)"
 }
 
-notify() {  # best-effort desktop notification; always prints
+notify() {  # desktop notification at input/gate points; always prints to the terminal too.
   m=$1
-  if have terminal-notifier; then terminal-notifier -title pipeline -message "$m" >/dev/null 2>&1 || true
-  elif have osascript; then osascript -e "display notification \"$m\" with title \"pipeline\"" >/dev/null 2>&1 || true
-  elif have notify-send; then notify-send pipeline "$m" >/dev/null 2>&1 || true
-  else printf '\a'; fi
+  # Only banner when you're likely NOT looking. If the terminal is already frontmost we
+  # skip the banner (you can see the prompt). Detection is macOS-only + heuristic; if it
+  # can't tell, it notifies -- better a redundant banner than a missed prompt.
+  # Set NOTIFY_ALWAYS=1 to always banner; the terminal print below always happens.
+  banner=1
+  if [ "${NOTIFY_ALWAYS:-0}" != "1" ] && [ "$(uname 2>/dev/null)" = "Darwin" ] && have osascript; then
+    front=$(osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null || echo)
+    case "$front" in
+      Terminal|iTerm2|Warp|WarpTerminal|Ghostty|WezTerm|Alacritty|kitty|Hyper|Tabby|Code|Cursor|Electron) banner=0 ;;
+    esac
+  fi
+  if [ "$banner" = "1" ]; then
+    if have terminal-notifier; then terminal-notifier -title "pipeline" -message "$m" -sound Ping >/dev/null 2>&1 || true
+    elif have osascript; then osascript -e "display notification \"$m\" with title \"pipeline\" sound name \"Ping\"" >/dev/null 2>&1 || true
+    elif have notify-send; then notify-send "pipeline" "$m" >/dev/null 2>&1 || true
+    else printf '\a'; fi
+  fi
   printf '\n>>> %s\n' "$m"
 }
 
@@ -124,8 +137,8 @@ stage_design_gate() {
 stage_plan() {
   echo "== 3. plan (model=$MODEL_PLAN) =="
   agent_stage "$MODEL_PLAN" "$PROMPTS/03-plan.md"
-  echo "Skim PLAN.md and state/features.txt. Press Enter to continue."
-  read _ || true
+  notify "plan: skim PLAN.md + state/features.txt, then press Enter to continue."
+  read _ </dev/tty 2>/dev/null || read _ || true
   mark_done plan
 }
 
@@ -271,7 +284,7 @@ stage_reset() {  # clear BUILD artifacts (worktrees, feature/* branches, checkpo
 stage_waves() {  # plan -> build -> accept, looped over successive dependency waves
   w=0
   while [ "$w" -lt 12 ]; do
-    w=$((w + 1)); echo "== wave $w =="
+    w=$((w + 1)); echo "== build round $w =="
     stage_plan   # re-plans: writes the NEXT wave to features.txt, or EMPTY when all built
     if ! grep -q '[^[:space:]]' "$STATE/features.txt" 2>/dev/null; then
       echo "== all planned features are built =="; return 0
