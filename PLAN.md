@@ -279,20 +279,23 @@ F11, waves continue at Wave 6.
 
 ## Independent set to build now (-> state/features.txt)
 
-**F17 `gui-queue`, F19 `gui-i18n`, F20 `gui-theme`** -- these three are
-genuinely file-disjoint (`apps/desktop/src/features/queue/**`,
-`apps/desktop/src/i18n/**`, `apps/desktop/src/theme/**`) and depend only on
-F15, which is merged. F18 `gui-history` and F21 `native-menu` both also
-touch `apps/desktop/src-tauri/src/commands.rs` (F18) /
-`apps/desktop/src-tauri/src/menu.rs` (F21, new file, but registered
-alongside commands in `lib.rs`) -- held back this round per Note 11 to keep
-the wave's file sets provably disjoint; scheduled next once this wave
-merges.
+- **F20 `gui-theme` -- MERGED.** ThemeContext/ThemeProvider/ThemeToggle
+  (apps/desktop/src/theme/**), persisted to localStorage, applies
+  `data-theme` on `<html>`. Also introduced
+  `apps/desktop/src/styles/toolbar.css` (shared toolbar/tabs/settings/
+  btn-primary chrome, copied from the approved reference screen) -- F19 and
+  F17 reuse these classes. Built SEQUENTIALLY (not in a truly separate
+  parallel worktree kept isolated until the end) because F19/F17 both need
+  to compose into the same `App.tsx` toolbar F20 started -- branching each
+  next feature's worktree from the just-merged `main` avoids any
+  App.tsx merge conflict, same safety property as parallel worktrees
+  without fighting a real shared-file dependency. Gate green: apps/desktop
+  3/3, desktop-hygiene (G2) 4/4, typecheck+lint clean.
+- **F19 `gui-i18n`, F17 `gui-queue` -- still to build**, same sequential
+  approach, each branching from the updated `main`.
 
 ```
-gui-queue
 gui-i18n
-gui-theme
 ```
 
 ## Build order (waves, new scope)
