@@ -4,10 +4,24 @@
 // trashes the audio too if it's still there). F21: "View" also records this
 // item as the current selection, so the native menu's Export item has
 // something to act on.
+//
+// Post-integration fix batch (2026-07-13, user testing feedback):
+// - Both destructive actions now require an OS-native confirm() dialog
+//   first -- previously they fired immediately on click.
+// - Trash/Delete render as icon buttons (react-icons/fi) instead of plain
+//   text links, with Delete in --color-danger (a design token, never a
+//   hardcoded hex) since it's the more final of the two actions.
+// - Export is now also available directly on the row (previously only
+//   reachable via the native menu's Export item + a prior "View" click to
+//   set the selection) -- exports this row's own transcript directly,
+//   independent of SelectionContext.
 import { useState } from "react";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import { FiTrash, FiTrash2, FiDownload } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import type { HistoryEntry } from "../../lib/tauri";
+import { pickSavePath, exportTranscript } from "../../lib/tauri";
 import { useSelection } from "../selection/SelectionContext";
 
 function basename(filePath: string): string {
@@ -21,19 +35,45 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const { setSelection } = useSelection();
   const [expanded, setExpanded] = useState(false);
   const actionError = actionErrors.get(item.id);
+  const fileName = basename(item.sourceFileName);
 
   const handleView = () => {
     setExpanded((v) => !v);
     if (item.transcriptText) {
-      setSelection({ fileName: basename(item.sourceFileName), text: item.transcriptText, format: "txt" });
+      setSelection({ fileName, text: item.transcriptText, format: "txt" });
     }
+  };
+
+  const handleTrash = async () => {
+    const confirmed = await confirm(`${fileName}\n\n${t("confirmTrashAudioBody")}`, {
+      title: t("trashAudio"),
+      kind: "warning",
+    });
+    if (!confirmed) return;
+    await trash(item.id);
+  };
+
+  const handleDelete = async () => {
+    const confirmed = await confirm(`${fileName}\n\n${t("confirmDeleteEntryBody")}`, {
+      title: t("deleteEntry"),
+      kind: "warning",
+    });
+    if (!confirmed) return;
+    await remove(item.id);
+  };
+
+  const handleExport = async () => {
+    if (!item.transcriptText) return;
+    const path = await pickSavePath(`${fileName}.txt`);
+    if (!path) return;
+    await exportTranscript(path, item.transcriptText);
   };
 
   return (
     <div className="row">
       <div className="row-main">
         <div className="row-top">
-          <span className="filename">{basename(item.sourceFileName)}</span>
+          <span className="filename">{fileName}</span>
           <span className={`chip ${item.status === "success" ? "chip-done" : "chip-failed"}`}>
             {item.status === "success" ? t("statusDone") : t("statusFailed")}
           </span>
@@ -54,19 +94,32 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
       </div>
       {item.transcriptText && (
         <button type="button" className="row-action btn-link" onClick={handleView}>
-          {expanded ? "−" : t("view")}
+          {expanded ? t("close") : t("view")}
+        </button>
+      )}
+      {item.transcriptText && (
+        <button type="button" className="row-action icon-btn" title={t("export")} aria-label={t("export")} onClick={() => void handleExport()}>
+          <FiDownload aria-hidden="true" />
         </button>
       )}
       <button
         type="button"
-        className="row-action btn-link"
+        className="row-action icon-btn"
         disabled={audioTrashed}
-        onClick={() => void trash(item.id)}
+        title={audioTrashed ? t("audioTrashed") : t("trashAudio")}
+        aria-label={audioTrashed ? t("audioTrashed") : t("trashAudio")}
+        onClick={() => void handleTrash()}
       >
-        {audioTrashed ? t("audioTrashed") : t("trashAudio")}
+        <FiTrash aria-hidden="true" />
       </button>
-      <button type="button" className="row-action btn-link" onClick={() => void remove(item.id)}>
-        {t("deleteEntry")}
+      <button
+        type="button"
+        className="row-action icon-btn icon-btn-danger"
+        title={t("deleteEntry")}
+        aria-label={t("deleteEntry")}
+        onClick={() => void handleDelete()}
+      >
+        <FiTrash2 aria-hidden="true" />
       </button>
     </div>
   );
