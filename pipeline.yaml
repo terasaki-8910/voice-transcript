@@ -49,3 +49,6 @@ stages:
 # to build-from-scratch. Requires WebSearch enabled; must cite real repos (no memory).
 # Records the choice to state/BASE.md. An adopted base still passes ACCEPTANCE.md gates
 # + a license check -- it is not trusted just for existing.
+#
+# `run.sh readme` regenerates README.md + README.en.md from SPEC.md (reproducible, NOT
+# hand-authored). It also runs automatically right after intake in `all` / `from intake`.

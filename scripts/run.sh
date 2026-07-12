@@ -8,13 +8,17 @@ STATE="$ROOT/state"; PROMPTS="$ROOT/prompts"
 mkdir -p "$STATE/logs" "$STATE/worktrees"
 MAIN=$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null || echo main)
 
+# One Ctrl+C tears everything down. build spawns child agents; without this the loop
+# and its background jobs can survive SIGINT and keep spending your quota.
+trap 'trap - INT TERM; echo; echo "[run.sh] interrupted -- stopping." >&2; kill 0 2>/dev/null' INT TERM
+
 # model per stage (override via env)
 : "${MODEL_INTAKE:=opus}"
 : "${MODEL_CRITERIA:=opus}"
 : "${MODEL_DESIGN:=sonnet}"
 : "${MODEL_PLAN:=opus}"
 : "${MODEL_BUILD:=sonnet}"
-: "${MAX_BUILD_ITERS:=25}"
+: "${MAX_BUILD_ITERS:=6}"   # keep low: each iter is a full paid agent run
 # Headless permission mode. acceptEdits auto-approves edits + common fs commands so
 # unattended stages don't hang waiting for approval that a headless run can't answer.
 # settings.json still denies push/rm-rf/WebFetch; the allowlist governs test/git.
@@ -100,12 +104,27 @@ stage_plan() {
   read _ || true
 }
 
-build_feature() {  # $1=feature. Runs inside its worktree; bounded Ralph loop.
-  feat=$1; wt="$STATE/worktrees/$feat"; i=0
+gate_feature() {  # $1=feature. Gate ONLY this feature if a per-feature gate exists,
+  # else fall back to the whole-repo gate. A single-feature worktree does NOT contain
+  # sibling features' code, so the whole-repo suite can never be green here.
+  gf="$STATE/gates/$1"
+  if [ -f "$gf" ]; then ( sh "$gf" ); else gate_all; fi
+}
+
+build_feature() {  # $1=feature. Runs inside its worktree; bounded, self-limiting loop.
+  feat=$1; wt="$STATE/worktrees/$feat"; i=0; prev=""
   while [ "$i" -lt "$MAX_BUILD_ITERS" ]; do
     i=$((i+1)); echo "-- build $feat: iter $i/$MAX_BUILD_ITERS --"
     ( cd "$wt" && claude_run "$MODEL_BUILD" "$PROMPTS/04-build.md" ) || true
-    if ( cd "$wt" && gate_all ); then echo "$feat: gates GREEN."; return 0; fi
+    if ( cd "$wt" && gate_feature "$feat" ); then echo "$feat: gates GREEN."; return 0; fi
+    # No-progress guard: if the agent made no new commit (stuck / API error / spend
+    # limit hit), STOP now instead of burning the remaining paid iterations.
+    head=$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo none)
+    if [ "$head" = "$prev" ]; then
+      echo "$feat: no progress (HEAD unchanged) -- stopping. See state/BLOCKED-$feat.md." >&2
+      return 1
+    fi
+    prev=$head
   done
   echo "$feat: MAX_BUILD_ITERS reached, gates not green. See state/BLOCKED-$feat.md." >&2
   return 1
@@ -119,19 +138,29 @@ stage_build() {
   # gitignored, so orchestration artifacts stay out of git.
   git -C "$ROOT" add -A >/dev/null 2>&1 || true
   git -C "$ROOT" commit -q -m "pipeline: baseline (spec + criteria + plan)" >/dev/null 2>&1 || true
-  # create worktrees serially (avoid concurrent git metadata races)
+  # clean stale worktrees from a previous run, then (re)create them
+  git -C "$ROOT" worktree prune 2>/dev/null || true
   while IFS= read -r feat; do
     [ -n "$feat" ] || continue
     git worktree add -B "feature/$feat" "$STATE/worktrees/$feat" 2>/dev/null \
       || git worktree add "$STATE/worktrees/$feat" -b "feature/$feat" 2>/dev/null || true
   done < "$STATE/features.txt"
-  # build in parallel, collect statuses
-  pids=""
-  while IFS= read -r feat; do
-    [ -n "$feat" ] || continue
-    build_feature "$feat" & pids="$pids $!"
-  done < "$STATE/features.txt"
-  rc=0; for pid in $pids; do wait "$pid" || rc=1; done
+  # Build features. SEQUENTIAL by default (safer for cost + killability). Set PARALLEL=1
+  # to build them concurrently in their worktrees.
+  rc=0
+  if [ "${PARALLEL:-0}" = "1" ]; then
+    pids=""
+    while IFS= read -r feat; do
+      [ -n "$feat" ] || continue
+      build_feature "$feat" & pids="$pids $!"
+    done < "$STATE/features.txt"
+    for pid in $pids; do wait "$pid" || rc=1; done
+  else
+    while IFS= read -r feat; do
+      [ -n "$feat" ] || continue
+      build_feature "$feat" || rc=1
+    done < "$STATE/features.txt"
+  fi
   [ "$rc" -eq 0 ] || echo "Some features failed gates; check state/logs and BLOCKED-*.md."
 }
 
@@ -161,13 +190,20 @@ stage_survey() {  # OPTIONAL prior-art survey; NOT part of `all`. Needs WebSearc
   claude_interactive "$MODEL_INTAKE" "$PROMPTS/survey.md"
 }
 
+stage_readme() {  # generate project README.md + README.en.md from SPEC (reproducible)
+  [ -f "$ROOT/SPEC.md" ] || { echo "readme: SPEC.md missing (run intake first)."; return 0; }
+  echo "== readme: generate project README(s) from SPEC (model=$MODEL_INTAKE) =="
+  claude_run "$MODEL_INTAKE" "$PROMPTS/readme.md"
+}
+
 run_from() {  # run the given stage and every stage after it, in order
   start=$1; on=0
-  for s in intake criteria design plan build accept integrate; do
+  for s in intake readme criteria design plan build accept integrate; do
     [ "$s" = "$start" ] && on=1
     [ "$on" = "1" ] || continue
     case "$s" in
       intake)    stage_intake ;;
+      readme)    stage_readme ;;
       criteria)  stage_criteria ;;
       design)    stage_design_gate ;;
       plan)      stage_plan ;;
@@ -189,9 +225,10 @@ main() {
     accept)    stage_feature_accept ;;
     integrate) stage_integration_accept ;;
     survey)    stage_survey ;;
+    readme)    stage_readme ;;
     from)      run_from "${2:-criteria}" ;;   # resume: run this stage -> end
     all)       run_from intake ;;
-    *) echo "usage: run.sh [intake|criteria|design|plan|build|accept|integrate|survey|all|from <stage>]"; exit 2 ;;
+    *) echo "usage: run.sh [intake|readme|criteria|design|plan|build|accept|integrate|survey|all|from <stage>]"; exit 2 ;;
   esac
 }
 main "$@"
