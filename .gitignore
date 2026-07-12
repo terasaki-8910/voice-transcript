@@ -15,3 +15,15 @@ coverage/
 *.m4a
 
 
+
+# pipeline machinery -- kept on disk to run, NOT part of the deliverable repo
+/scripts/
+/prompts/
+/pipeline.yaml
+/Makefile
+/docs/ui-rules.starter.md
+
+# Tauri desktop app (apps/desktop) build artifacts -- regenerated, not source
+**/target/
+apps/desktop/dist/
+apps/desktop/src-tauri/gen/

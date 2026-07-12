@@ -1,0 +1,108 @@
+/* Design tokens -- Voice Transcript desktop app.
+   Produced at the design gate (prompts/02-design-gate.md); approved tokens
+   become a machine-enforced constraint for all later GUI work (see
+   CLAUDE.md > Do not touch, and the eslint local/no-hardcoded-hex rule
+   scoped to apps/desktop/src/**). Do not hardcode colors outside this file.
+
+   Light values on :root / :root[data-theme="light"]; dark values under
+   prefers-color-scheme AND :root[data-theme="dark"] (the second must be
+   able to override the media query in both directions -- see
+   apps/desktop's future theme-toggle wiring). */
+
+:root {
+  /* Color -- revised 2026-07-12 per direct design-gate feedback: pure,
+     clearly-grey neutrals (cool-leaning is fine; a hue-tinted near-black
+     read as murky/off). One accent ("signal", teal-cyan -- nods to the
+     audio-meter world this app lives in). Semantic success/danger are
+     intentionally NOT the accent hue. */
+  --color-paper: #f4f5f6;      /* window content background */
+  --color-surface: #ffffff;    /* row / card surface */
+  --color-surface-sunken: #e9ebed; /* queued/inactive row */
+  --color-line: #d7dade;       /* borders, dividers */
+  --color-ink: #1a1d21;        /* primary text */
+  --color-ink-muted: #6b7280;  /* secondary text, meta */
+  --color-signal: #127a79;     /* the one accent: primary action, active tab, in-progress fill */
+  --color-signal-ink: #ffffff; /* text/icon on top of --color-signal */
+  --color-success: #2e7d4f;
+  --color-danger: #b3432b;
+  --color-focus-ring: #127a79;
+
+  /* Type -- native per-OS system stacks (this is a native multi-platform
+     desktop utility; it should inherit each platform's own type identity,
+     not impose a branded webfont). Two weights carry the whole hierarchy.
+     Revised 2026-07-12: dropped the literal "Ubuntu"/"Ubuntu Mono" names --
+     that specific typeface has a distinctive-enough personality that it
+     read as out of place (esp. for filenames/extensions in mono context)
+     rather than neutral. `system-ui`/`monospace` already resolve to
+     whatever a Linux desktop's actually configured default is, without
+     forcing one specific opinionated face. */
+  --font-ui: -apple-system, "Segoe UI", system-ui, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-md: 14.5px;
+  --text-lg: 19px;
+  --line-height-tight: 1.25;
+  --line-height-base: 1.5;
+
+  /* Space -- 4px base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-full: 999px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #101214;
+    --color-surface: #1a1d20;
+    --color-surface-sunken: #0d0f11;
+    --color-line: #2c3034;
+    --color-ink: #e7e9eb;
+    --color-ink-muted: #93989e;
+    --color-signal: #3fcfc9;
+    --color-signal-ink: #06201f;
+    --color-success: #4fae72;
+    --color-danger: #e2694f;
+    --color-focus-ring: #3fcfc9;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-paper: #101214;
+  --color-surface: #1a1d20;
+  --color-surface-sunken: #0d0f11;
+  --color-line: #2c3034;
+  --color-ink: #e7e9eb;
+  --color-ink-muted: #93989e;
+  --color-signal: #3fcfc9;
+  --color-signal-ink: #06201f;
+  --color-success: #4fae72;
+  --color-danger: #e2694f;
+  --color-focus-ring: #3fcfc9;
+}
+
+:root[data-theme="light"] {
+  --color-paper: #f4f5f6;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #e9ebed;
+  --color-line: #d7dade;
+  --color-ink: #1a1d21;
+  --color-ink-muted: #6b7280;
+  --color-signal: #127a79;
+  --color-signal-ink: #ffffff;
+  --color-success: #2e7d4f;
+  --color-danger: #b3432b;
+  --color-focus-ring: #127a79;
+}

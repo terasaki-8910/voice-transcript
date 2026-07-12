@@ -183,3 +183,123 @@ are no more `state/gates/*` to regenerate.
    (no API/ffmpeg call on missing file) and A3 (no ffmpeg/API call on missing key)
    pass. The transcript never touches stdout when `-o` is given; only logs/errors go
    to stderr (A5).
+
+---
+
+# New scope -- desktop GUI + history DB + release (Waves 6+)
+
+The original F1-F10 above (CLI, Waves 1-5) are **BUILD COMPLETE** and stay as
+the historical record. This section extends the same contract to the scope added
+this session: the pnpm monorepo migration, `packages/core` engine extraction,
+`packages/cli`, the Postgres-backed history layer, the Tauri desktop app and its
+sidecar, and the manual release workflow. Same table columns; IDs continue at
+F11, waves continue at Wave 6.
+
+## Target layout (from SPEC.md > Architecture)
+
+| Workspace member | Role | Notes |
+| ---------------- | ---- | ----- |
+| `packages/core` | engine (ffmpeg normalize, silence chunk, Groq client+retry, stitch, format renderers) + `src/db` history layer | no UI, no secrets in the DB read path except env; both callers depend on it, never re-implemented |
+| `packages/cli`  | existing `transcribe` command, thin wrapper over core | behaviour UNCHANGED (A1-A5, B4, C1-C4) |
+| `apps/desktop`  | Tauri app: `src-tauri/` Rust shell + React/Vite webview; runs core as a Node **sidecar** | webview never touches secrets/fs/DB directly (G2) |
+
+## Features (smallest useful units)
+
+| ID  | Feature slug         | Files                                                                                                                                                     | Depends on   | Verified by (test -> ACCEPTANCE)                                                                 | Wave |
+| --- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- | ---- |
+| F11 | `monorepo-core`      | `pnpm-workspace.yaml`; `packages/core/{package.json,tsconfig.json,vitest.config.ts}`; `packages/core/src/{types,config,chunk,audio,formats,stitch,groq,pipeline}.ts`; `packages/core/tests/{chunk,formats,stitch,groq,pipeline}.test.ts`; root `package.json` (workspace root). COPIES engine in; leaves root `src/`+tests intact. | --           | `packages/core/tests/*` -> B1,B2,B3,C1-C4,D1,D2; typecheck of the 8 engine files (F3); eslint (F1) | 6    |
+| F12 | `cli-package`        | `packages/cli/{package.json,tsconfig.json}`; `packages/cli/src/{args,cli,index}.ts`; `packages/cli/tests/{cli,hygiene}.test.ts`; REMOVES root `src/**` + root engine/cli/hygiene test files                                             | F11          | `packages/cli/tests/cli.test.ts` -> A1-A5,B4; relocated `hygiene.test` -> F4; typecheck+eslint (F1,F3) | 7    |
+| F13 | `core-db`            | `packages/core/src/db/{schema,client,history,index}.ts` + `packages/core/src/db/migrations/*.sql`; `packages/core/package.json` (+ORM/pg dep)             | F11          | `tests/db-hygiene.test.ts` -> H3,H4; typecheck+eslint of `db/**`. H1/H2/H5 -> integration          | 7    |
+| F14 | `tauri-scaffold`     | `apps/desktop/{package.json,vite.config.ts,tsconfig.json,index.html}`; `apps/desktop/src/{main.tsx,App.tsx,styles/*}`; `apps/desktop/src-tauri/{Cargo.toml,build.rs,tauri.conf.json,src/main.rs,src/lib.rs,capabilities/default.json}` | F11          | `tests/desktop-hygiene.test.ts` -> G2; typecheck+eslint incl `no-hardcoded-hex` (F1,F3). G1 (CI matrix), G3 (capability-reviewer subagent) NOT vitest | 7    |
+| F15 | `desktop-ipc`        | `apps/desktop/src-tauri/src/commands.rs` (+`lib.rs` register); Node sidecar entry (`packages/core/src/sidecar.ts`) + sidecar bundling in `tauri.conf.json`; `apps/desktop/src/lib/tauri.ts` (invoke wrappers)                          | F11,F13,F14  | `tauri-capability-reviewer` (G3+secret boundary); `desktop-hygiene` stays green (G2); cargo+TS checks. G4,H1,H2,H5 -> integration | 8    |
+| F16 | `cli-history-wiring` | `packages/cli/src/cli.ts` (inject core-db HistoryStore; persist every CLI run; loud-but-non-blocking on DB failure)                                        | F12,F13      | H1,H5 (CLI path) -> integration (`history.integration.test.ts`) / injected-dep unit test; typecheck+eslint | 8    |
+| F17 | `gui-queue`          | `apps/desktop/src/features/queue/**`                                                                                                                       | F15          | G5 -> NOT vitest (exercised in built app + `desktop.integration.test.ts`); typecheck/eslint/no-hex | 9    |
+| F18 | `gui-history`        | `apps/desktop/src/features/history/**`; trash/delete commands in `src-tauri/src/commands.rs`                                                               | F15          | G7,G9,H2 -> NOT vitest (built app / integration); `tauri-capability-reviewer` for new fs/trash grants | 9    |
+| F19 | `gui-i18n`           | `apps/desktop/src/i18n/**` + language-setting store                                                                                                        | F14          | G6 -> NOT vitest (exercised in built app); typecheck/eslint                                       | 9    |
+| F20 | `gui-theme`          | `apps/desktop/src/theme/**`                                                                                                                                | F14          | design-gate confirmed; NOT vitest (built app); `no-hardcoded-hex` enforces tokens                | 9    |
+| F21 | `native-menu`        | `apps/desktop/src-tauri/src/menu.rs` (+register); menu->command handlers                                                                                   | F15          | G8 -> NOT vitest (exercised via native OS menu in built app); `tauri-capability-reviewer`         | 9/10 |
+| --  | `release-workflow`   | `.github/workflows/release.yml` + README regen                                                                                                             | ALL merged   | I1-I3 -> run once as a manual smoke test. **Post-build only**, per CLAUDE.md > Release -- never a build-wave feature | post-build |
+
+## Progress (new scope)
+
+- **Wave 6 -- ACTIVE:** F11 `monorepo-core` is the only feature whose dependencies
+  are all in `main`, so `state/features.txt` = the single line `monorepo-core`.
+  Its gate is `state/gates/monorepo-core` (scoped vitest on `packages/core/tests`,
+  throwaway-tsconfig typecheck of the 8 engine files, eslint on `packages/core/src`).
+- Waves 7+ stay in these notes until Wave 6 merges; re-running `plan` after the
+  merge advances `state/features.txt` to `cli-package`, `core-db`, `tauri-scaffold`.
+
+## Independent set to build now (-> state/features.txt)
+
+**Wave 6 = `monorepo-core` (F11) only.** Everything else depends transitively on
+`packages/core` existing (and on the workspace root/`pnpm-workspace.yaml` that F11
+creates), so no other new feature is buildable from today's `main`.
+
+```
+monorepo-core
+```
+
+## Build order (waves, new scope)
+
+- **Wave 6:** F11 `monorepo-core` (foundation; owns `pnpm-workspace.yaml`).
+- **Wave 7 (parallel, after F11):** F12 `cli-package`, F13 `core-db`,
+  F14 `tauri-scaffold` -- disjoint trees (`packages/cli` / `packages/core/src/db` /
+  `apps/desktop`).
+- **Wave 8 (after Wave 7):** F15 `desktop-ipc` (needs core+db+scaffold),
+  F16 `cli-history-wiring` (needs cli+db).
+- **Wave 9 (after F15):** F17 `gui-queue`, F18 `gui-history`, F19 `gui-i18n`,
+  F20 `gui-theme`, F21 `native-menu` -- see Note 11 for why these may serialize.
+- **Post-build (at integration_accept, per CLAUDE.md > Release):** regenerate
+  README(s) via `run.sh readme`, add `.github/workflows/release.yml` (I1-I3),
+  run it once as a manual multi-OS smoke test.
+
+## Notes (new scope)
+
+6. **The migration is copy-then-cut, not a big-bang move.** F11 COPIES the engine
+   into `packages/core` and leaves root `src/` + root tests working, so F11's
+   worktree is self-contained and every already-green root test stays green in the
+   F13/F14 worktrees (which branch from a main that still has root `src/`). Root
+   `src/**` and the root engine/cli/hygiene tests are removed only by F12
+   `cli-package`, which owns that cut. This keeps each wave's file sets disjoint.
+
+7. **F11 has real unit gates, not typecheck-only.** The engine's five unit tests
+   (chunk/formats/stitch/groq/pipeline) relocate into `packages/core/tests/` and
+   run green in the worktree; `audio.ts` remains typecheck-only (its `AudioBackend`
+   is exercised via mocks in the CLI tests and for real at integration -- unchanged
+   from original Note 3).
+
+8. **The new hygiene tests are per-feature gates for exactly one feature each.**
+   `tests/db-hygiene.test.ts` (H3/H4) is `core-db`'s gate; `tests/desktop-hygiene.test.ts`
+   (G2) is `tauri-scaffold`'s. Both are root-relative disk scans that go green the
+   moment their target directory exists correctly. The two e2e files
+   (`desktop.integration.test.ts` G4/G5, `history.integration.test.ts` H1/H2/H5)
+   are `expect.unreachable(...)` cross-cutting suites -- integration acceptance, NOT
+   any feature's gate (they must never be listed in a `state/gates/<feature>`).
+
+9. **Non-vitest acceptance items keep their stated verifier, not a faked unit test.**
+   G1 -> CI build matrix (windows/ubuntu/macos-latest); G3 -> the
+   `tauri-capability-reviewer` subagent at feature acceptance; G6/G7/G8/G9 ->
+   exercised in the built app; I1-I3 -> running the workflow once. Their features
+   are gated on typecheck+lint (+`cargo check`/`cargo test` for Rust) of their own
+   files, plus the relevant subagent/CI/manual step at acceptance.
+
+10. **Secret trust boundary is enforced by design, not just tests.** Per SPEC's
+    reuse strategy, all Groq/DB/ffmpeg access lives in `apps/desktop/src-tauri` or
+    the Node sidecar it supervises; the webview only calls narrow `invoke()`
+    wrappers. F13's `db/**` reads `process.env.DATABASE_URL` (H3, H5 fail-loud), uses
+    the ORM/query-builder only outside `migrations/` (H4), and never blocks a
+    transcription on DB failure.
+
+11. **Wave 9 GUI features may serialize.** F17-F21 all live under `apps/desktop/src`
+    and F18/F21 also add to `src-tauri/src/commands.rs`/`menu.rs`. They are only
+    truly file-disjoint if F14's scaffold exposes screen "slots" (a screen registry
+    plus a split `commands.rs`) so each mounts without editing a shared shell/handler.
+    If that shape isn't adopted, they build in successive single-feature waves
+    (9a, 9b, ...); the `run.sh waves` loop re-plans each round and schedules only
+    what is unblocked AND disjoint, so post-Wave-6 wave numbers are provisional.
+
+12. **Release is post-build, never mid-build.** `.github/workflows/release.yml`
+    (workflow_dispatch only; `title`+`version` inputs only; builds `apps/desktop`
+    across the 3 OS matrix; uploads .dmg/.exe/.AppImage-.deb) and the README regen
+    are added at/after integration_accept per CLAUDE.md > Release, so they are NOT a
+    buildable wave feature.

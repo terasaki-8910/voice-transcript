@@ -1,0 +1,371 @@
+<title>Voice Transcript — Queue</title>
+<style>
+  /* ---- tokens (copied verbatim from design/tokens.css; that file is the
+     source of truth this screen must stay byte-identical to) ---- */
+  :root {
+    --color-paper: #f4f5f6;
+    --color-surface: #ffffff;
+    --color-surface-sunken: #e9ebed;
+    --color-line: #d7dade;
+    --color-ink: #1a1d21;
+    --color-ink-muted: #6b7280;
+    --color-signal: #127a79;
+    --color-signal-ink: #ffffff;
+    --color-success: #2e7d4f;
+    --color-danger: #b3432b;
+    --color-focus-ring: #127a79;
+
+    --font-ui: -apple-system, "Segoe UI", system-ui, "Noto Sans", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+    --weight-regular: 400;
+    --weight-semibold: 600;
+
+    --text-xs: 11px;
+    --text-sm: 12.5px;
+    --text-base: 13.5px;
+    --text-md: 14.5px;
+    --text-lg: 19px;
+    --line-height-tight: 1.25;
+    --line-height-base: 1.5;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-full: 999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-paper: #101214;
+      --color-surface: #1a1d20;
+      --color-surface-sunken: #0d0f11;
+      --color-line: #2c3034;
+      --color-ink: #e7e9eb;
+      --color-ink-muted: #93989e;
+      --color-signal: #3fcfc9;
+      --color-signal-ink: #06201f;
+      --color-success: #4fae72;
+      --color-danger: #e2694f;
+      --color-focus-ring: #3fcfc9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --color-paper: #101214; --color-surface: #1a1d20; --color-surface-sunken: #0d0f11;
+    --color-line: #2c3034; --color-ink: #e7e9eb; --color-ink-muted: #93989e;
+    --color-signal: #3fcfc9; --color-signal-ink: #06201f;
+    --color-success: #4fae72; --color-danger: #e2694f; --color-focus-ring: #3fcfc9;
+  }
+  :root[data-theme="light"] {
+    --color-paper: #f4f5f6; --color-surface: #ffffff; --color-surface-sunken: #e9ebed;
+    --color-line: #d7dade; --color-ink: #1a1d21; --color-ink-muted: #6b7280;
+    --color-signal: #127a79; --color-signal-ink: #ffffff;
+    --color-success: #2e7d4f; --color-danger: #b3432b; --color-focus-ring: #127a79;
+  }
+
+  /* ---- reset + base ---- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    line-height: var(--line-height-base);
+    -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    body, .row { transition: background-color 150ms ease, color 150ms ease; }
+  }
+
+  /* This screen mocks the CONTENT area only, below the native OS title bar
+     -- Tauri provides real window chrome per-platform; we don't fake it. */
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---- toolbar: the one primary action stays visible at all times;
+     the theme/language toggles are deliberately quiet (small, muted)
+     so they never compete with it ---- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-line);
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: -0.01em;
+    margin: 0;
+    white-space: nowrap;
+    margin-right: var(--space-2);
+  }
+  .tabs {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--color-surface-sunken);
+    border-radius: var(--radius-full);
+    gap: 2px;
+  }
+  .tab {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-ink-muted);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+  }
+  .tab[aria-selected="true"] {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-weight: var(--weight-semibold);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  }
+  .spacer { flex: 1; }
+
+  /* settings cluster: theme + language, visually quiet */
+  .settings {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .settings .tabs { padding: 2px; }
+  .settings .tab {
+    font-size: var(--text-xs);
+    padding: 3px var(--space-2);
+    color: var(--color-ink-muted);
+  }
+  .settings .tab[aria-selected="true"] { color: var(--color-ink); }
+
+  .btn-primary {
+    appearance: none;
+    border: 0;
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-signal-ink);
+    background: var(--color-signal);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .btn-primary:hover { filter: brightness(1.05); }
+  .btn-link {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-signal);
+    padding: var(--space-1) var(--space-2);
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* ---- queue list ---- */
+  .queue {
+    flex: 1;
+    padding: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .row {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .row.is-queued { background: var(--color-surface-sunken); }
+  .row-main { flex: 1; min-width: 0; }
+  .row-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .filename {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-meta {
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    color: var(--color-ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .row-meta .sep { margin: 0 var(--space-1); opacity: 0.6; }
+
+  .chip {
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    padding: 3px var(--space-2);
+    border-radius: var(--radius-full);
+    white-space: nowrap;
+  }
+  .chip-done { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 14%, transparent); }
+  .chip-active { color: var(--color-signal); background: color-mix(in srgb, var(--color-signal) 14%, transparent); }
+  .chip-queued { color: var(--color-ink-muted); background: transparent; border: 1px solid var(--color-line); }
+  .chip-failed { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 14%, transparent); }
+
+  /* ---- waveform progress: the one deliberate flourish, tied directly to
+     the subject (audio), standing in for a generic linear progress bar ---- */
+  .waveform {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .waveform span {
+    display: block;
+    width: 2.5px;
+    border-radius: 1.5px;
+    background: var(--color-line);
+  }
+  .waveform span.filled { background: var(--color-signal); }
+
+  .row-action { flex-shrink: 0; }
+  .fail-reason { color: var(--color-danger); }
+</style>
+
+<div class="app">
+  <header class="toolbar">
+    <p class="brand">Voice Transcript</p>
+    <div class="tabs" role="tablist" aria-label="View">
+      <button class="tab" role="tab" aria-selected="true" data-en="Queue" data-ja="キュー">Queue</button>
+      <button class="tab" role="tab" aria-selected="false" data-en="History" data-ja="履歴">History</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="settings">
+      <div class="tabs" role="group" aria-label="Theme">
+        <button class="tab" aria-selected="true" data-theme-btn="light" onclick="setTheme('light')" data-en="Light" data-ja="ライト">Light</button>
+        <button class="tab" aria-selected="false" data-theme-btn="dark" onclick="setTheme('dark')" data-en="Dark" data-ja="ダーク">Dark</button>
+      </div>
+      <div class="tabs" role="group" aria-label="Language">
+        <button class="tab" aria-selected="true" data-lang-btn="en" onclick="setLang('en')">EN</button>
+        <button class="tab" aria-selected="false" data-lang-btn="ja" onclick="setLang('ja')">日本語</button>
+      </div>
+    </div>
+    <button class="btn-primary" data-en="Add files" data-ja="ファイルを追加">Add files</button>
+  </header>
+
+  <main class="queue" aria-label="Transcription queue">
+    <div class="row">
+      <div class="row-main">
+        <div class="row-top">
+          <span class="filename">board-meeting-q3.m4a</span>
+          <span class="chip chip-done" data-en="Done" data-ja="完了">Done</span>
+        </div>
+        <div class="row-meta">
+          <span data-en="1h 12m" data-ja="1時間12分">1h 12m</span><span class="sep">·</span><span data-en="txt, srt" data-ja="txt, srt">txt, srt</span><span class="sep">·</span>whisper-large-v3-turbo
+        </div>
+      </div>
+      <button class="row-action btn-link" data-en="View" data-ja="表示">View</button>
+    </div>
+
+    <div class="row">
+      <div class="row-main">
+        <div class="row-top">
+          <span class="filename">client-interview-042.wav</span>
+          <span class="chip chip-active" data-en="Transcribing" data-ja="文字起こし中">Transcribing</span>
+        </div>
+        <div class="row-meta">
+          <span data-en="chunk 3 of 5" data-ja="チャンク 3/5">chunk 3 of 5</span><span class="sep">·</span><span data-en="~2 min remaining" data-ja="残り約2分">~2 min remaining</span>
+        </div>
+      </div>
+      <div class="waveform" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="62% transcribed">
+        <span class="filled" style="height: 40%"></span>
+        <span class="filled" style="height: 70%"></span>
+        <span class="filled" style="height: 55%"></span>
+        <span class="filled" style="height: 90%"></span>
+        <span class="filled" style="height: 45%"></span>
+        <span class="filled" style="height: 75%"></span>
+        <span class="filled" style="height: 60%"></span>
+        <span class="filled" style="height: 35%"></span>
+        <span class="filled" style="height: 80%"></span>
+        <span class="filled" style="height: 50%"></span>
+        <span class="filled" style="height: 65%"></span>
+        <span class="filled" style="height: 40%"></span>
+        <span style="height: 30%"></span>
+        <span style="height: 55%"></span>
+        <span style="height: 45%"></span>
+        <span style="height: 70%"></span>
+        <span style="height: 35%"></span>
+        <span style="height: 60%"></span>
+        <span style="height: 40%"></span>
+        <span style="height: 50%"></span>
+      </div>
+    </div>
+
+    <div class="row is-queued">
+      <div class="row-main">
+        <div class="row-top">
+          <span class="filename">standup-notes-jul12.mp3</span>
+          <span class="chip chip-queued" data-en="Queued" data-ja="待機中">Queued</span>
+        </div>
+        <div class="row-meta" data-en="waiting for the current transcription to finish" data-ja="現在の文字起こしの完了を待っています">waiting for the current transcription to finish</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="row-main">
+        <div class="row-top">
+          <span class="filename">podcast-ep18-raw.flac</span>
+          <span class="chip chip-failed" data-en="Failed" data-ja="失敗">Failed</span>
+        </div>
+        <div class="row-meta fail-reason" data-en="Unsupported channel layout (5.1) -- convert to mono/stereo and retry" data-ja="非対応のチャンネルレイアウト(5.1) — モノラル/ステレオに変換して再試行してください">Unsupported channel layout (5.1) -- convert to mono/stereo and retry</div>
+      </div>
+      <button class="row-action btn-link" data-en="Retry" data-ja="再試行">Retry</button>
+    </div>
+  </main>
+</div>
+
+<script>
+  // Demonstrates the two settings the design-gate feedback asked for: a
+  // real (not just OS-detected) light/dark toggle, and a simple JA/EN
+  // language switch. Both are trivial DOM ops here -- the real app wires
+  // the same two switches to a persisted setting in apps/desktop.
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    document.querySelectorAll('[data-theme-btn]').forEach(function (b) {
+      b.setAttribute('aria-selected', b.dataset.themeBtn === t ? 'true' : 'false');
+    });
+  }
+  function setLang(l) {
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-en]').forEach(function (el) {
+      el.textContent = l === 'ja' ? el.dataset.ja : el.dataset.en;
+    });
+    document.querySelectorAll('[data-lang-btn]').forEach(function (b) {
+      b.setAttribute('aria-selected', b.dataset.langBtn === l ? 'true' : 'false');
+    });
+  }
+</script>

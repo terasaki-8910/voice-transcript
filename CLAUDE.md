@@ -13,16 +13,36 @@ Generated artifacts (code, comments, docs, commit messages, UI copy) default to 
 Change here to override per project. The language I chat in is separate and unaffected.
 
 ## Commands
-- Tests:     npm test        (vitest; unit/mocked. Integration E2E runs only when GROQ_API_KEY is set)
-- Lint:      npm run lint     (eslint + no-emoji check. No UI here, so design-tokens/a11y/responsive are N/A)
-- Typecheck: npm run typecheck (tsc --noEmit)
+Target layout is a pnpm workspace (`packages/core`, `packages/cli`,
+`apps/desktop`) — the criteria/build stages perform the actual npm->pnpm and
+monorepo migration; these are the commands that must work once they do.
+- Tests:     pnpm -r test        (vitest; unit/mocked. Integration E2E runs only when GROQ_API_KEY is set; DB-backed tests need DATABASE_URL)
+- Lint:      pnpm -r lint        (eslint + no-emoji check, now covers GUI copy too)
+- Typecheck: pnpm -r typecheck   (tsc --noEmit)
+- Desktop dev loop: pnpm --filter desktop tauri dev
 
 ## UI rules
 IMPORTANT: colors ONLY via design tokens; never hardcode hex. No emoji in UI or source.
 Shared personal UI direction: @~/.claude/rules/ui.md
+See also design_brief.md for the desktop app's concrete do/avoid rules.
 
 ## Do not touch
-state/ (runtime), design tokens (change only via the design gate), auto-generated files.
+state/ (runtime), design tokens (change only via the design gate), auto-generated
+files, Rust build artifacts (`**/target/`).
 
 ## Git
 Local only by default; do NOT push unless asked. Feature branches merge to main with --no-ff.
+
+## Release (do this automatically once ALL implementation is done -- i.e. at/after integration_accept, not mid-build)
+1. Regenerate README.md + README.en.md from SPEC.md via the existing `run.sh readme`
+   utility (reproducible, not hand-authored -- see pipeline.yaml footer).
+2. Add `.github/workflows/release.yml`: manually triggered (`workflow_dispatch`, so it
+   runs from a button in the GitHub UI, never on push), with `title` and `version`/`tag`
+   inputs only (see SPEC.md > Release automation and ACCEPTANCE.md > I). Builds
+   apps/desktop ONLY (not packages/cli) for windows-latest/ubuntu-latest/macos-latest and
+   uploads each platform's native installer (.dmg / .exe / .AppImage-.deb) to a GitHub
+   Release.
+Note: state/done/ already has build/accept/integrate markers left over from the
+original CLI-only pipeline run (before this session's GUI/DB scope was added) --
+these are stale for the new scope. Run `scripts/run.sh reset` before build for the
+new features so `run.sh status` doesn't misreport them as already done.
