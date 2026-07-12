@@ -486,18 +486,21 @@ opened the built app and found real bugs, resolved via Q&A + a
 
 ## Backlog (not yet scheduled into a wave)
 
-- **Richer README with screenshots, post-integration_accept.** Requested
-  2026-07-13, explicitly deferred by the user ("まだやらなくていい"). CLAUDE.md's
-  existing Release step (1) says the README is regenerated from SPEC.md via
-  `run.sh readme` specifically because that keeps it reproducible, not
-  hand-authored. The user now wants something closer to a well-known OSS
-  project's README -- real screenshots, polish -- which is in tension with
-  "reproducible, not hand-authored" as currently written; that tension isn't
-  resolved here, it's flagged for when this task is actually picked up.
-  Also requested: check whether a Claude Code skill or MCP server exists
-  for README authoring before hand-rolling one. Requires the user's
-  explicit go-ahead once implementation is complete (their words: "実装が
-  完了して私の許可を得られたら").
+- ~~**Richer README with screenshots, post-integration_accept.**~~ **Resolved
+  2026-07-13** (commits `034b47d` docs+diagram, `de3cf98` screenshots). The
+  "reproducible, not hand-authored" tension was resolved by keeping both
+  additions reproducible rather than hand-authored: the Architecture section
+  is a Mermaid `flowchart` built from SPEC.md's own Architecture text (GitHub
+  renders it natively, no separate image asset), and three real screenshots
+  (Queue/dark, History/light with the per-row action icons, Preferences)
+  were captured from an actual running build via CGWindowID-scoped
+  `screencapture` in an isolated worktree (never touching the user's live
+  `tauri dev` session), verified privacy-safe (only filenames/status/
+  timestamps visible, no transcript content), saved to `docs/screenshots/`,
+  and embedded via plain `<img>` tags. `prompts/readme.md` now documents
+  both so every future `sh scripts/run.sh readme` regeneration reproduces
+  the diagram and keeps embedding the existing screenshots rather than
+  dropping them.
 - **Tighten `capabilities/default.json`'s `core:default` grant.** Flagged
   by `tauri-capability-reviewer` during F21's review, deferred as
   non-blocking for a personal-project gate. `core:default` bundles
