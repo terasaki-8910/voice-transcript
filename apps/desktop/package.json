@@ -4,6 +4,7 @@
   "private": true,
   "description": "Tauri desktop app for Voice Transcript (Windows/Linux/macOS) -- React webview + Rust shell, sharing @voice-transcript/core via a Node sidecar.",
   "type": "module",
+  "packageManager": "pnpm@11.12.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",

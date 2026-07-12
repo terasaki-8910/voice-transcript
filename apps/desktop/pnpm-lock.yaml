@@ -1,0 +1,12 @@
+lockfileVersion: '9.0'
+
+# This file is NOT a real lockfile -- the actual one lives at the workspace
+# root (../../pnpm-lock.yaml) and governs real dependency resolution. This
+# empty stub exists only so tauri-cli's package-manager auto-detection
+# (which checks the PROJECT'S OWN directory, not the workspace root) finds
+# a pnpm-lock.yaml here and correctly picks pnpm instead of falling back to
+# npm -- a documented pnpm-workspace limitation:
+# https://github.com/tauri-apps/tauri/issues/12706
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false

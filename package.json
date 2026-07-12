@@ -4,6 +4,7 @@
   "private": true,
   "description": "Monorepo workspace root. The CLI now lives in packages/cli; the shared engine in packages/core. See PLAN.md.",
   "type": "module",
+  "packageManager": "pnpm@11.12.0",
   "engines": {
     "node": ">=24"
   },

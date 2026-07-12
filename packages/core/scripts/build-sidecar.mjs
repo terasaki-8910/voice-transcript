@@ -23,6 +23,13 @@ const coreRoot = join(here, "..");
 const bundlePath = join(coreRoot, ".sidecar-build", "sidecar-bundle.cjs");
 const binariesDir = join(coreRoot, "..", "..", "apps", "desktop", "src-tauri", "binaries");
 
+// On Windows, npx resolves to npx.cmd, which execFileSync can't launch
+// without a shell (ENOENT) -- confirmed by a real CI failure, 2026-07-13.
+// Scoped to win32 only so macOS/Linux (where npx is a plain executable)
+// don't pick up Node's shell:true argument-escaping deprecation warning
+// (DEP0190) for no reason.
+const useShell = process.platform === "win32";
+
 function pkgTargetFor(platform, arch) {
   const platformMap = { darwin: "macos", linux: "linux", win32: "win" };
   const archMap = { arm64: "arm64", x64: "x64" };
@@ -41,7 +48,7 @@ console.log("[sidecar] bundling src/sidecar-bin.ts -> CJS ...");
 execFileSync(
   "npx",
   ["esbuild", "src/sidecar-bin.ts", "--bundle", "--platform=node", "--target=node20", "--format=cjs", `--outfile=${bundlePath}`],
-  { cwd: coreRoot, stdio: "inherit" },
+  { cwd: coreRoot, stdio: "inherit", shell: useShell },
 );
 
 const targetTriple = execSync("rustc --print host-tuple").toString().trim();
@@ -55,6 +62,7 @@ if (existsSync(finalPath)) rmSync(finalPath);
 execFileSync("npx", ["@yao-pkg/pkg", bundlePath, "--target", pkgTarget, "--output", finalPath], {
   cwd: coreRoot,
   stdio: "inherit",
+  shell: useShell,
 });
 
 console.log(`[sidecar] built ${finalPath}`);
