@@ -291,11 +291,18 @@ F11, waves continue at Wave 6.
   App.tsx merge conflict, same safety property as parallel worktrees
   without fighting a real shared-file dependency. Gate green: apps/desktop
   3/3, desktop-hygiene (G2) 4/4, typecheck+lint clean.
-- **F19 `gui-i18n`, F17 `gui-queue` -- still to build**, same sequential
-  approach, each branching from the updated `main`.
+- **F19 `gui-i18n` -- MERGED.** I18nContext/I18nProvider/LanguageToggle
+  (apps/desktop/src/i18n/**), en/ja, persisted, sets `document.
+  documentElement.lang`. Rewired `ThemeToggle` (F20) to read its labels
+  through the shared `t()` instead of its own local dictionary -- one
+  source of translation truth. G6 tested cross-component (switching
+  language flips an unrelated consumer's labels in the same render, no
+  remount). Gate green: apps/desktop 6/6, desktop-hygiene (G2) 4/4,
+  typecheck+lint clean.
+- **F17 `gui-queue` -- still to build**, same sequential approach.
 
 ```
-gui-i18n
+gui-queue
 ```
 
 ## Build order (waves, new scope)
