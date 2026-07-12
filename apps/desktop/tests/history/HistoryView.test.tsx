@@ -180,4 +180,59 @@ describe("HistoryView", () => {
       expect(invoke).toHaveBeenCalledWith("export_transcript", { path: "/tmp/a.m4a.txt", content: "hello world" }),
     );
   });
+
+  // Regression coverage for a real gap found in user testing: if confirm()
+  // itself throws (a denied capability on a stale compiled binary, a
+  // dialog the OS couldn't show, etc.), the click used to just look like
+  // it "did nothing" -- an unhandled rejection with no visible feedback.
+  it("a confirm() failure during Trash surfaces an error instead of silently doing nothing", async () => {
+    confirmDialog.mockRejectedValue(new Error("window not found"));
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <I18nProvider>
+        <SelectionProvider>
+          <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
+            <HistoryView />
+          </HistoryProvider>
+        </SelectionProvider>
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Trash audio" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Trash audio" }));
+
+    await waitFor(() => expect(screen.getByText("window not found")).toBeDefined());
+    expect(trashAudioFn).not.toHaveBeenCalled();
+  });
+
+  it("a confirm() failure during Delete surfaces an error instead of silently doing nothing", async () => {
+    confirmDialog.mockRejectedValue(new Error("window not found"));
+    const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
+    render(
+      <I18nProvider>
+        <SelectionProvider>
+          <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
+            <HistoryView />
+          </HistoryProvider>
+        </SelectionProvider>
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(screen.getByText("window not found")).toBeDefined());
+    expect(deleteHistoryEntryFn).not.toHaveBeenCalled();
+  });
+
+  it("an Export failure surfaces an error instead of silently doing nothing", async () => {
+    save.mockResolvedValue("/tmp/a.m4a.txt");
+    invoke.mockRejectedValue(new Error("permission denied"));
+    renderView(async () => [makeEntry()]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Export" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(screen.getByText("permission denied")).toBeDefined());
+  });
 });

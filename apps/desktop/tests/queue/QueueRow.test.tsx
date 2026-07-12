@@ -113,4 +113,18 @@ describe("QueueRow", () => {
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(invoke).not.toHaveBeenCalled();
   });
+
+  it("an Export failure surfaces an error instead of silently doing nothing", async () => {
+    save.mockReset();
+    invoke.mockReset();
+    save.mockResolvedValue("/tmp/a.m4a.txt");
+    invoke.mockRejectedValue(new Error("permission denied"));
+    render(<RowHarness transcribeFn={() => Promise.resolve({ text: "hello world", rendered: "hello world" })} />);
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(screen.getByText("permission denied")).toBeDefined());
+  });
 });

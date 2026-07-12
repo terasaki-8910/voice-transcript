@@ -23,6 +23,11 @@ interface HistoryContextValue {
   refresh: () => void;
   trash: (id: number) => Promise<void>;
   remove: (id: number) => Promise<void>;
+  // Lets a row surface a failure that happens BEFORE trash()/remove() is
+  // even called (e.g. the confirm() dialog itself throwing) through the
+  // same per-row error slot, instead of that becoming an unhandled
+  // rejection with no visible feedback.
+  reportActionError: (id: number, message: string) => void;
 }
 
 const HistoryContext = createContext<HistoryContextValue | null>(null);
@@ -97,8 +102,14 @@ export function HistoryProvider({
     }
   };
 
+  const reportActionError = (id: number, message: string) => {
+    setActionErrors((prev) => new Map(prev).set(id, message));
+  };
+
   return (
-    <HistoryContext.Provider value={{ items, status, error, trashedIds, actionErrors, refresh, trash, remove }}>
+    <HistoryContext.Provider
+      value={{ items, status, error, trashedIds, actionErrors, refresh, trash, remove, reportActionError }}
+    >
       {children}
     </HistoryContext.Provider>
   );

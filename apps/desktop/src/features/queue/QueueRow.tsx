@@ -24,11 +24,16 @@ const CHIP_CLASS: Record<QueueItem["status"], string> = {
   failed: "chip chip-failed",
 };
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function QueueRow({ item }: { item: QueueItem }) {
   const { t } = useI18n();
   const { retry } = useQueue();
   const { setSelection } = useSelection();
   const [expanded, setExpanded] = useState(false);
+  const [exportError, setExportError] = useState<string>();
 
   const handleView = () => {
     setExpanded((v) => !v);
@@ -37,11 +42,20 @@ export function QueueRow({ item }: { item: QueueItem }) {
     }
   };
 
+  // pickSavePath()/exportTranscript() can throw (a denied capability, a
+  // closed dialog, an fs error) -- caught so a failure always surfaces
+  // instead of becoming a silent unhandled rejection that looks like
+  // "nothing happened."
   const handleExport = async () => {
     if (!item.result) return;
-    const path = await pickSavePath(`${item.fileName}.txt`);
-    if (!path) return;
-    await exportTranscript(path, item.result.text);
+    try {
+      const path = await pickSavePath(`${item.fileName}.txt`);
+      if (!path) return;
+      await exportTranscript(path, item.result.text);
+      setExportError(undefined);
+    } catch (err) {
+      setExportError(errorMessage(err));
+    }
   };
 
   const statusLabel: Record<QueueItem["status"], string> = {
@@ -59,6 +73,7 @@ export function QueueRow({ item }: { item: QueueItem }) {
           <span className={CHIP_CLASS[item.status]}>{statusLabel[item.status]}</span>
         </div>
         {item.status === "failed" && item.error && <div className="row-meta fail-reason">{item.error}</div>}
+        {exportError && <div className="row-meta fail-reason">{exportError}</div>}
         {item.status === "done" && expanded && item.result && (
           <p
             style={{

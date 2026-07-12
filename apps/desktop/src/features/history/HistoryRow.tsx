@@ -29,9 +29,13 @@ function basename(filePath: string): string {
   return parts[parts.length - 1] || filePath;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTrashed: boolean }) {
   const { t } = useI18n();
-  const { trash, remove, actionErrors } = useHistory();
+  const { trash, remove, actionErrors, reportActionError } = useHistory();
   const { setSelection } = useSelection();
   const [expanded, setExpanded] = useState(false);
   const actionError = actionErrors.get(item.id);
@@ -44,29 +48,46 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
     }
   };
 
+  // confirm()/pickSavePath()/exportTranscript() can all throw (a denied
+  // capability, a closed dialog on an unexpected monitor/space in a
+  // multi-display setup, an fs error) -- every await here is wrapped so a
+  // failure always surfaces in the row instead of becoming a silent
+  // unhandled rejection that looks like "nothing happened."
   const handleTrash = async () => {
-    const confirmed = await confirm(`${fileName}\n\n${t("confirmTrashAudioBody")}`, {
-      title: t("trashAudio"),
-      kind: "warning",
-    });
-    if (!confirmed) return;
-    await trash(item.id);
+    try {
+      const confirmed = await confirm(`${fileName}\n\n${t("confirmTrashAudioBody")}`, {
+        title: t("trashAudio"),
+        kind: "warning",
+      });
+      if (!confirmed) return;
+      await trash(item.id);
+    } catch (err) {
+      reportActionError(item.id, errorMessage(err));
+    }
   };
 
   const handleDelete = async () => {
-    const confirmed = await confirm(`${fileName}\n\n${t("confirmDeleteEntryBody")}`, {
-      title: t("deleteEntry"),
-      kind: "warning",
-    });
-    if (!confirmed) return;
-    await remove(item.id);
+    try {
+      const confirmed = await confirm(`${fileName}\n\n${t("confirmDeleteEntryBody")}`, {
+        title: t("deleteEntry"),
+        kind: "warning",
+      });
+      if (!confirmed) return;
+      await remove(item.id);
+    } catch (err) {
+      reportActionError(item.id, errorMessage(err));
+    }
   };
 
   const handleExport = async () => {
     if (!item.transcriptText) return;
-    const path = await pickSavePath(`${fileName}.txt`);
-    if (!path) return;
-    await exportTranscript(path, item.transcriptText);
+    try {
+      const path = await pickSavePath(`${fileName}.txt`);
+      if (!path) return;
+      await exportTranscript(path, item.transcriptText);
+    } catch (err) {
+      reportActionError(item.id, errorMessage(err));
+    }
   };
 
   return (

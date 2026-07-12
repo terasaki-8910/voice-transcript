@@ -66,11 +66,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* All row controls (the status chip, and every row-action button --
+   Close/View/Retry text links and the Trash/Delete/Export icon buttons)
+   share one fixed height so they line up visually regardless of whether
+   their content is text or an icon glyph -- post-integration fix batch,
+   2026-07-13 (user testing: icon buttons and text links were rendering at
+   different heights). box-sizing: border-box is global (styles/global.css),
+   so this height already accounts for each element's own padding. */
 .chip {
   flex-shrink: 0;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
-  padding: 3px var(--space-2);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-full);
   white-space: nowrap;
 }
@@ -115,6 +125,9 @@
 
 .row-action {
   flex-shrink: 0;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .fail-reason {
@@ -133,13 +146,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border-radius: var(--radius-sm);
   color: var(--color-ink-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .icon-btn:hover:not(:disabled) {
