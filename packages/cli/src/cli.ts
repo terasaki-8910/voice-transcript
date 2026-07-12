@@ -1,11 +1,7 @@
 import { access, writeFile as fsWriteFile } from "node:fs/promises";
-import type { AudioBackend } from "./audio.js";
-import { createFfmpegBackend } from "./audio.js";
+import type { AudioBackend, Transcriber } from "@voice-transcript/core";
+import { createFfmpegBackend, render, GroqClient, runPipeline } from "@voice-transcript/core";
 import { parseArgs, UsageError } from "./args.js";
-import { render } from "./formats.js";
-import { GroqClient } from "./groq.js";
-import { runPipeline } from "./pipeline.js";
-import type { Transcriber } from "./types.js";
 
 export interface CliDeps {
   env?: Record<string, string | undefined>;

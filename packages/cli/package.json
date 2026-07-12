@@ -1,0 +1,28 @@
+{
+  "name": "@voice-transcript/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Terminal CLI that transcribes an audio file to text via the Groq hosted Whisper API, handling files longer than one hour.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "transcribe": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "transcribe": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@voice-transcript/core": "file:../core"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.0"
+  }
+}

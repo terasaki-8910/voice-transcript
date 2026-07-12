@@ -5,9 +5,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { main } from "../src/cli.js";
 import type { CliDeps } from "../src/cli.js";
-import { FfmpegNotFoundError } from "../src/audio.js";
-import type { AudioBackend, AudioChunk } from "../src/audio.js";
-import type { Transcriber } from "../src/types.js";
+import { FfmpegNotFoundError } from "@voice-transcript/core";
+import type { AudioBackend, AudioChunk, Transcriber } from "@voice-transcript/core";
 
 const HELLO = { text: "hello world", segments: [{ start: 0, end: 2, text: "hello world" }] };
 

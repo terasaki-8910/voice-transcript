@@ -4,7 +4,10 @@
   "private": true,
   "description": "Shared transcription engine (ffmpeg normalize, silence-based chunking, Groq client, stitching, format renderers) -- no UI, no DB. Used by @voice-transcript/cli and the apps/desktop Tauri sidecar.",
   "type": "module",
-  "main": "src/pipeline.ts",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
