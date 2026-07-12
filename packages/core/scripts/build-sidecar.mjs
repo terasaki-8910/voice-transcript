@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// Builds the Node sidecar (src/sidecar-bin.ts) into a standalone platform
+// binary and places it where Tauri's `bundle.externalBin` expects it:
+// apps/desktop/src-tauri/binaries/core-sidecar-<rust-target-triple>[.exe].
+//
+// Two steps, matching Tauri's own Node-sidecar guide
+// (https://v2.tauri.app/learn/sidecar-nodejs), with two adjustments made
+// while building this the first time (2026-07-12):
+//   1. Bundle first (esbuild, CJS) -- pkg doesn't run TS/ESM source
+//      directly, and packages/core/src/sidecar-bin.ts imports the rest of
+//      this package plus drizzle-orm/pg, which need to be inlined into one
+//      file for pkg to package.
+//   2. Use @yao-pkg/pkg, not the original `pkg` package -- the original is
+//      unmaintained and has no prebuilt Node binaries past ~Node 18; the
+//      fork tracks current Node releases (this project requires Node 24).
+import { execFileSync, execSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const coreRoot = join(here, "..");
+const bundlePath = join(coreRoot, ".sidecar-build", "sidecar-bundle.cjs");
+const binariesDir = join(coreRoot, "..", "..", "apps", "desktop", "src-tauri", "binaries");
+
+function pkgTargetFor(platform, arch) {
+  const platformMap = { darwin: "macos", linux: "linux", win32: "win" };
+  const archMap = { arm64: "arm64", x64: "x64" };
+  const pkgPlatform = platformMap[platform];
+  const pkgArch = archMap[arch];
+  if (!pkgPlatform || !pkgArch) {
+    throw new Error(`Unsupported platform/arch for the sidecar build: ${platform}/${arch}`);
+  }
+  return `node22-${pkgPlatform}-${pkgArch}`;
+}
+
+mkdirSync(dirname(bundlePath), { recursive: true });
+mkdirSync(binariesDir, { recursive: true });
+
+console.log("[sidecar] bundling src/sidecar-bin.ts -> CJS ...");
+execFileSync(
+  "npx",
+  ["esbuild", "src/sidecar-bin.ts", "--bundle", "--platform=node", "--target=node20", "--format=cjs", `--outfile=${bundlePath}`],
+  { cwd: coreRoot, stdio: "inherit" },
+);
+
+const targetTriple = execSync("rustc --print host-tuple").toString().trim();
+const extension = process.platform === "win32" ? ".exe" : "";
+const finalName = `core-sidecar-${targetTriple}${extension}`;
+const finalPath = join(binariesDir, finalName);
+
+console.log(`[sidecar] compiling standalone binary for ${targetTriple} via @yao-pkg/pkg ...`);
+const pkgTarget = pkgTargetFor(process.platform, process.arch);
+if (existsSync(finalPath)) rmSync(finalPath);
+execFileSync("npx", ["@yao-pkg/pkg", bundlePath, "--target", pkgTarget, "--output", finalPath], {
+  cwd: coreRoot,
+  stdio: "inherit",
+});
+
+console.log(`[sidecar] built ${finalPath}`);
