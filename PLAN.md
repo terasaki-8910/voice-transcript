@@ -387,3 +387,32 @@ gui-history
     across the 3 OS matrix; uploads .dmg/.exe/.AppImage-.deb) and the README regen
     are added at/after integration_accept per CLAUDE.md > Release, so they are NOT a
     buildable wave feature.
+
+## Backlog (requested 2026-07-13, not yet scheduled into a wave)
+
+Both items below were explicitly deferred by the user ("まだやらなくていい") --
+tracked here so they aren't lost, not started.
+
+- **API key configuration in a Preferences/Settings screen.** Today
+  `GROQ_API_KEY` is read from the environment only (CLI and the desktop
+  sidecar both). User wants a GUI way to set it too; placement left to me --
+  likely candidates: a "Preferences..." entry under the native app menu
+  (natural fit alongside F21 `native-menu`'s items) opening a small settings
+  view, or a tab next to Queue/History. This is genuinely new scope, not a
+  bug fix -- before it can enter `state/features.txt` it needs its own
+  SPEC.md addition (what does "set the key" mean concretely: write to
+  `.env`? OS keychain via a Tauri plugin? a local config file the sidecar
+  also reads? -- the secret-handling answer changes the trust-boundary
+  design in SPEC's Architecture section) and a criteria/design-gate pass
+  before a build wave, same as any other new feature.
+- **Richer README with screenshots, post-integration_accept.** CLAUDE.md's
+  existing Release step (1) says the README is regenerated from SPEC.md via
+  `run.sh readme` specifically because that keeps it reproducible, not
+  hand-authored. The user now wants something closer to a well-known OSS
+  project's README -- real screenshots, polish -- which is in tension with
+  "reproducible, not hand-authored" as currently written; that tension isn't
+  resolved here, it's flagged for when this task is actually picked up.
+  Also requested: check whether a Claude Code skill or MCP server exists
+  for README authoring before hand-rolling one. Requires the user's
+  explicit go-ahead once implementation is complete (their words: "実装が
+  完了して私の許可を得られたら").
