@@ -13,10 +13,12 @@ Generated artifacts (code, comments, docs, commit messages, UI copy) default to 
 Change here to override per project. The language I chat in is separate and unaffected.
 
 ## Commands
-Target layout is a pnpm workspace (`packages/core`, `packages/cli`,
-`apps/desktop`) — the criteria/build stages perform the actual npm->pnpm and
-monorepo migration; these are the commands that must work once they do.
-- Tests:     pnpm -r test        (vitest; unit/mocked. Integration E2E runs only when GROQ_API_KEY is set; DB-backed tests need DATABASE_URL)
+pnpm workspace (`packages/core`, `packages/cli`, `apps/desktop` once it
+exists), real `workspace:*` linking (migrated 2026-07-12, once `pnpm`/`cargo`
+were available -- no more `npm ci` per package).
+- Tests:     pnpm -r test        (vitest, per-package unit/mocked tests only)
+- Root tests: pnpm test          (root-level cross-cutting hygiene + tests/e2e/**;
+  integration E2E runs only when GROQ_API_KEY is set; DB-backed tests need DATABASE_URL)
 - Lint:      pnpm -r lint        (eslint + no-emoji check, now covers GUI copy too)
 - Typecheck: pnpm -r typecheck   (tsc --noEmit)
 - Desktop dev loop: pnpm --filter desktop tauri dev

@@ -19,7 +19,7 @@
     "transcribe": "tsx src/index.ts"
   },
   "dependencies": {
-    "@voice-transcript/core": "file:../core"
+    "@voice-transcript/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
