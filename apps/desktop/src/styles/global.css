@@ -2,6 +2,7 @@
    local/no-hardcoded-hex, scoped to apps/desktop/src/**). Mirrors
    design/reference-screen.html's base styles. */
 @import "./tokens.css";
+@import "./toolbar.css";
 
 * {
   box-sizing: border-box;
@@ -29,4 +30,15 @@ body {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* This screen mocks the CONTENT area only, below the native OS title bar --
+   Tauri provides real window chrome per-platform; we don't fake it.
+   Matches design/reference-screen.html's ".app" layout. */
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
