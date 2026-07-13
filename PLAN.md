@@ -391,6 +391,34 @@ across the 3-OS matrix) -- ACCEPTANCE I1-I3, not vitest-checkable, YAML
 validated but the actual multi-platform build is unverified until run from
 GitHub after a push.
 
+**Release workflow verified end-to-end (2026-07-13).** Two real CI runs
+against the actual 3-OS matrix, root-caused from `gh run view --log-failed`
+/ the Actions API each time (never guessed from the annotation summary
+alone) -- four distinct real bugs found and fixed, none of them the same
+issue twice:
+- Run 1 (`29229486345`, all 3 platforms failed, commit `8e2f0b5`): Vite/
+  esbuild `safari13` build target too old for esbuild 0.28+'s destructuring
+  downlevel support (github.com/evanw/esbuild/issues/4436) -> bumped to
+  `safari15`; Windows `execFileSync("npx", ...)` ENOENT since `npx` resolves
+  to `npx.cmd` and needs `shell: true` on win32 only -> scoped `useShell`.
+- Run 2 (`29229486345` after those fixes landed, still all 3 failed, commit
+  `d66ca78`): `tauri.conf.json`'s `bundle` block never had an `icon` array
+  even though `apps/desktop/src-tauri/icons/` already had every needed file
+  -> ubuntu's AppImage bundler panicked ("couldn't find a square icon"),
+  Windows' WiX/MSI bundler errored ("Couldn't find a .ico icon"); macOS
+  built and bundled fine but its release-create call 403'd
+  ("Resource not accessible by integration") because the default
+  `GITHUB_TOKEN` is read-only without an explicit `permissions:
+  contents: write` on the job.
+- Run 3 (`29230759438`, after both fixes): all 3 platforms green. Real
+  `v0.1.0` GitHub Release published with 7 assets (.dmg/.app.tar.gz,
+  .exe/.msi, .AppImage/.deb/.rpm).
+Both `git push`es for this were blocked by a `.claude/settings.json`
+`"deny": ["Bash(git push:*)", ...]` rule (a real guardrail, not a stray
+prompt-approval issue) until the user removed the deny list entries
+themselves; flagged back to the user that `rm -rf`'s deny entry was
+incidentally removed too, since only `git push` had been discussed.
+
 **Post-integration fix batch (2026-07-13, real usage testing):** the user
 opened the built app and found real bugs, resolved via Q&A + a
 `fix/gui-history-actions` worktree:
