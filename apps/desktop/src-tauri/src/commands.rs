@@ -128,6 +128,44 @@ fn db_env(app: &tauri::AppHandle) -> Vec<(&'static str, String)> {
     db_url_fallback(app).into_iter().chain(migrations_dir_env(app)).collect()
 }
 
+/// A GUI app launched from Finder/Dock/Launchpad does NOT inherit the
+/// interactive shell's PATH -- macOS gives it the bare system default
+/// (roughly `/usr/bin:/bin:/usr/sbin:/sbin`), which doesn't include
+/// Homebrew's `/opt/homebrew/bin` (Apple Silicon) or `/usr/local/bin`
+/// (Intel), or any other shell-rc-configured install location (nvm, asdf,
+/// MacPorts, ...). `tauri dev` run from a terminal never hits this --
+/// terminal-launched processes DO inherit the full shell PATH -- which is
+/// exactly why this went unnoticed through this whole project's dev/testing
+/// and only surfaced from a real installed .dmg (real user report,
+/// 2026-07-13: "ffmpeg was not found on PATH" despite ffmpeg being
+/// installed). Fix: resolve the PATH an actual login shell would have, by
+/// briefly running one (`-ilc`, interactive+login, so it sources
+/// .zshrc/.zprofile/.bash_profile the same way opening Terminal would), and
+/// hand that to the sidecar instead of trusting the GUI-launch default.
+/// Same technique as the widely-used `fix-path` npm package (Electron
+/// ecosystem's standard fix for this exact class of bug). Unix only --
+/// Windows GUI apps already inherit the OS-level PATH set via System
+/// Properties, not a shell-rc setting, so this doesn't apply there.
+#[cfg(unix)]
+fn login_shell_path() -> Option<(&'static str, String)> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let output = std::process::Command::new(shell).args(["-ilc", "echo -n \"$PATH\""]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(("PATH", path))
+    }
+}
+
+#[cfg(not(unix))]
+fn login_shell_path() -> Option<(&'static str, String)> {
+    None
+}
+
 #[tauri::command]
 pub async fn ping(app: tauri::AppHandle) -> Result<String, String> {
     call_sidecar(&app, "ping", "null").await
@@ -161,6 +199,9 @@ pub async fn transcribe(
 
     let mut extra_env: Vec<(&str, String)> = key_fallback.map(|k| ("GROQ_API_KEY", k)).into_iter().collect();
     extra_env.extend(db_env(&app));
+    // ffmpeg (spawned inside the sidecar) needs a real PATH -- see
+    // login_shell_path's doc comment for why a GUI launch doesn't have one.
+    extra_env.extend(login_shell_path());
 
     call_sidecar_with_env(&app, "transcribe", &arg_json, extra_env).await
 }
@@ -252,6 +293,26 @@ pub fn export_transcript(path: String, content: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Regression test for a real bug reported from an installed .dmg,
+    // 2026-07-13: ffmpeg was on PATH for every terminal-launched `tauri dev`
+    // session this whole project was tested with, but not for a real
+    // Finder/Dock launch, which doesn't inherit the shell's PATH -- so this
+    // never surfaced until a real user tried the actual installer. Runs in
+    // whatever PATH `cargo test` itself has (a full terminal PATH, same
+    // limitation as `tauri dev`), so it can't reproduce the GUI-launch
+    // failure directly, but it does directly exercise the real
+    // login_shell_path() used in production and confirms the mechanism
+    // that fixes it actually resolves a real, usable PATH -- not a stub.
+    #[cfg(unix)]
+    #[test]
+    fn login_shell_path_resolves_a_real_usable_path() {
+        let (key, path) = login_shell_path().expect("login_shell_path should resolve on a dev machine");
+        assert_eq!(key, "PATH");
+        assert!(!path.trim().is_empty());
+        let found = path.split(':').any(|dir| std::path::Path::new(dir).join("ffmpeg").exists());
+        assert!(found, "resolved PATH should contain a directory with an ffmpeg binary: {path}");
+    }
 
     // Regression test for a real bug caught in pre-merge review: the
     // sidecar (packages/core/src/sidecar.ts) always emits camelCase JSON
