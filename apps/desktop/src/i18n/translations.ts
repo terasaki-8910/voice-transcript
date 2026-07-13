@@ -37,6 +37,7 @@ export const translations = {
     export: "Export",
     confirmTrashAudioBody: "Move the source audio file to the trash? The history entry and transcript are kept.",
     confirmDeleteEntryBody: "Delete this history entry? If the source audio file still exists, it will also be moved to the trash.",
+    removeFromQueue: "Remove from queue",
   },
   ja: {
     queue: "キュー",
@@ -72,6 +73,7 @@ export const translations = {
     export: "エクスポート",
     confirmTrashAudioBody: "音声ファイルをゴミ箱に移動しますか?履歴と文字起こしは保持されます。",
     confirmDeleteEntryBody: "この履歴を削除しますか?音声ファイルが残っていれば、それもゴミ箱に移動します。",
+    removeFromQueue: "キューから削除",
   },
 } as const;
 

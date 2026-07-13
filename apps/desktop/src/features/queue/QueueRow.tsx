@@ -10,7 +10,7 @@
 // now also available directly on the row (previously only reachable via
 // the native menu + a prior "View" click), independent of SelectionContext.
 import { useState } from "react";
-import { FiDownload } from "react-icons/fi";
+import { FiDownload, FiTrash } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useQueue } from "./QueueContext";
 import type { QueueItem } from "./QueueContext";
@@ -30,7 +30,7 @@ function errorMessage(err: unknown): string {
 
 export function QueueRow({ item }: { item: QueueItem }) {
   const { t } = useI18n();
-  const { retry } = useQueue();
+  const { retry, remove } = useQueue();
   const { setSelection } = useSelection();
   const [expanded, setExpanded] = useState(false);
   const [exportError, setExportError] = useState<string>();
@@ -74,17 +74,7 @@ export function QueueRow({ item }: { item: QueueItem }) {
         </div>
         {item.status === "failed" && item.error && <div className="row-meta fail-reason">{item.error}</div>}
         {exportError && <div className="row-meta fail-reason">{exportError}</div>}
-        {item.status === "done" && expanded && item.result && (
-          <p
-            style={{
-              marginTop: "var(--space-2)",
-              fontSize: "var(--text-sm)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {item.result.text}
-          </p>
-        )}
+        {item.status === "done" && expanded && item.result && <p className="row-preview">{item.result.text}</p>}
       </div>
       {item.status === "done" && (
         <button type="button" className="row-action btn-link" onClick={handleView}>
@@ -105,6 +95,17 @@ export function QueueRow({ item }: { item: QueueItem }) {
       {item.status === "failed" && (
         <button type="button" className="row-action btn-link" onClick={() => retry(item.id)}>
           {t("retry")}
+        </button>
+      )}
+      {(item.status === "done" || item.status === "failed") && (
+        <button
+          type="button"
+          className="row-action icon-btn"
+          title={t("removeFromQueue")}
+          aria-label={t("removeFromQueue")}
+          onClick={() => remove(item.id)}
+        >
+          <FiTrash aria-hidden="true" />
         </button>
       )}
     </div>

@@ -101,17 +101,7 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
         </div>
         <div className="row-meta">{item.startedAt.toLocaleString()}</div>
         {actionError && <div className="row-meta fail-reason">{actionError}</div>}
-        {expanded && item.transcriptText && (
-          <p
-            style={{
-              marginTop: "var(--space-2)",
-              fontSize: "var(--text-sm)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {item.transcriptText}
-          </p>
-        )}
+        {expanded && item.transcriptText && <p className="row-preview">{item.transcriptText}</p>}
       </div>
       {item.transcriptText && (
         <button type="button" className="row-action btn-link" onClick={handleView}>

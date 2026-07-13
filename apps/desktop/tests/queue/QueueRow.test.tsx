@@ -127,4 +127,33 @@ describe("QueueRow", () => {
 
     await waitFor(() => expect(screen.getByText("permission denied")).toBeDefined());
   });
+
+  // User testing feedback, 2026-07-14: a queue with no way to clear
+  // finished items just grows forever until restart.
+  it("Remove from queue removes a done item from the list", async () => {
+    render(<RowHarness transcribeFn={() => Promise.resolve({ text: "hello world", rendered: "hello world" })} />);
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Remove from queue" }));
+
+    expect(screen.queryByText("Done")).toBeNull();
+  });
+
+  it("Remove from queue removes a failed item from the list", async () => {
+    render(<RowHarness transcribeFn={() => Promise.reject(new Error("network down"))} />);
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(screen.getByText("Failed")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Remove from queue" }));
+
+    expect(screen.queryByText("Failed")).toBeNull();
+  });
+
+  it("a queued or transcribing item has no Remove from queue button yet", () => {
+    render(<RowHarness transcribeFn={() => new Promise(() => {})} />);
+    fireEvent.click(screen.getByText("add"));
+
+    expect(screen.queryByRole("button", { name: "Remove from queue" })).toBeNull();
+  });
 });

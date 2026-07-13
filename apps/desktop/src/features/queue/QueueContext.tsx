@@ -29,6 +29,13 @@ interface QueueContextValue {
   items: QueueItem[];
   addFiles: (filePaths: string[]) => void;
   retry: (id: string) => void;
+  // Removes a "done"/"failed" item from the queue list only -- a purely
+  // client-side dismissal (the source file and, for "done" items, the
+  // already-written history record are both untouched; History has its own
+  // separate trash/delete actions for those). User testing feedback,
+  // 2026-07-14: a queue with no way to clear finished items just grows
+  // forever until restart.
+  remove: (id: string) => void;
 }
 
 const QueueContext = createContext<QueueContextValue | null>(null);
@@ -74,6 +81,10 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
     );
   };
 
+  const remove = (id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
   useEffect(() => {
     if (processingRef.current) return;
     const next = items.find((item) => item.status === "queued");
@@ -95,7 +106,7 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
       });
   }, [items, transcribeFn]);
 
-  const value = useMemo<QueueContextValue>(() => ({ items, addFiles, retry }), [items]);
+  const value = useMemo<QueueContextValue>(() => ({ items, addFiles, retry, remove }), [items]);
 
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;
 }

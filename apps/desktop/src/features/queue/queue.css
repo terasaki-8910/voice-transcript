@@ -31,7 +31,15 @@
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
   display: flex;
-  align-items: center;
+  /* flex-start, not center (2026-07-14 user testing, reported repeatedly):
+     .row-main's height varies a lot once a row is expanded to show its
+     transcript preview -- align-items: center dragged the action buttons
+     (View/Export/Trash/Delete) down to the middle of that full height,
+     far from where a user clicks expecting them. Pinning to the top keeps
+     them at a fixed, predictable position regardless of content height
+     (see ~/.claude/rules/ui.md's fixed-position rule for the general
+     principle this instance keeps re-triggering). */
+  align-items: flex-start;
   gap: var(--space-4);
 }
 
@@ -132,6 +140,19 @@
 
 .fail-reason {
   color: var(--color-danger);
+}
+
+/* Expanded transcript preview (View click). Capped, not unbounded --
+   2026-07-14 user testing: a long transcript dumped inline made the row
+   grow arbitrarily tall; a fixed max-height + scroll keeps every row's
+   footprint predictable no matter how long the underlying transcript is,
+   matching the reference height from that report. */
+.row-preview {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  max-height: 4.5em;
+  overflow-y: auto;
 }
 
 /* Icon-only row actions (Trash/Delete/Export) -- post-integration fix
