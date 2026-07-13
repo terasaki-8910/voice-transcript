@@ -5,6 +5,7 @@
 // environment and are never passed as a command argument or returned in a
 // response (see .claude/agents/tauri-capability-reviewer.md).
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 // camelCase: the webview passes `{ filePath, model, language, format }`
@@ -37,26 +38,29 @@ struct SidecarEnvelope<T> {
 /// envelope. A transport failure (nonzero exit, unparsable stdout) and a
 /// domain failure (`{ ok: false, error }`) are both surfaced as `Err`, but
 /// kept distinguishable in the message so a caller/log can tell them apart.
+/// Always injects db_env (below) -- every command that reaches the
+/// sidecar's DB layer needs it, not just the history-specific ones, since
+/// transcribe writes a history record too.
 async fn call_sidecar<T: for<'de> Deserialize<'de>>(
     app: &tauri::AppHandle,
     command: &str,
     arg_json: &str,
 ) -> Result<T, String> {
-    call_sidecar_with_env(app, command, arg_json, None).await
+    call_sidecar_with_env(app, command, arg_json, db_env(app)).await
 }
 
-/// Same as `call_sidecar`, but can inject one extra environment variable
-/// into the spawned sidecar process (used only by `transcribe`, to pass
+/// Same as `call_sidecar`, but can inject extra environment variables into
+/// the spawned sidecar process (used by `transcribe`, to additionally pass
 /// along the locally-configured API key -- see its call site). This sets
-/// the variable on the CHILD PROCESS's environment, the same place
-/// GROQ_API_KEY already lives when it comes from the shell -- never as a
-/// command-line argument, which would be visible to other processes on the
-/// machine via a process listing.
+/// the variables on the CHILD PROCESS's environment, the same place
+/// GROQ_API_KEY/DATABASE_URL already live when they come from the shell --
+/// never as a command-line argument, which would be visible to other
+/// processes on the machine via a process listing.
 async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
     app: &tauri::AppHandle,
     command: &str,
     arg_json: &str,
-    extra_env: Option<(&str, String)>,
+    extra_env: Vec<(&str, String)>,
 ) -> Result<T, String> {
     let mut sidecar_command = app
         .shell()
@@ -65,7 +69,7 @@ async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
         .arg(command)
         .arg(arg_json);
 
-    if let Some((key, value)) = extra_env {
+    for (key, value) in extra_env {
         sidecar_command = sidecar_command.env(key, value);
     }
 
@@ -90,6 +94,40 @@ async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
     }
 }
 
+/// DATABASE_URL from the environment always wins; the locally-saved
+/// Preferences URL (config.rs) is only a fallback used when the environment
+/// doesn't already provide one -- same precedence rule as GROQ_API_KEY
+/// (ACCEPTANCE G11).
+fn db_url_fallback(app: &tauri::AppHandle) -> Option<(&'static str, String)> {
+    if std::env::var("DATABASE_URL").is_err() {
+        crate::config::read_database_url(app).map(|url| ("DATABASE_URL", url))
+    } else {
+        None
+    }
+}
+
+/// Points the sidecar at the bundled copy of packages/core/src/db/migrations/
+/// (tauri.conf.json's bundle.resources, populated by
+/// packages/core/scripts/build-sidecar.mjs) so it can auto-create its
+/// schema on a fresh database -- see packages/core/src/db/migrate.ts's
+/// comment on why the pkg-compiled sidecar can't resolve that folder as a
+/// real on-disk sibling of itself the way the CLI can. Silently omitted
+/// (never a hard error) if resource_dir() can't resolve -- the sidecar
+/// falls back to its own defaultMigrationsFolder() in that case, which is
+/// still correct in any dev context where the sidecar isn't actually
+/// bundled.
+fn migrations_dir_env(app: &tauri::AppHandle) -> Option<(&'static str, String)> {
+    let dir = app.path().resource_dir().ok()?.join("db-migrations");
+    Some(("MIGRATIONS_DIR", dir.to_string_lossy().into_owned()))
+}
+
+/// The combined DB-related environment for any sidecar call that touches
+/// the DB layer (which, per db_url_fallback's own comment, is every call --
+/// transcribe included).
+fn db_env(app: &tauri::AppHandle) -> Vec<(&'static str, String)> {
+    db_url_fallback(app).into_iter().chain(migrations_dir_env(app)).collect()
+}
+
 #[tauri::command]
 pub async fn ping(app: tauri::AppHandle) -> Result<String, String> {
     call_sidecar(&app, "ping", "null").await
@@ -112,14 +150,19 @@ pub async fn transcribe(
     // locally-saved Preferences key (config.rs) is only a fallback used
     // when the environment doesn't already provide one. Injected into the
     // spawned sidecar's own process environment, never into arg_json --
-    // see call_sidecar_with_env's doc comment on why.
+    // see call_sidecar_with_env's doc comment on why. DATABASE_URL gets the
+    // same treatment (db_url_fallback) since transcribe also writes a
+    // history record on completion.
     let key_fallback = if std::env::var("GROQ_API_KEY").is_err() {
         crate::config::read_api_key(&app)
     } else {
         None
     };
 
-    call_sidecar_with_env(&app, "transcribe", &arg_json, key_fallback.map(|k| ("GROQ_API_KEY", k))).await
+    let mut extra_env: Vec<(&str, String)> = key_fallback.map(|k| ("GROQ_API_KEY", k)).into_iter().collect();
+    extra_env.extend(db_env(&app));
+
+    call_sidecar_with_env(&app, "transcribe", &arg_json, extra_env).await
 }
 
 // F18 (gui-history). The sidecar owns all DB access (list/get/delete); this

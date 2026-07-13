@@ -85,13 +85,15 @@ pnpm --filter desktop tauri dev                        # development loop
   <img src="docs/screenshots/preferences-dark.png" alt="Preferences view" width="49%">
 </p>
 
-### Preferences (API key)
-The Preferences view sets `GROQ_API_KEY` from the GUI instead of only via an environment
-variable. The key is written by the Rust shell to a **local config file** in the OS's
-per-user app-config directory (`~/Library/Application Support/…` on macOS, `%APPDATA%\…`
-on Windows, `~/.config/…` on Linux), outside the repo and never committed. The webview
-never touches this file directly. The sidecar uses this key only when `GROQ_API_KEY` is
-unset in the environment.
+### Preferences (API key, database URL)
+The Preferences view sets `GROQ_API_KEY` and `DATABASE_URL` from the GUI instead of only
+via environment variables. Both are written by the Rust shell to **local config files** in
+the OS's per-user app-config directory (`~/Library/Application Support/…` on macOS,
+`%APPDATA%\…` on Windows, `~/.config/…` on Linux), outside the repo and never committed.
+The webview never touches these files directly, and neither value is ever read back to
+it — Preferences only shows whether one is currently set. The sidecar uses a
+Preferences-saved value only when the matching environment variable is unset; the
+environment always wins when both are present.
 
 Tradeoff, stated plainly: this is plaintext-on-disk, not an encrypted OS-keychain entry —
 protected only by owner-only file permissions and living outside the repo. Acceptable for
@@ -110,11 +112,13 @@ before any multi-user or shared-machine use.
 ## Transcription history (Postgres)
 Every completed run — CLI or GUI — writes one record: source file name, started-at
 timestamp, model, language, requested format(s), status, and the transcript text (plus
-segments when the format has them). `DATABASE_URL` is read only from the environment;
-nothing DB-related is hardcoded. The data-access layer goes through an ORM/query-builder
-(no vendor-specific raw SQL outside migrations) so a later move to MySQL or another host is
-a config change, not a rewrite. The app connects to your Postgres; it does not provision,
-migrate, or back it up.
+segments when the format has them). `DATABASE_URL` is read from the environment, falling
+back to the GUI's Preferences value when unset (see above); nothing DB-related is
+hardcoded. The data-access layer goes through an ORM/query-builder (no vendor-specific raw
+SQL outside migrations) so a later move to MySQL or another host is a config change, not a
+rewrite. The app connects to your Postgres and creates its own tables there automatically
+on first connect if they don't already exist (an idempotent, tracked migration, safe to run
+every time); it does not provision the database itself, and does not back it up.
 
 ## Release automation
 A manually triggered GitHub Actions workflow (`.github/workflows/release.yml`,
@@ -123,6 +127,18 @@ A manually triggered GitHub Actions workflow (`.github/workflows/release.yml`,
 `ubuntu-latest`, and `macos-latest`, and uploads each platform's native installer to a
 GitHub Release (macOS `.dmg`, Windows `.exe`, Linux `.AppImage`/`.deb`). `packages/cli` is
 not built or published by the release — it is used from source.
+
+### macOS: "is damaged and can't be opened"
+The release build is not code-signed with an Apple Developer ID or notarized (that needs a
+paid Apple Developer Program membership, out of scope for this project). A build downloaded
+through a browser gets a `com.apple.quarantine` flag, and Gatekeeper rejects the resulting
+ad-hoc signature with this misleading message — the app itself is not corrupted. Fix, after
+moving it to `/Applications`:
+```sh
+xattr -cr "/Applications/Voice Transcript.app"
+```
+Windows and Linux builds don't hit this — Windows may show an "unknown publisher"
+SmartScreen warning (Run anyway), and Linux's `.AppImage`/`.deb` need no signature at all.
 
 ## Constraints
 - **Groq free tier only:** 25 MB per request, 7,200 audio-seconds/hour, 2,000 requests/day.

@@ -1,5 +1,6 @@
 import { eq, desc } from "drizzle-orm";
 import { transcriptions } from "./schema.js";
+import { ensureSchema } from "./migrate.js";
 import type { Db } from "./client.js";
 import type { Segment, TranscriptResult } from "../types.js";
 
@@ -39,13 +40,22 @@ export async function recordHistory(db: Db, input: HistoryRecordInput): Promise<
 
 // ACCEPTANCE H5: if the DB is unset or unreachable, the write fails loudly
 // (logged) and never throws -- the caller's transcription result is never
-// blocked or corrupted by a history-write failure.
-export async function recordHistorySafe(db: Db | undefined, input: HistoryRecordInput): Promise<void> {
+// blocked or corrupted by a history-write failure. ensureSchema() runs
+// first (also inside this try/catch) so a freshly-configured, empty
+// database gets its tables created automatically instead of every write
+// failing with "relation does not exist" until someone runs the migration
+// by hand.
+export async function recordHistorySafe(
+  db: Db | undefined,
+  input: HistoryRecordInput,
+  migrationsFolder: string | undefined,
+): Promise<void> {
   if (!db) {
     console.error("[history] DATABASE_URL not set; history not recorded");
     return;
   }
   try {
+    await ensureSchema(db, migrationsFolder);
     await recordHistory(db, input);
   } catch (err) {
     console.error("[history] failed to record history (non-blocking):", err);

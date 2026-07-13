@@ -35,6 +35,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/core-sidecar"]
+    "externalBin": ["binaries/core-sidecar"],
+    "resources": {
+      "resources/db-migrations": "db-migrations"
+    }
   }
 }

@@ -1,6 +1,14 @@
 import { access, writeFile as fsWriteFile } from "node:fs/promises";
 import type { AudioBackend, Transcriber, HistoryRecordInput } from "@voice-transcript/core";
-import { createFfmpegBackend, render, GroqClient, runPipeline, createDb, recordHistorySafe } from "@voice-transcript/core";
+import {
+  createFfmpegBackend,
+  render,
+  GroqClient,
+  runPipeline,
+  createDb,
+  recordHistorySafe,
+  defaultMigrationsFolder,
+} from "@voice-transcript/core";
 import { parseArgs, UsageError } from "./args.js";
 
 export interface CliDeps {
@@ -60,7 +68,9 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   const makeTranscriber = deps.makeTranscriber ?? ((apiKey: string) => new GroqClient({ apiKey }));
   const writeFile = deps.writeFile ?? ((path: string, data: string) => fsWriteFile(path, data));
   const fileExists = deps.fileExists ?? defaultFileExists;
-  const recordHistory = deps.recordHistory ?? ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input));
+  const recordHistory =
+    deps.recordHistory ??
+    ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input, defaultMigrationsFolder()));
 
   let options;
   try {

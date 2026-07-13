@@ -142,3 +142,23 @@ export function saveApiKey(key: string): Promise<void> {
 export function getApiKeyStatus(): Promise<boolean> {
   return invoke("get_api_key_status");
 }
+
+// Same write-only pattern as saveApiKey/getApiKeyStatus above -- a Postgres
+// connection string embeds a password, so it gets identical treatment:
+// never read back, only a boolean "is one saved" status.
+export function saveDatabaseUrl(url: string): Promise<void> {
+  return invoke("save_database_url", { url });
+}
+
+export function getDatabaseUrlStatus(): Promise<boolean> {
+  return invoke("get_database_url_status");
+}
+
+// gui-i18n: keeps the native OS menu bar's labels in sync with the
+// webview's own language setting (menu.rs's build() takes the same "en"/
+// "ja" values as I18nContext's Lang type). Called from I18nContext on every
+// language change, including once on mount to sync a persisted preference
+// -- see menu.rs's set_menu_language doc comment for the cold-start caveat.
+export function setMenuLanguage(lang: string): Promise<void> {
+  return invoke("set_menu_language", { lang });
+}

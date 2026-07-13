@@ -16,6 +16,14 @@ fn config_file_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String
     Ok(dir.join("groq_api_key"))
 }
 
+fn database_url_file_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("cannot resolve app config directory: {e}"))?;
+    Ok(dir.join("database_url"))
+}
+
 /// Reads the locally-saved API key, if any. Used only from Rust (to inject
 /// into the sidecar's spawned-process environment as a fallback when
 /// GROQ_API_KEY isn't already set) -- never exposed back to the webview.
@@ -83,6 +91,58 @@ pub fn get_api_key_status(app: tauri::AppHandle) -> bool {
     read_api_key(&app).is_some()
 }
 
+// Same pattern and tradeoff as the API key above, for DATABASE_URL: a
+// locally-saved connection string in the OS's per-user app-config
+// directory, used only as a fallback when the DATABASE_URL environment
+// variable isn't already set (see commands.rs's db_url_fallback), never
+// returned to the webview -- a Postgres connection string embeds a
+// password, so it gets exactly the same write-only treatment as the API
+// key, not weaker handling just because it's "a URL, not a secret."
+pub fn read_database_url(app: &tauri::AppHandle) -> Option<String> {
+    let path = database_url_file_path(app).ok()?;
+    let contents = std::fs::read_to_string(path).ok()?;
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+// Only postgres(ql):// is accepted today -- SPEC.md's stated portability
+// goal (a later MySQL move should be a config change, not a rewrite)
+// applies to the packages/core data-access layer, not to this input
+// validator; this field will need a matching scheme check added if/when
+// that support actually lands, not a permissive check speculatively
+// widened now for a database this app can't yet talk to.
+fn validate_database_url(url: &str) -> Result<&str, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("Database URL must not be empty.".to_string());
+    }
+    if !(trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://")) {
+        return Err("Database URL must start with postgres:// or postgresql://".to_string());
+    }
+    Ok(trimmed)
+}
+
+#[tauri::command]
+pub fn save_database_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let trimmed = validate_database_url(&url)?;
+    let path = database_url_file_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create config directory: {e}"))?;
+    }
+    write_owner_only(&path, trimmed)
+}
+
+/// Never returns the URL itself -- only whether one is currently saved (same
+/// reasoning as get_api_key_status).
+#[tauri::command]
+pub fn get_database_url_status(app: tauri::AppHandle) -> bool {
+    read_database_url(&app).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +156,24 @@ mod tests {
     #[test]
     fn validate_key_trims_and_accepts_a_real_looking_key() {
         assert_eq!(validate_key("  gsk_real_key  ").unwrap(), "gsk_real_key");
+    }
+
+    #[test]
+    fn validate_database_url_rejects_empty_or_whitespace_only_input() {
+        assert!(validate_database_url("").is_err());
+        assert!(validate_database_url("   ").is_err());
+    }
+
+    #[test]
+    fn validate_database_url_rejects_a_non_postgres_scheme() {
+        assert!(validate_database_url("mysql://user:pass@host/db").is_err());
+    }
+
+    #[test]
+    fn validate_database_url_trims_and_accepts_a_real_looking_url() {
+        assert_eq!(
+            validate_database_url("  postgresql://user:pass@localhost:5432/voice_transcript  ").unwrap(),
+            "postgresql://user:pass@localhost:5432/voice_transcript",
+        );
     }
 }

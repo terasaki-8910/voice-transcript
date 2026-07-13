@@ -6,36 +6,62 @@
 // out through this UI (see lib/tauri.ts's comment on why).
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/I18nContext";
-import { saveApiKey, getApiKeyStatus } from "../../lib/tauri";
+import { saveApiKey, getApiKeyStatus, saveDatabaseUrl, getDatabaseUrlStatus } from "../../lib/tauri";
 import "./preferences.css";
 
-type KeyStatus = "checking" | "set" | "unset";
+type FieldStatus = "checking" | "set" | "unset";
 type SaveState = "idle" | "saving" | "error";
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export function PreferencesView({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const [key, setKey] = useState("");
-  const [status, setStatus] = useState<KeyStatus>("checking");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [error, setError] = useState<string>();
+  const [keyStatus, setKeyStatus] = useState<FieldStatus>("checking");
+  const [keySaveState, setKeySaveState] = useState<SaveState>("idle");
+  const [keyError, setKeyError] = useState<string>();
+
+  const [databaseUrl, setDatabaseUrl] = useState("");
+  const [databaseUrlStatus, setDatabaseUrlStatus] = useState<FieldStatus>("checking");
+  const [databaseUrlSaveState, setDatabaseUrlSaveState] = useState<SaveState>("idle");
+  const [databaseUrlError, setDatabaseUrlError] = useState<string>();
 
   useEffect(() => {
     getApiKeyStatus()
-      .then((isSet) => setStatus(isSet ? "set" : "unset"))
-      .catch(() => setStatus("unset"));
+      .then((isSet) => setKeyStatus(isSet ? "set" : "unset"))
+      .catch(() => setKeyStatus("unset"));
+    getDatabaseUrlStatus()
+      .then((isSet) => setDatabaseUrlStatus(isSet ? "set" : "unset"))
+      .catch(() => setDatabaseUrlStatus("unset"));
   }, []);
 
-  const handleSave = async () => {
-    setSaveState("saving");
-    setError(undefined);
+  const handleSaveKey = async () => {
+    setKeySaveState("saving");
+    setKeyError(undefined);
     try {
       await saveApiKey(key);
-      setStatus("set");
+      setKeyStatus("set");
       setKey("");
-      setSaveState("idle");
+      setKeySaveState("idle");
     } catch (err) {
-      setSaveState("error");
-      setError(err instanceof Error ? err.message : String(err));
+      setKeySaveState("error");
+      setKeyError(errorMessage(err));
+    }
+  };
+
+  const handleSaveDatabaseUrl = async () => {
+    setDatabaseUrlSaveState("saving");
+    setDatabaseUrlError(undefined);
+    try {
+      await saveDatabaseUrl(databaseUrl);
+      setDatabaseUrlStatus("set");
+      setDatabaseUrl("");
+      setDatabaseUrlSaveState("idle");
+    } catch (err) {
+      setDatabaseUrlSaveState("error");
+      setDatabaseUrlError(errorMessage(err));
     }
   };
 
@@ -43,7 +69,10 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={t("preferences")}>
       <div className="modal">
         <h2>{t("preferences")}</h2>
-        <p className="modal-status">{status === "set" ? t("apiKeySet") : status === "unset" ? t("apiKeyNotSet") : ""}</p>
+
+        <p className="modal-status">
+          {keyStatus === "set" ? t("apiKeySet") : keyStatus === "unset" ? t("apiKeyNotSet") : ""}
+        </p>
         <label htmlFor="api-key-input">
           {t("apiKeyLabel")}
           <input
@@ -54,7 +83,40 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
             onChange={(e) => setKey(e.target.value)}
           />
         </label>
-        {saveState === "error" && error && <p className="fail-reason">{error}</p>}
+        {keySaveState === "error" && keyError && <p className="fail-reason">{keyError}</p>}
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            aria-label={t("saveApiKeyAria")}
+            disabled={!key.trim() || keySaveState === "saving"}
+            onClick={() => void handleSaveKey()}
+          >
+            {t("save")}
+          </button>
+        </div>
+
+        <hr className="modal-divider" />
+
+        <p className="modal-status">
+          {databaseUrlStatus === "set"
+            ? t("databaseUrlSet")
+            : databaseUrlStatus === "unset"
+              ? t("databaseUrlNotSet")
+              : ""}
+        </p>
+        <label htmlFor="database-url-input">
+          {t("databaseUrlLabel")}
+          <input
+            id="database-url-input"
+            type="password"
+            autoComplete="off"
+            placeholder="user:password@host:5432/voice_transcript"
+            value={databaseUrl}
+            onChange={(e) => setDatabaseUrl(e.target.value)}
+          />
+        </label>
+        {databaseUrlSaveState === "error" && databaseUrlError && <p className="fail-reason">{databaseUrlError}</p>}
         <div className="modal-actions">
           <button type="button" className="btn-link" onClick={onClose}>
             {t("close")}
@@ -62,8 +124,9 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             className="btn-primary"
-            disabled={!key.trim() || saveState === "saving"}
-            onClick={() => void handleSave()}
+            aria-label={t("saveDatabaseUrlAria")}
+            disabled={!databaseUrl.trim() || databaseUrlSaveState === "saving"}
+            onClick={() => void handleSaveDatabaseUrl()}
           >
             {t("save")}
           </button>

@@ -39,3 +39,4 @@ export {
   getHistoryById,
 } from "./db/history.js";
 export type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
+export { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";

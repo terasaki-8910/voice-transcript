@@ -36,7 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .menu(menu::build)
+        .menu(|app| menu::build(app, "en"))
         .on_menu_event(menu::handle_event)
         .invoke_handler(tauri::generate_handler![
             commands::ping,
@@ -47,6 +47,9 @@ pub fn run() {
             commands::export_transcript,
             config::save_api_key,
             config::get_api_key_status,
+            config::save_database_url,
+            config::get_database_url_status,
+            menu::set_menu_language,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

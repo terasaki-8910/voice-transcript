@@ -9,7 +9,7 @@
 // native menu's events need to reach from outside QueueView) and
 // AppShell, which owns whether PreferencesView is open and wires
 // useMenuEvents -- both need to sit inside every other provider.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QueueProvider } from "./features/queue/QueueContext";
 import { QueueView } from "./features/queue/QueueView";
 import { HistoryProvider } from "./features/history/HistoryContext";
@@ -17,10 +17,27 @@ import { NavProvider } from "./features/nav/NavContext";
 import { SelectionProvider } from "./features/selection/SelectionContext";
 import { PreferencesView } from "./features/preferences/PreferencesView";
 import { useMenuEvents } from "./features/menu/useMenuEvents";
+import { useI18n } from "./i18n/I18nContext";
+import { setMenuLanguage } from "./lib/tauri";
 
 function AppShell() {
   const [showPreferences, setShowPreferences] = useState(false);
   useMenuEvents(() => setShowPreferences(true));
+
+  // Keeps the native OS menu bar's labels in sync with the in-app language
+  // setting (menu.rs's set_menu_language). Lives here, not in I18nContext
+  // itself, since I18nProvider is also used as a plain test wrapper by many
+  // narrower component tests (PreferencesView, QueueRow, ...) that assert
+  // exact invoke() call counts/args -- putting a Tauri IPC call inside the
+  // generic provider would fire it in every one of those, not just the
+  // real app. Runs on mount too (not just later changes), so a persisted
+  // language preference also syncs the menu, which was built with a fixed
+  // "en" default before this ran (see menu.rs's doc comment on that
+  // cold-start ordering).
+  const { lang } = useI18n();
+  useEffect(() => {
+    void setMenuLanguage(lang).catch(() => {});
+  }, [lang]);
 
   return (
     <>

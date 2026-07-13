@@ -19,8 +19,28 @@ import { runPipeline } from "./pipeline.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
 import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry } from "./db/history.js";
+import { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 import type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
 import type { OutputFormat } from "./types.js";
+
+// MIGRATIONS_DIR is set by the Rust shell (apps/desktop/src-tauri/src/
+// commands.rs) from Tauri's bundled resource directory when this file runs
+// as the pkg-compiled sidecar binary -- see db/migrate.ts's comment on why
+// that binary can't resolve migrations/ as a real on-disk sibling of
+// itself the way the CLI (running from source) or a test can. The
+// defaultMigrationsFolder() fallback below is therefore only reachable here
+// if Rust's own resource_dir() resolution failed (see commands.rs's
+// migrations_dir_env) -- itself needs its own try/catch, since it throws
+// (deliberately, with a clear message) in exactly this bundled context;
+// ensureSchema() already treats "no folder available" as non-fatal.
+function migrationsFolder(env: Record<string, string | undefined>): string | undefined {
+  if (env.MIGRATIONS_DIR) return env.MIGRATIONS_DIR;
+  try {
+    return defaultMigrationsFolder();
+  } catch {
+    return undefined;
+  }
+}
 
 export interface TranscribeArgs {
   filePath: string;
@@ -64,7 +84,9 @@ export async function handleTranscribe(
 
   const audio = deps.audio ?? createFfmpegBackend();
   const makeTranscriber = deps.makeTranscriber ?? ((key: string) => new GroqClient({ apiKey: key }));
-  const recordHistory = deps.recordHistory ?? ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input));
+  const recordHistory =
+    deps.recordHistory ??
+    ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input, migrationsFolder(env)));
 
   await audio.assertAvailable();
 
@@ -101,6 +123,7 @@ export async function handleListHistory(deps: SidecarDeps = {}): Promise<History
   if (deps.listHistory) return deps.listHistory();
   const db = createDb();
   if (!db) return [];
+  await ensureSchema(db, migrationsFolder(process.env));
   return listHistory(db);
 }
 
@@ -117,6 +140,7 @@ export async function handleGetHistory(
     : await (async () => {
         const db = createDb();
         if (!db) throw new Error("DATABASE_URL not set; no history to read.");
+        await ensureSchema(db, migrationsFolder(process.env));
         return getHistoryById(db, args.id);
       })();
   if (!record) throw new Error(`History entry ${args.id} not found.`);
@@ -139,6 +163,7 @@ export async function handleDeleteHistoryEntry(
   }
   const db = createDb();
   if (!db) throw new Error("DATABASE_URL not set; no history to delete.");
+  await ensureSchema(db, migrationsFolder(process.env));
   const record = await getHistoryById(db, args.id);
   if (!record) throw new Error(`History entry ${args.id} not found.`);
   await deleteHistoryEntry(db, args.id);

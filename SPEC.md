@@ -76,7 +76,13 @@ history of past runs.
 - **Interface language:** GUI copy is available in Japanese and English,
   switchable via a simple in-app setting (no restart required). This is
   separate from `--language`/transcription-language handling above, which is
-  about the audio's spoken language, not the UI's display language.
+  about the audio's spoken language, not the UI's display language. Covers
+  the native OS menu bar too (fixed 2026-07-13; previously English-only
+  regardless of this setting) — the webview tells Rust to rebuild the menu
+  whenever the language changes, including once at startup to sync a
+  persisted preference (a brief English flash on a Japanese-preference cold
+  start is an accepted tradeoff, not worth added startup-ordering
+  complexity to avoid).
 - **Theme:** explicit light/dark toggle in the GUI itself (not just following
   the OS setting) — confirmed at the design gate (2026-07-12).
 - **Deleting a history item — two distinct actions** (confirmed 2026-07-12):
@@ -96,23 +102,29 @@ history of past runs.
   existing formats — txt/srt/vtt/json, no new format), **View on GitHub**
   (opens the project repo in the default browser; likely under a Help
   menu), and **Preferences...** (opens the Preferences view — see
-  "Preferences (API key)" below), bound to the platform-conventional
-  shortcut: Cmd+, on macOS, Ctrl+, on Windows/Linux. Standard OS/Tauri menu
-  conventions (About, Quit, Edit commands, Window menu on macOS, etc.) are
-  included by platform convention and aren't itemized here.
+  "Preferences (API key, database URL)" below), bound to the
+  platform-conventional shortcut: Cmd+, on macOS, Ctrl+, on Windows/Linux.
+  Standard OS/Tauri menu conventions (About, Quit, Edit commands, Window
+  menu on macOS, etc.) are included by platform convention and aren't
+  itemized here.
 
-## Preferences (API key)
-- A Preferences view lets the user set `GROQ_API_KEY` from the GUI instead
-  of only via an environment variable. Reachable via the native menu's
-  **Preferences...** item and its platform shortcut (Cmd+,/Ctrl+,).
+## Preferences (API key, database URL)
+- A Preferences view lets the user set `GROQ_API_KEY` and `DATABASE_URL`
+  from the GUI instead of only via environment variables. Reachable via the
+  native menu's **Preferences...** item and its platform shortcut
+  (Cmd+,/Ctrl+,).
 - **Storage (decided 2026-07-13): a local config file**, not the OS
   keychain. Written by the Rust shell to a file in the OS's per-user
   app-config directory (e.g. via Tauri's `path` API — platform-appropriate:
   `~/Library/Application Support/...` on macOS, `%APPDATA%\...` on Windows,
   `~/.config/...` on Linux), outside the git repo, never committed. The
-  Node sidecar reads this file at startup as a fallback when the
-  `GROQ_API_KEY` environment variable isn't set (environment variable still
-  wins if both are present, for CLI/scripting use).
+  Node sidecar reads this file at startup as a fallback when the matching
+  environment variable isn't set (environment variable still wins if both
+  are present, for CLI/scripting use).
+- **DATABASE_URL Preferences field (added 2026-07-13):** same
+  storage/precedence pattern as the API key, in its own config file. Never
+  read back to the webview — only a set/unset status is shown, same as the
+  API key, since a Postgres connection string embeds a password.
 - **Tradeoff, stated plainly:** this is plaintext-on-disk, not
   encrypted-at-rest the way an OS keychain entry would be. Mitigated only
   by OS file permissions (owner-read/write only, e.g. `0600` on
@@ -120,8 +132,8 @@ history of past runs.
   app's current scope (a single-user personal tool); would need revisiting
   (e.g. moving to OS keychain storage) before any multi-user or
   shared-machine use.
-- The webview never reads or writes this file directly — the Preferences
-  view sends the entered key to a Rust command, which alone touches the
+- The webview never reads or writes these files directly — the Preferences
+  view sends the entered key/URL to a Rust command, which alone touches the
   filesystem, same trust-boundary pattern as every other secret/fs/DB
   operation in this app (see Architecture above).
 
@@ -143,6 +155,13 @@ history of past runs.
   before committing to it.)
 - The app does not provision or manage the DB server — you run your own
   Postgres (or later MySQL) instance; the app only connects to it.
+- **Schema auto-creation (added 2026-07-13):** on connecting, the app
+  creates its own tables automatically if they don't already exist yet (an
+  idempotent, tracked migration via the ORM's own migration runner — safe
+  to run on every connect, not just once). This is schema initialization
+  within a database you already stood up, not DB *provisioning* — it still
+  never creates the database itself, installs Postgres, or manages the
+  server.
 
 ## Release automation
 - A manually triggered GitHub Actions workflow, `.github/workflows/release.yml`
