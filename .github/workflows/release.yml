@@ -20,6 +20,12 @@ jobs:
     # Mirrors G1's CI build matrix. Builds apps/desktop (the Tauri app) ONLY
     # -- packages/cli is never built or published here, it stays
     # used-from-source (ACCEPTANCE I2).
+    # contents: write is required -- without it the default GITHUB_TOKEN is
+    # read-only and tauri-action's release-creation call 403s with
+    # "Resource not accessible by integration" (confirmed via a real failed
+    # run, 2026-07-13), even though the build itself succeeds.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
