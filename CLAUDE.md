@@ -48,3 +48,18 @@ Note: state/done/ already has build/accept/integrate markers left over from the
 original CLI-only pipeline run (before this session's GUI/DB scope was added) --
 these are stale for the new scope. Run `scripts/run.sh reset` before build for the
 new features so `run.sh status` doesn't misreport them as already done.
+
+### Ongoing patch releases (post-launch, confirmed 2026-07-14)
+Once the app has an initial GitHub Release, later fix/small-feature batches release the
+same way but the version is picked automatically, not asked each time:
+- Read the latest existing tag (`git tag -l` / `gh release list`) and bump the PATCH
+  (third) number by default -- e.g. v0.1.3 -> v0.1.4. Only bump minor/major if the change
+  is clearly that scale (a judgment call, not automatic).
+- `gh workflow run release.yml -f title="Voice Transcript vX.Y.Z" -f version="vX.Y.Z"`,
+  then monitor to completion same as always.
+- After code changes are verified (tests/typecheck/lint green) and BEFORE pushing/
+  releasing, also build a local debug app (`pnpm --filter desktop tauri build --debug`)
+  and copy the resulting `.app` to `/Applications` (overwriting the previous install,
+  quitting it first if running) -- gives immediate local use without waiting on/
+  downloading the GitHub release. Do this in addition to the real release, not instead
+  of it.

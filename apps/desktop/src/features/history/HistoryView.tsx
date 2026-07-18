@@ -8,7 +8,7 @@ import { HistoryRow } from "./HistoryRow";
 
 export function HistoryView() {
   const { t } = useI18n();
-  const { items, status, error, trashedIds } = useHistory();
+  const { items, status, error, syncError, trashedIds } = useHistory();
 
   const statusText: Record<"loading" | "error", string> = {
     loading: t("historyLoading"),
@@ -33,6 +33,10 @@ export function HistoryView() {
 
   return (
     <>
+      {/* A failed background refresh with a list already showing (cached or
+          last-good) is a small, non-blocking notice -- never replaces the
+          list itself, which is still perfectly valid data. */}
+      {syncError && <p className="row-meta fail-reason">{t("historySyncError")}</p>}
       {items.map((item) => (
         <HistoryRow key={item.id} item={item} audioTrashed={trashedIds.has(item.id)} />
       ))}

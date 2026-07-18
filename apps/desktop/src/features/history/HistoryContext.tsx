@@ -5,6 +5,19 @@
 // trashedIds is local-only UI state (not persisted): once trashed in this
 // session, the "Trash audio" action is disabled for that row instead of
 // silently no-op'ing on a second click.
+//
+// Local cache + stale-while-revalidate (2026-07-14, real usage feedback):
+// the DB lives on a remote self-hosted server (Tailscale/LAN) -- every
+// History open/refresh used to block on that round-trip synchronously, and
+// a transient network hiccup (confirmed against the real server: a Tailscale
+// timeout, not a DB or schema problem) dumped a raw SQL error over the
+// whole view even though a perfectly good previous list was already known.
+// Now: the last-fetched list is cached in localStorage and shown instantly
+// on mount; refresh() always fetches in the background afterward, and only
+// replaces what's on screen with a blocking error when there is truly
+// nothing cached to fall back to. A failed background refresh with cached
+// data present instead sets `syncError` (non-blocking, small indicator),
+// leaving the visible list untouched.
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { listHistory, trashAudio, deleteHistoryEntry } from "../../lib/tauri";
@@ -16,6 +29,11 @@ interface HistoryContextValue {
   items: HistoryEntry[];
   status: HistoryStatus;
   error?: string;
+  // Set when a background refresh fails while cached/previous items are
+  // still being shown -- distinct from `error` (which only applies when
+  // there is nothing else to display). Cleared on the next successful
+  // refresh.
+  syncError?: string;
   trashedIds: Set<number>;
   // Per-row failures from trash()/remove() -- kept separate from the
   // whole-list `error` above, which is only for a failed initial load.
@@ -44,28 +62,67 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const CACHE_KEY = "voice-transcript-history-cache-v1";
+
+// Never throws -- a cache read/write failure (corrupt JSON, quota exceeded,
+// localStorage unavailable) is a pure performance/resilience nicety lost,
+// never a reason to break the app.
+function loadCache(): HistoryEntry[] | null {
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as (Omit<HistoryEntry, "startedAt"> & { startedAt: string })[];
+    return parsed.map((item) => ({ ...item, startedAt: new Date(item.startedAt) }));
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(items: HistoryEntry[]): void {
+  try {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Quota exceeded or unavailable -- see loadCache's comment.
+  }
+}
+
 export function HistoryProvider({
   children,
   listHistoryFn = listHistory,
   trashAudioFn = trashAudio,
   deleteHistoryEntryFn = deleteHistoryEntry,
 }: HistoryProviderProps) {
-  const [items, setItems] = useState<HistoryEntry[]>([]);
-  const [status, setStatus] = useState<HistoryStatus>("loading");
+  const [items, setItems] = useState<HistoryEntry[]>(() => loadCache() ?? []);
+  const [status, setStatus] = useState<HistoryStatus>(() => (items.length > 0 ? "ready" : "loading"));
   const [error, setError] = useState<string>();
+  const [syncError, setSyncError] = useState<string>();
   const [trashedIds, setTrashedIds] = useState<Set<number>>(new Set());
   const [actionErrors, setActionErrors] = useState<Map<number, string>>(new Map());
 
   const refresh = () => {
-    setStatus("loading");
+    // Only show the blocking loading state when there's nothing cached to
+    // display meanwhile -- a background refresh (initial mount with a warm
+    // cache, or triggered by a queue completion) should never blank out an
+    // already-showing list while it's in flight.
+    setStatus((prev) => (prev === "ready" ? prev : "loading"));
     listHistoryFn()
       .then((rows) => {
         setItems(rows);
         setStatus("ready");
+        setError(undefined);
+        setSyncError(undefined);
+        saveCache(rows);
       })
       .catch((err: unknown) => {
-        setError(errorMessage(err));
-        setStatus("error");
+        setItems((prevItems) => {
+          if (prevItems.length > 0) {
+            setSyncError(errorMessage(err));
+          } else {
+            setError(errorMessage(err));
+            setStatus("error");
+          }
+          return prevItems;
+        });
       });
   };
 
@@ -95,7 +152,11 @@ export function HistoryProvider({
   const remove = async (id: number) => {
     try {
       await deleteHistoryEntryFn(id);
-      setItems((prev) => prev.filter((item) => item.id !== id));
+      setItems((prev) => {
+        const next = prev.filter((item) => item.id !== id);
+        saveCache(next);
+        return next;
+      });
       clearActionError(id);
     } catch (err) {
       setActionErrors((prev) => new Map(prev).set(id, errorMessage(err)));
@@ -108,7 +169,7 @@ export function HistoryProvider({
 
   return (
     <HistoryContext.Provider
-      value={{ items, status, error, trashedIds, actionErrors, refresh, trash, remove, reportActionError }}
+      value={{ items, status, error, syncError, trashedIds, actionErrors, refresh, trash, remove, reportActionError }}
     >
       {children}
     </HistoryContext.Provider>
