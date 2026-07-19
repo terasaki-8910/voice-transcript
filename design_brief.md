@@ -107,3 +107,29 @@ Five changes requested against the sidebar mockup above, confirmed via Q&A -- se
   system font Amical (also a native Mac app) renders with. If the rendered result still
   reads as visually different once seen live, that's spacing/weight, not typeface, and
   worth another look then rather than guessing further from a static screenshot.
+
+### Sidebar polish (design gate, 2026-07-19)
+Real-usage feedback after using the built sidebar, confirmed via Q&A:
+- **Auto-collapse**: reverses "no collapse/responsive behavior" (above) further -- narrow
+  windows now auto-engage the existing icon rail (not a new full-hide/overlay mode),
+  Claude-Desktop-style. Breakpoint is 640px window width, and only fires at the MOMENT
+  the width crosses that line in either direction -- a manual toggle click done while
+  narrow (or wide) isn't immediately fought on the next resize tick. This mockup's
+  `@media (max-width: 640px)` rule is a visual approximation only (a static page can't
+  express the crossing-only nuance); the real app's behavior is the actual spec.
+- **Window `minWidth`**: lowered from 820px (the fixed-sidebar-only floor) now that narrow
+  windows have a graceful collapsed state -- see `apps/desktop/src-tauri/tauri.conf.json`.
+- **Delete consolidation**: History rows' two separate delete icons ("Trash audio" /
+  "Delete entry") become one icon button that opens a small 2-item menu instead. Both
+  underlying actions and their `confirm()` safety dialogs are UNCHANGED -- this only
+  changes the entry point, not the G7/G9 behavior itself. New `.menu-anchor`/`.menu`/
+  `.menu-item`/`.menu-item-danger` pattern (see `design/reference-screen.html`'s
+  board-meeting-q3.m4a demo row, shown in its open state for review).
+- **Copy transcript**: a new icon button fills the slot the delete consolidation frees up
+  (History rows keep 4 action controls -- View, Export, Copy, Delete-menu -- not a wider
+  row). Copies the row's transcript text to the system clipboard; briefly swaps to a
+  checkmark on success.
+- This mockup also backfills `.icon-btn`/`.icon-btn-danger` (Export/Trash/Delete's icon
+  button styling), which was built directly into the real app's `queue.css` in an earlier
+  post-integration fix batch without first being mirrored here -- now corrected so this
+  file stays the accurate source of truth going forward.

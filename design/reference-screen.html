@@ -412,6 +412,99 @@
 
   .row-action { flex-shrink: 0; }
   .fail-reason { color: var(--color-danger); }
+
+  /* ---- row icon buttons (Export/Copy/Delete-menu trigger) -- backfilled
+     here from the real apps/desktop/src/features/queue/queue.css, which
+     built these directly in a post-integration fix batch without first
+     mirroring them into this mockup. Added now alongside the new
+     delete-menu/copy work so this file is the accurate source of truth
+     going forward. ---- */
+  .icon-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .icon-btn:hover:not(:disabled) {
+    background: var(--color-surface-sunken);
+    color: var(--color-ink);
+  }
+  .icon-btn:disabled { color: var(--color-line); cursor: default; }
+  .icon-btn-danger { color: var(--color-danger); }
+  .icon-btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+  }
+
+  /* ---- delete consolidation (design gate follow-up, 2026-07-19): a
+     single icon button replaces the old separate Trash-audio/Delete-entry
+     icons, opening a small 2-item menu instead. Both underlying actions
+     and their confirm() dialogs are unchanged -- only the entry point
+     moved. ---- */
+  .menu-anchor { position: relative; }
+  .menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: var(--space-1);
+    min-width: 160px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+    padding: var(--space-1);
+    z-index: 10;
+  }
+  .menu-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-ink);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu-item svg { flex-shrink: 0; width: 14px; height: 14px; }
+  .menu-item:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+  .menu-item-danger { color: var(--color-danger); }
+  .menu-item-danger:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+
+  /* ---- auto-collapse approximation (design gate follow-up, 2026-07-19):
+     the real app only forces the rail state at the MOMENT the window
+     crosses 640px, leaving a manual toggle done in between alone -- a pure
+     media query can't express that nuance in a static page, so this is a
+     visual approximation for review, not a literal behavior match. ---- */
+  @media (max-width: 640px) {
+    .sidebar:not(.is-collapsed) {
+      width: 44px;
+      padding: var(--space-4) var(--space-2);
+    }
+    .sidebar:not(.is-collapsed) .sidebar-topbar > button:not(:first-child),
+    .sidebar:not(.is-collapsed) .brand,
+    .sidebar:not(.is-collapsed) .sidebar-create,
+    .sidebar:not(.is-collapsed) .sidebar-search,
+    .sidebar:not(.is-collapsed) .sidebar-nav,
+    .sidebar:not(.is-collapsed) .sidebar-footer {
+      display: none;
+    }
+  }
 </style>
 
 <div class="app">
@@ -528,6 +621,49 @@
         </div>
       </div>
       <button class="row-action btn-link" data-en="View" data-ja="表示">View</button>
+      <button class="row-action icon-btn" aria-label="Export" title="Export">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+      </button>
+      <button class="row-action icon-btn" aria-label="Copy transcript" title="Copy transcript">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      </button>
+      <!-- Shown open (no interactivity needed for a mockup review) --
+           demonstrates both the trigger and the branch it opens into. -->
+      <div class="row-action menu-anchor">
+        <button class="icon-btn icon-btn-danger" aria-haspopup="menu" aria-expanded="true" aria-label="Delete" title="Delete">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            <line x1="10" y1="11" x2="10" y2="17"></line>
+            <line x1="14" y1="11" x2="14" y2="17"></line>
+          </svg>
+        </button>
+        <div class="menu" role="menu">
+          <button class="menu-item" role="menuitem" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span data-en="Trash audio" data-ja="音声をゴミ箱へ">Trash audio</span>
+          </button>
+          <button class="menu-item menu-item-danger" role="menuitem" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            <span data-en="Delete entry" data-ja="履歴を削除">Delete entry</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="row">
