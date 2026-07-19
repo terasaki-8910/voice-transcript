@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Voice Transcript — Queue</title>
 <style>
   /* ---- tokens (copied verbatim from design/tokens.css; that file is the
@@ -86,23 +87,31 @@
   /* This screen mocks the CONTENT area only, below the native OS title bar
      -- Tauri provides real window chrome per-platform; we don't fake it. */
   .app {
-    max-width: 720px;
-    margin: 0 auto;
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
   }
 
-  /* ---- toolbar: the one primary action stays visible at all times;
-     the theme/language toggles are deliberately quiet (small, muted)
-     so they never compete with it ---- */
-  .toolbar {
+  /* ---- sidebar (layout revision, 2026-07-19): replaces the old top
+     toolbar. Fixed width, always visible -- no collapse/responsive
+     behavior. A flex child of .app (a height:100vh row), so it stretches
+     to full height for free via flexbox's default align-items: stretch --
+     no explicit height or position needed here, same as how .queue gets
+     its height without setting one. ---- */
+  .sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-3);
+    background: var(--color-surface-sunken);
+    border-right: 1px solid var(--color-line);
+  }
+  .sidebar-header {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--color-line);
-    flex-wrap: wrap;
+    padding: 0 var(--space-2);
   }
   .brand {
     font-size: var(--text-md);
@@ -110,8 +119,65 @@
     letter-spacing: -0.01em;
     margin: 0;
     white-space: nowrap;
-    margin-right: var(--space-2);
   }
+  .sidebar-create {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+  }
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sidebar-nav-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-ink-muted);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+  .sidebar-nav-item:hover {
+    background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+    color: var(--color-ink);
+  }
+  .sidebar-nav-item[aria-current="page"] {
+    background: color-mix(in srgb, var(--color-signal) 14%, transparent);
+    color: var(--color-signal);
+    font-weight: var(--weight-semibold);
+  }
+  .sidebar-nav-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+  }
+  /* Pins the theme/language toggles to the bottom -- deliberately quiet
+     (small, muted) so they never compete with the primary "Add files"
+     action above, same principle as the old toolbar's .settings cluster. */
+  .sidebar-footer {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-line);
+  }
+  /* Scoped override only -- .settings itself (below) is unchanged/reused
+     as-is; this just stacks its two toggle groups to fit the narrow column. */
+  .sidebar-footer .settings {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
   .tabs {
     display: inline-flex;
     padding: 3px;
@@ -136,8 +202,6 @@
     font-weight: var(--weight-semibold);
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   }
-  .spacer { flex: 1; }
-
   /* settings cluster: theme + language, visually quiet */
   .settings {
     display: flex;
@@ -189,6 +253,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    /* The content pane now needs its own scroll -- .app is a fixed-height
+       row layout (sidebar + content), it no longer grows with content the
+       way the old column layout's min-height: 100vh did. */
+    overflow-y: auto;
   }
   .row {
     background: var(--color-surface);
@@ -257,25 +325,56 @@
 </style>
 
 <div class="app">
-  <header class="toolbar">
-    <p class="brand">Voice Transcript</p>
-    <div class="tabs" role="tablist" aria-label="View">
-      <button class="tab" role="tab" aria-selected="true" data-en="Queue" data-ja="キュー">Queue</button>
-      <button class="tab" role="tab" aria-selected="false" data-en="History" data-ja="履歴">History</button>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <p class="brand">Voice Transcript</p>
     </div>
-    <div class="spacer"></div>
-    <div class="settings">
-      <div class="tabs" role="group" aria-label="Theme">
-        <button class="tab" aria-selected="true" data-theme-btn="light" onclick="setTheme('light')" data-en="Light" data-ja="ライト">Light</button>
-        <button class="tab" aria-selected="false" data-theme-btn="dark" onclick="setTheme('dark')" data-en="Dark" data-ja="ダーク">Dark</button>
-      </div>
-      <div class="tabs" role="group" aria-label="Language">
-        <button class="tab" aria-selected="true" data-lang-btn="en" onclick="setLang('en')">EN</button>
-        <button class="tab" aria-selected="false" data-lang-btn="ja" onclick="setLang('ja')">日本語</button>
+
+    <button class="btn-primary sidebar-create">
+      <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      <span data-en="Add files" data-ja="ファイルを追加">Add files</span>
+    </button>
+
+    <nav class="sidebar-nav" aria-label="Main">
+      <button class="sidebar-nav-item" aria-current="page">
+        <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+          <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+        </svg>
+        <span data-en="Queue" data-ja="キュー">Queue</span>
+      </button>
+      <button class="sidebar-nav-item">
+        <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span data-en="History" data-ja="履歴">History</span>
+      </button>
+      <button class="sidebar-nav-item">
+        <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span data-en="Preferences" data-ja="環境設定">Preferences</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="settings">
+        <div class="tabs" role="group" aria-label="Theme">
+          <button class="tab" aria-selected="true" data-theme-btn="light" onclick="setTheme('light')" data-en="Light" data-ja="ライト">Light</button>
+          <button class="tab" aria-selected="false" data-theme-btn="dark" onclick="setTheme('dark')" data-en="Dark" data-ja="ダーク">Dark</button>
+        </div>
+        <div class="tabs" role="group" aria-label="Language">
+          <button class="tab" aria-selected="true" data-lang-btn="en" onclick="setLang('en')">EN</button>
+          <button class="tab" aria-selected="false" data-lang-btn="ja" onclick="setLang('ja')">日本語</button>
+        </div>
       </div>
     </div>
-    <button class="btn-primary" data-en="Add files" data-ja="ファイルを追加">Add files</button>
-  </header>
+  </aside>
 
   <main class="queue" aria-label="Transcription queue">
     <div class="row">
