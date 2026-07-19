@@ -4,6 +4,13 @@
 // (getApiKeyStatus), never the key's value -- saveApiKey() is write-only
 // from the webview's point of view, so a saved key can never be read back
 // out through this UI (see lib/tauri.ts's comment on why).
+//
+// Light dismiss (2026-07-19, real-usage feedback): clicking the backdrop or
+// pressing Escape closes the dialog, same as the explicit "Close" button --
+// standard modal/overlay convention (WAI-ARIA calls the underlying pattern
+// "light dismissal"). The backdrop click checks e.target === e.currentTarget
+// so clicks inside .modal (including on the input fields) don't bubble into
+// a false dismiss.
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/I18nContext";
 import { saveApiKey, getApiKeyStatus, saveDatabaseUrl, getDatabaseUrlStatus } from "../../lib/tauri";
@@ -37,6 +44,14 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
       .catch(() => setDatabaseUrlStatus("unset"));
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const handleSaveKey = async () => {
     setKeySaveState("saving");
     setKeyError(undefined);
@@ -66,7 +81,15 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={t("preferences")}>
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("preferences")}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="modal">
         <h2>{t("preferences")}</h2>
 

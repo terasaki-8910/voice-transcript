@@ -101,6 +101,39 @@ describe("PreferencesView - API key", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // Light dismiss (2026-07-19): clicking the backdrop or pressing Escape
+  // closes the dialog, same as the explicit Close button.
+  it("clicking the backdrop calls onClose", async () => {
+    mockMountStatus(false, false);
+    const onClose = vi.fn();
+    renderView(onClose);
+
+    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("clicking inside the modal panel does not call onClose", async () => {
+    mockMountStatus(false, false);
+    const onClose = vi.fn();
+    renderView(onClose);
+
+    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
+    fireEvent.click(screen.getByText("Preferences"));
+    fireEvent.click(screen.getByLabelText("Groq API key"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("pressing Escape calls onClose", async () => {
+    mockMountStatus(false, false);
+    const onClose = vi.fn();
+    renderView(onClose);
+
+    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("PreferencesView - database URL", () => {
