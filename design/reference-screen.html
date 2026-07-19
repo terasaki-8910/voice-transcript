@@ -82,6 +82,7 @@
   }
   @media (prefers-reduced-motion: no-preference) {
     body, .row { transition: background-color 150ms ease, color 150ms ease; }
+    .sidebar { transition: width 150ms ease, padding 150ms ease; }
   }
 
   /* This screen mocks the CONTENT area only, below the native OS title bar
@@ -110,9 +111,36 @@
   }
   .sidebar-header {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: var(--space-2);
     padding: 0 var(--space-2);
   }
+  /* Amical-style icon row: sidebar collapse + history back/forward.
+     Lives at the top of the sidebar itself since this mockup has no native
+     titlebar to attach them to instead (Tauri draws the real one per-OS). */
+  .sidebar-topbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: -6px;
+  }
+  .icon-toggle {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .icon-toggle svg { width: 16px; height: 16px; }
+  .icon-toggle:hover { background: color-mix(in srgb, var(--color-ink) 8%, transparent); color: var(--color-ink); }
+  .icon-toggle:disabled { opacity: 0.35; cursor: default; }
+  .icon-toggle:disabled:hover { background: transparent; }
   .brand {
     font-size: var(--text-md);
     font-weight: var(--weight-semibold);
@@ -127,6 +155,36 @@
     gap: var(--space-2);
     width: 100%;
   }
+  /* Higher specificity than .btn-primary (2 classes vs. 1) so this wins
+     regardless of source order -- sidebar text sits a notch larger than the
+     old toolbar's, closer to Amical's reference sizing. */
+  .sidebar-create.btn-primary { font-size: var(--text-base); }
+  .sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+  }
+  .sidebar-search svg {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--color-ink-muted);
+  }
+  .sidebar-search input {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-ink);
+    width: 100%;
+    outline: none;
+  }
+  .sidebar-search input::placeholder { color: var(--color-ink-muted); }
   .sidebar-nav {
     display: flex;
     flex-direction: column;
@@ -137,7 +195,7 @@
     border: 0;
     background: transparent;
     font: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     color: var(--color-ink-muted);
     display: flex;
     align-items: center;
@@ -171,12 +229,44 @@
     border-top: 1px solid var(--color-line);
   }
   /* Scoped override only -- .settings itself (below) is unchanged/reused
-     as-is; this just stacks its two toggle groups to fit the narrow column. */
+     as-is; this sits the theme icon-toggle and the language pill side by
+     side in the footer row instead of a toolbar's inline layout. */
   .sidebar-footer .settings {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-2);
   }
+  /* Collapse/expand (Amical-style) -- reverses the original "no collapse"
+     design-gate decision per 2026-07-19 follow-up feedback. Collapses to a
+     slim icon-only rail, NOT width: 0 -- a full hide would bury the collapse
+     toggle itself inside the thing it just hid, with no way back. Only the
+     toggle button (first child of .sidebar-topbar) stays visible in the rail. */
+  .sidebar.is-collapsed {
+    width: 44px;
+    padding: var(--space-4) var(--space-2);
+  }
+  .sidebar.is-collapsed .sidebar-topbar > button:not(:first-child),
+  .sidebar.is-collapsed .brand,
+  .sidebar.is-collapsed .sidebar-create,
+  .sidebar.is-collapsed .sidebar-search,
+  .sidebar.is-collapsed .sidebar-nav,
+  .sidebar.is-collapsed .sidebar-footer {
+    display: none;
+  }
+  /* Single icon swap for the theme toggle (replaces the old Light/Dark pill
+     pair): shows the icon matching the CURRENT theme (sun in light, moon in
+     dark), mirroring how the token overrides above already key off
+     data-theme. */
+  .theme-icon-moon { display: none; }
+  @media (prefers-color-scheme: dark) {
+    .theme-icon-sun { display: none; }
+    .theme-icon-moon { display: inline-flex; }
+  }
+  :root[data-theme="dark"] .theme-icon-sun { display: none; }
+  :root[data-theme="dark"] .theme-icon-moon { display: inline-flex; }
+  :root[data-theme="light"] .theme-icon-sun { display: inline-flex; }
+  :root[data-theme="light"] .theme-icon-moon { display: none; }
 
   .tabs {
     display: inline-flex;
@@ -327,6 +417,30 @@
 <div class="app">
   <aside class="sidebar">
     <div class="sidebar-header">
+      <div class="sidebar-topbar">
+        <button class="icon-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar" title="Toggle sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
+        <!-- Back/forward navigate the history of individually-opened ("View")
+             History entries (confirmed via Q&A, 2026-07-19) -- not a switch
+             between Queue/History/Preferences. Shown here for layout only;
+             the underlying viewed-entry stack is real-app (Step 2) logic
+             this static mockup has no state to demonstrate, so both start
+             disabled the way a fresh, empty stack would render for real. -->
+        <button class="icon-toggle" aria-label="Back" title="Back" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <button class="icon-toggle" aria-label="Forward" title="Forward" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
       <p class="brand">Voice Transcript</p>
     </div>
 
@@ -337,6 +451,20 @@
       </svg>
       <span data-en="Add files" data-ja="ファイルを追加">Add files</span>
     </button>
+
+    <div class="sidebar-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input
+        type="text"
+        aria-label="Search transcripts"
+        placeholder="Search transcripts"
+        data-en-placeholder="Search transcripts"
+        data-ja-placeholder="文字起こしを検索"
+      />
+    </div>
 
     <nav class="sidebar-nav" aria-label="Main">
       <button class="sidebar-nav-item" aria-current="page">
@@ -364,10 +492,22 @@
 
     <div class="sidebar-footer">
       <div class="settings">
-        <div class="tabs" role="group" aria-label="Theme">
-          <button class="tab" aria-selected="true" data-theme-btn="light" onclick="setTheme('light')" data-en="Light" data-ja="ライト">Light</button>
-          <button class="tab" aria-selected="false" data-theme-btn="dark" onclick="setTheme('dark')" data-en="Dark" data-ja="ダーク">Dark</button>
-        </div>
+        <button class="icon-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+          <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
         <div class="tabs" role="group" aria-label="Language">
           <button class="tab" aria-selected="true" data-lang-btn="en" onclick="setLang('en')">EN</button>
           <button class="tab" aria-selected="false" data-lang-btn="ja" onclick="setLang('ja')">日本語</button>
@@ -454,14 +594,29 @@
   // the same two switches to a persisted setting in apps/desktop.
   function setTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
-    document.querySelectorAll('[data-theme-btn]').forEach(function (b) {
-      b.setAttribute('aria-selected', b.dataset.themeBtn === t ? 'true' : 'false');
-    });
+  }
+  // Single icon-button toggle (replaces the old Light/Dark button pair) --
+  // reads the current theme (explicit override, falling back to the OS
+  // preference when none has been set yet) and flips it.
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme');
+    if (!current) {
+      current = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    setTheme(current === 'dark' ? 'light' : 'dark');
+  }
+  // Amical-style sidebar collapse/expand (layout revision follow-up,
+  // 2026-07-19) -- width-only hide, no separate icon-only rail state.
+  function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('is-collapsed');
   }
   function setLang(l) {
     document.documentElement.lang = l;
     document.querySelectorAll('[data-en]').forEach(function (el) {
       el.textContent = l === 'ja' ? el.dataset.ja : el.dataset.en;
+    });
+    document.querySelectorAll('[data-en-placeholder]').forEach(function (el) {
+      el.placeholder = l === 'ja' ? el.dataset.jaPlaceholder : el.dataset.enPlaceholder;
     });
     document.querySelectorAll('[data-lang-btn]').forEach(function (b) {
       b.setAttribute('aria-selected', b.dataset.langBtn === l ? 'true' : 'false');

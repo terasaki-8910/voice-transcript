@@ -78,7 +78,32 @@ Q&A -- see `design/reference-screen.html` for the approved mockup:
   not a new full-page Tab/view.
 - No collapse/responsive behavior -- the sidebar is always visible, fixed width. Window
   `minWidth` widens accordingly (see `SPEC.md`/`tauri.conf.json`) to give it room without
-  cramping the content pane.
+  cramping the content pane. (superseded 2026-07-19 -- see "Sidebar follow-up" below)
 - Card-style queue rows, the waveform progress indicator, and the pill-tab-styled
   Light/Dark/EN-日本語 toggles (now stacked vertically in the sidebar footer instead of
   side-by-side in a toolbar) are otherwise unchanged from the original approved direction.
+  (superseded 2026-07-19, theme toggle only -- see "Sidebar follow-up" below)
+
+### Sidebar follow-up (design gate, 2026-07-19)
+Five changes requested against the sidebar mockup above, confirmed via Q&A -- see
+`design/reference-screen.html`:
+- **Theme toggle**: the Light/Dark pill pair is replaced by a single icon button (sun in
+  light mode, moon in dark mode) in the sidebar footer, next to the EN/日本語 pill.
+- **Collapse/expand**: reverses the original "no collapse" decision. A toggle icon at the
+  top of the sidebar collapses it to a 44px icon-only rail (not a full hide) -- the
+  toggle button itself stays visible in the rail so the sidebar can always be re-expanded.
+- **Back/forward**: two icon buttons next to the collapse toggle, confirmed via Q&A to
+  navigate the history of individually-opened ("View") History entries -- not a switch
+  between the Queue/History/Preferences sections. This needs a real viewed-entry stack in
+  the app (`apps/desktop/src/features/history/**`); the static mockup only shows their
+  placement (both `disabled`, since there is no real navigation state to demonstrate) --
+  functional wiring is Step 2 (real app implementation) scope, not part of this mockup.
+- **Search**: a search input sits below "Add files", above the nav list, for filtering
+  History by transcript/filename. Client-side filter over already-loaded history in the
+  real app -- no new backend query.
+- **Font**: sidebar text bumped from `--text-sm` to `--text-base` for a roomier feel
+  closer to the Amical reference. The underlying typeface was not changed -- `--font-ui`
+  already leads with `-apple-system`, which resolves to San Francisco on macOS, the same
+  system font Amical (also a native Mac app) renders with. If the rendered result still
+  reads as visually different once seen live, that's spacing/weight, not typeface, and
+  worth another look then rather than guessing further from a static screenshot.
