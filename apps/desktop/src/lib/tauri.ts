@@ -7,6 +7,7 @@
 // .claude/skills/tauri-command-scaffold/SKILL.md.
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 // Import from the "./types" subpath, not the package root -- the root
 // barrel (src/index.ts) re-exports groq.ts, which apps/desktop's tsconfig
 // (lib: DOM+node, unlike packages/core's node-only lib) transitively
@@ -161,4 +162,13 @@ export function getDatabaseUrlStatus(): Promise<boolean> {
 // -- see menu.rs's set_menu_language doc comment for the cold-start caveat.
 export function setMenuLanguage(lang: string): Promise<void> {
   return invoke("set_menu_language", { lang });
+}
+
+// Sidebar polish (2026-07-19): History row's "Copy transcript" button. Goes
+// through @tauri-apps/plugin-clipboard-manager rather than plain
+// navigator.clipboard.writeText -- the plugin is the reliable path across
+// all three target platforms inside a WRY webview (capabilities/default.json
+// grants clipboard-manager:allow-write-text only, no read grant).
+export function copyToClipboard(text: string): Promise<void> {
+  return writeText(text);
 }

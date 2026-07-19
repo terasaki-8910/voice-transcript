@@ -198,3 +198,65 @@
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
+
+/* Delete consolidation (sidebar polish, 2026-07-19): History row's old
+   separate Trash-audio/Delete-entry icons become one .icon-btn-danger
+   trigger that opens this 2-item menu -- copied from the approved
+   design/reference-screen.html. */
+.menu-anchor {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-1);
+  min-width: 160px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  padding: var(--space-1);
+  z-index: 10;
+}
+
+.menu-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
+
+.menu-item:disabled {
+  color: var(--color-line);
+  cursor: default;
+}
+
+.menu-item-danger {
+  color: var(--color-danger);
+}
+
+.menu-item-danger:hover {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}

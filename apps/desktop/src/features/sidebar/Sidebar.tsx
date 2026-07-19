@@ -6,6 +6,11 @@
 // collapse-to-rail, and History back/forward (which navigate the sequence
 // of individually-opened "View" entries via HistoryNavContext, not this
 // component's own nav list -- see HistoryNavContext.tsx).
+//
+// Sidebar polish (2026-07-19): useAutoCollapse forces isCollapsed to follow
+// the window width at the moment it crosses 640px (either direction), on
+// top of the manual toggle button below -- see useAutoCollapse.ts for why
+// it's crossing-only rather than a continuous constraint.
 import { useState } from "react";
 import { FiPlus, FiInbox, FiClock, FiSettings, FiSearch, FiSidebar, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
@@ -16,6 +21,7 @@ import { useQueue } from "../queue/QueueContext";
 import { pickFiles } from "../../lib/tauri";
 import { ThemeToggle } from "../../theme/ThemeToggle";
 import { LanguageToggle } from "../../i18n/LanguageToggle";
+import { useAutoCollapse, isNarrowWindow } from "./useAutoCollapse";
 import "./sidebar.css";
 
 interface SidebarProps {
@@ -29,7 +35,8 @@ export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
   const { searchQuery, setSearchQuery } = useHistory();
   const { canGoBack, canGoForward, back, forward } = useHistoryNav();
   const { addFiles } = useQueue();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(isNarrowWindow);
+  useAutoCollapse(setIsCollapsed);
 
   const handleAddFiles = async () => {
     const paths = await pickFiles();

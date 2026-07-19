@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window. F15 (desktop-ipc) added shell:allow-execute, scoped to ONLY the core-sidecar binary (not a general shell-exec grant) -- ping/transcribe in commands.rs are the sole callers. F17 (gui-queue) adds dialog:allow-open -- the native file picker for \"Add files\"; it only returns paths the user explicitly picked, it cannot read arbitrary files. F21 (native-menu) adds dialog:allow-save -- the native save dialog for \"Export\"; like allow-open it only returns a path the user interactively chose, it doesn't write anything itself (export_transcript in commands.rs does the actual write, given that path). Post-integration fix batch (2026-07-13) adds dialog:allow-message -- backs confirm()'s native Yes/No dialog, used to require confirmation before every trash/delete action; allow-confirm/allow-ask are deprecated aliases of this same permission, so allow-message is the correct, non-deprecated grant. All reviewed by .claude/agents/tauri-capability-reviewer.md (ACCEPTANCE G3).",
+  "description": "Capability for the main window. F15 (desktop-ipc) added shell:allow-execute, scoped to ONLY the core-sidecar binary (not a general shell-exec grant) -- ping/transcribe in commands.rs are the sole callers. F17 (gui-queue) adds dialog:allow-open -- the native file picker for \"Add files\"; it only returns paths the user explicitly picked, it cannot read arbitrary files. F21 (native-menu) adds dialog:allow-save -- the native save dialog for \"Export\"; like allow-open it only returns a path the user interactively chose, it doesn't write anything itself (export_transcript in commands.rs does the actual write, given that path). Post-integration fix batch (2026-07-13) adds dialog:allow-message -- backs confirm()'s native Yes/No dialog, used to require confirmation before every trash/delete action; allow-confirm/allow-ask are deprecated aliases of this same permission, so allow-message is the correct, non-deprecated grant. Sidebar polish (2026-07-19) adds clipboard-manager:allow-write-text -- backs the History row's \"Copy transcript\" button; write-only by design, there is no allow-read-text grant since the app never needs to read the system clipboard. All reviewed by .claude/agents/tauri-capability-reviewer.md (ACCEPTANCE G3).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -16,6 +16,7 @@
     },
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "clipboard-manager:allow-write-text"
   ]
 }

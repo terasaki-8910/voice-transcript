@@ -1,8 +1,8 @@
 // F18 (gui-history). Pins HistoryView's rendered states (loading is
 // transient and covered indirectly; empty and populated are the
-// user-visible steady states) and HistoryRow's View/Trash/Delete actions,
-// driven through a real HistoryProvider (injected functions) the same way
-// tests/queue/QueueRow.test.tsx drives QueueRow through a real
+// user-visible steady states) and HistoryRow's View/Trash/Delete/Copy
+// actions, driven through a real HistoryProvider (injected functions) the
+// same way tests/queue/QueueRow.test.tsx drives QueueRow through a real
 // QueueProvider.
 //
 // Post-integration fix batch (2026-07-13): Trash/Delete now go through an
@@ -16,6 +16,14 @@
 // from HistoryNavContext (back/forward through View'd entries) instead of
 // local state -- that context calls useNav() internally, so both NavProvider
 // and HistoryNavProvider are required ancestors now too.
+//
+// Sidebar polish (2026-07-19): Trash/Delete are reached through a single
+// "Delete" menu button (role="button") that opens a 2-item role="menu" --
+// tests open it first, then click the target role="menuitem". The menu
+// closes after every selection (real UX), so tests that need to inspect
+// post-action menu-item state (e.g. "Audio trashed" + disabled) re-open it.
+// Copy transcript is new too, backed by @tauri-apps/plugin-clipboard-manager
+// (mocked here the same way plugin-dialog/api-core already are).
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
@@ -38,6 +46,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }));
 
+const writeTextMock = vi.fn();
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
+  writeText: (...args: unknown[]) => writeTextMock(...args),
+}));
+
 function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
     id: 1,
@@ -51,20 +64,26 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   };
 }
 
-function renderView(listHistoryFn: () => Promise<HistoryEntry[]>) {
+function renderWithProviders(children: React.ReactNode) {
   return render(
     <I18nProvider>
       <NavProvider>
         <HistoryNavProvider>
-          <SelectionProvider>
-            <HistoryProvider listHistoryFn={listHistoryFn}>
-              <HistoryView />
-            </HistoryProvider>
-          </SelectionProvider>
+          <SelectionProvider>{children}</SelectionProvider>
         </HistoryNavProvider>
       </NavProvider>
     </I18nProvider>,
   );
+}
+
+function renderView(listHistoryFn: () => Promise<HistoryEntry[]>) {
+  return renderWithProviders(<HistoryProvider listHistoryFn={listHistoryFn}>
+    <HistoryView />
+  </HistoryProvider>);
+}
+
+function openDeleteMenu(rowIndex = 0) {
+  fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[rowIndex]);
 }
 
 describe("HistoryView", () => {
@@ -73,6 +92,8 @@ describe("HistoryView", () => {
     confirmDialog.mockResolvedValue(true);
     save.mockReset();
     invoke.mockReset();
+    writeTextMock.mockReset();
+    writeTextMock.mockResolvedValue(undefined);
   });
 
   it("shows the empty state when there is no history -- responds even with zero entries", async () => {
@@ -90,77 +111,62 @@ describe("HistoryView", () => {
     expect(screen.getByText("hello world")).toBeDefined();
   });
 
-  it("Trash audio asks for confirmation first, then disables itself once trashed", async () => {
+  it("Trash audio (via the delete menu) asks for confirmation first, then disables itself once trashed", async () => {
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
+        <HistoryView />
+      </HistoryProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Trash audio" })).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "Trash audio" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    openDeleteMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Trash audio" }));
 
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
     expect(confirmDialog.mock.calls[0][1]).toMatchObject({ title: "Trash audio", kind: "warning" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Audio trashed" })).toHaveProperty("disabled", true));
-    expect(trashAudioFn).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(trashAudioFn).toHaveBeenCalledWith(1));
+
+    // The menu closes after selecting an item -- re-open it to see the
+    // updated (disabled, relabelled) state.
+    openDeleteMenu();
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Audio trashed" })).toHaveProperty("disabled", true));
   });
 
   it("cancelling the confirmation dialog does not trash the audio", async () => {
     confirmDialog.mockResolvedValue(false);
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
+        <HistoryView />
+      </HistoryProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Trash audio" })).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "Trash audio" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    openDeleteMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Trash audio" }));
 
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
     expect(trashAudioFn).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Trash audio" })).toBeDefined();
+
+    openDeleteMenu();
+    expect(screen.getByRole("menuitem", { name: "Trash audio" })).toBeDefined();
   });
 
-  it("Delete asks for confirmation first, then removes the entry from the list", async () => {
+  it("Delete (via the delete menu) asks for confirmation first, then removes the entry from the list", async () => {
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider
-            listHistoryFn={async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]}
-            deleteHistoryEntryFn={deleteHistoryEntryFn}
-          >
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider
+        listHistoryFn={async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]}
+        deleteHistoryEntryFn={deleteHistoryEntryFn}
+      >
+        <HistoryView />
+      </HistoryProvider>,
     );
 
     await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    openDeleteMenu(0);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
 
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
     expect(confirmDialog.mock.calls[0][1]).toMatchObject({ title: "Delete", kind: "warning" });
@@ -172,22 +178,15 @@ describe("HistoryView", () => {
   it("cancelling the confirmation dialog does not delete the entry", async () => {
     confirmDialog.mockResolvedValue(false);
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
+        <HistoryView />
+      </HistoryProvider>,
     );
 
     await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    openDeleteMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
 
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1));
     expect(deleteHistoryEntryFn).not.toHaveBeenCalled();
@@ -208,6 +207,50 @@ describe("HistoryView", () => {
     );
   });
 
+  it("Copy transcript writes the transcript text to the clipboard and briefly shows a confirmation", async () => {
+    renderView(async () => [makeEntry()]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy transcript" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Copy transcript" }));
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("hello world"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeDefined());
+  });
+
+  it("a Copy failure surfaces an error instead of silently doing nothing", async () => {
+    writeTextMock.mockRejectedValue(new Error("clipboard unavailable"));
+    renderView(async () => [makeEntry()]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy transcript" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Copy transcript" }));
+
+    await waitFor(() => expect(screen.getByText("clipboard unavailable")).toBeDefined());
+  });
+
+  it("the delete menu closes when clicking outside it", async () => {
+    renderView(async () => [makeEntry()]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    openDeleteMenu();
+    expect(screen.getByRole("menuitem", { name: "Trash audio" })).toBeDefined();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menuitem", { name: "Trash audio" })).toBeNull();
+  });
+
+  it("the delete menu closes on Escape and returns focus to the trigger", async () => {
+    renderView(async () => [makeEntry()]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    const trigger = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "Trash audio" })).toBeDefined();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menuitem", { name: "Trash audio" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   // Regression coverage for a real gap found in user testing: if confirm()
   // itself throws (a denied capability on a stale compiled binary, a
   // dialog the OS couldn't show, etc.), the click used to just look like
@@ -215,22 +258,15 @@ describe("HistoryView", () => {
   it("a confirm() failure during Trash surfaces an error instead of silently doing nothing", async () => {
     confirmDialog.mockRejectedValue(new Error("window not found"));
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
+        <HistoryView />
+      </HistoryProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Trash audio" })).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "Trash audio" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
+    openDeleteMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Trash audio" }));
 
     await waitFor(() => expect(screen.getByText("window not found")).toBeDefined());
     expect(trashAudioFn).not.toHaveBeenCalled();
@@ -239,22 +275,15 @@ describe("HistoryView", () => {
   it("a confirm() failure during Delete surfaces an error instead of silently doing nothing", async () => {
     confirmDialog.mockRejectedValue(new Error("window not found"));
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
-    render(
-      <I18nProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-          <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
-            <HistoryView />
-          </HistoryProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
-      </I18nProvider>,
+    renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
+        <HistoryView />
+      </HistoryProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    openDeleteMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
 
     await waitFor(() => expect(screen.getByText("window not found")).toBeDefined());
     expect(deleteHistoryEntryFn).not.toHaveBeenCalled();

@@ -19,6 +19,11 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...args: unknown[]) => open(...args),
 }));
 
+function setWindowWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
+  fireEvent(window, new Event("resize"));
+}
+
 // Exposes queue items and the search query as plain text so tests can
 // assert on Sidebar's side effects (addFiles / setSearchQuery) without
 // needing QueueView/HistoryView mounted too.
@@ -55,6 +60,7 @@ function renderSidebar({ preferencesOpen = false, onOpenPreferences = vi.fn() } 
 describe("Sidebar", () => {
   afterEach(() => {
     open.mockReset();
+    setWindowWidth(1024);
   });
 
   it("renders the brand and all three nav items, Queue active by default", () => {
@@ -136,5 +142,42 @@ describe("Sidebar", () => {
     renderSidebar();
     expect(screen.getByRole("button", { name: "Back" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Forward" })).toHaveProperty("disabled", true);
+  });
+
+  // Sidebar polish (2026-07-19): auto-collapse, Claude-Desktop-style --
+  // useAutoCollapse.ts fires only when window.innerWidth actually crosses
+  // the 640px breakpoint, in either direction.
+  it("auto-collapses when the window narrows past the breakpoint, and auto-expands when it widens back", () => {
+    setWindowWidth(800);
+    const { container } = renderSidebar();
+    const sidebar = container.querySelector("aside.sidebar");
+    expect(sidebar?.className).not.toContain("is-collapsed");
+
+    setWindowWidth(500);
+    expect(sidebar?.className).toContain("is-collapsed");
+
+    setWindowWidth(800);
+    expect(sidebar?.className).not.toContain("is-collapsed");
+  });
+
+  it("starts collapsed when the window is already narrow at mount", () => {
+    setWindowWidth(500);
+    const { container } = renderSidebar();
+    expect(container.querySelector("aside.sidebar")?.className).toContain("is-collapsed");
+  });
+
+  it("doesn't fight a manual toggle made while the window stays on the same side of the breakpoint", () => {
+    setWindowWidth(500);
+    const { container } = renderSidebar();
+    const sidebar = container.querySelector("aside.sidebar");
+    expect(sidebar?.className).toContain("is-collapsed");
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    expect(sidebar?.className).not.toContain("is-collapsed");
+
+    // Another resize while still on the narrow side -- no crossing, so the
+    // manual choice above should not be reverted.
+    setWindowWidth(510);
+    expect(sidebar?.className).not.toContain("is-collapsed");
   });
 });

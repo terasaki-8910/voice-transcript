@@ -26,6 +26,12 @@
 // GitHub (opens a URL with the OS default handler); it's invoked from
 // Rust's own menu event handler, not from the webview, so it doesn't need
 // a webview-facing capability grant either.
+//
+// Sidebar polish (2026-07-19) adds tauri-plugin-clipboard-manager for the
+// History row's "Copy transcript" button -- plain navigator.clipboard isn't
+// reliable across all three target platforms inside WRY, so this uses the
+// official plugin instead. Write-only grant (clipboard-manager:allow-write-text
+// in capabilities/default.json) -- the app never reads the system clipboard.
 mod commands;
 mod config;
 mod menu;
@@ -36,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .menu(|app| menu::build(app, "en"))
         .on_menu_event(menu::handle_event)
         .invoke_handler(tauri::generate_handler![
