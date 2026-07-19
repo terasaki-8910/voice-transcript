@@ -19,7 +19,7 @@
         "title": "Voice Transcript",
         "width": 960,
         "height": 640,
-        "minWidth": 640,
+        "minWidth": 820,
         "minHeight": 420,
         "resizable": true
       }

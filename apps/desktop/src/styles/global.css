@@ -34,11 +34,11 @@ body {
 
 /* This screen mocks the CONTENT area only, below the native OS title bar --
    Tauri provides real window chrome per-platform; we don't fake it.
-   Matches design/reference-screen.html's ".app" layout. */
+   Matches design/reference-screen.html's ".app" layout: a fixed-height row
+   (sidebar + content pane), not a centered column (sidebar redesign,
+   2026-07-19 -- was max-width: 720px; margin: 0 auto before this). */
 .app {
-  max-width: 720px;
-  margin: 0 auto;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
 }

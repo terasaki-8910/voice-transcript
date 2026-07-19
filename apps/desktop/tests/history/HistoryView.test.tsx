@@ -11,11 +11,18 @@
 // coverage. All three come from modules with no injectable seam on
 // HistoryRow, consistent with how other direct Tauri API calls are mocked
 // elsewhere in this suite.
+//
+// Sidebar follow-up (2026-07-19): HistoryRow now reads its expanded state
+// from HistoryNavContext (back/forward through View'd entries) instead of
+// local state -- that context calls useNav() internally, so both NavProvider
+// and HistoryNavProvider are required ancestors now too.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
+import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext";
 import { HistoryView } from "../../src/features/history/HistoryView";
+import { NavProvider } from "../../src/features/nav/NavContext";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import type { HistoryEntry, TrashResult } from "../../src/lib/tauri";
 
@@ -47,11 +54,15 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
 function renderView(listHistoryFn: () => Promise<HistoryEntry[]>) {
   return render(
     <I18nProvider>
-      <SelectionProvider>
-        <HistoryProvider listHistoryFn={listHistoryFn}>
-          <HistoryView />
-        </HistoryProvider>
-      </SelectionProvider>
+      <NavProvider>
+        <HistoryNavProvider>
+          <SelectionProvider>
+            <HistoryProvider listHistoryFn={listHistoryFn}>
+              <HistoryView />
+            </HistoryProvider>
+          </SelectionProvider>
+        </HistoryNavProvider>
+      </NavProvider>
     </I18nProvider>,
   );
 }
@@ -83,11 +94,15 @@ describe("HistoryView", () => {
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 
@@ -105,11 +120,15 @@ describe("HistoryView", () => {
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 
@@ -125,14 +144,18 @@ describe("HistoryView", () => {
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider
             listHistoryFn={async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]}
             deleteHistoryEntryFn={deleteHistoryEntryFn}
           >
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 
@@ -151,11 +174,15 @@ describe("HistoryView", () => {
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 
@@ -190,11 +217,15 @@ describe("HistoryView", () => {
     const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider listHistoryFn={async () => [makeEntry()]} trashAudioFn={trashAudioFn}>
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 
@@ -210,11 +241,15 @@ describe("HistoryView", () => {
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
     render(
       <I18nProvider>
-        <SelectionProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
           <HistoryProvider listHistoryFn={async () => [makeEntry()]} deleteHistoryEntryFn={deleteHistoryEntryFn}>
             <HistoryView />
           </HistoryProvider>
-        </SelectionProvider>
+            </SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
       </I18nProvider>,
     );
 

@@ -10,6 +10,13 @@
 // App -> AppShell -> useMenuEvents (F21) calls the real listen()
 // unconditionally on mount for four menu events, so @tauri-apps/api/event
 // is mocked too.
+// Sidebar redesign (2026-07-19): AppShell now renders AppLayout -> Sidebar,
+// which needs HistoryNavContext (back/forward through View'd History
+// entries) -- that context calls useNav() internally, so HistoryNavProvider
+// must sit inside NavProvider in AppShellHarness's tree too. Sidebar itself
+// makes no unconditional Tauri calls on mount (pickFiles() only fires on an
+// actual "Add files" click, which none of these tests trigger), so no new
+// mock is needed for it here.
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { App, AppShell } from "../src/App";
@@ -17,6 +24,7 @@ import { ThemeProvider } from "../src/theme/ThemeContext";
 import { I18nProvider } from "../src/i18n/I18nContext";
 import { QueueProvider, useQueue } from "../src/features/queue/QueueContext";
 import { HistoryProvider } from "../src/features/history/HistoryContext";
+import { HistoryNavProvider } from "../src/features/history/HistoryNavContext";
 import { NavProvider } from "../src/features/nav/NavContext";
 import { SelectionProvider } from "../src/features/selection/SelectionContext";
 import type { HistoryEntry, TranscribeRequest, TranscribeResponse } from "../src/lib/tauri";
@@ -73,10 +81,12 @@ function AppShellHarness({
         <QueueProvider transcribeFn={transcribeFn}>
           <HistoryProvider listHistoryFn={listHistoryFn}>
             <NavProvider>
-              <SelectionProvider>
-                <AddFilesButton />
-                <AppShell />
-              </SelectionProvider>
+              <HistoryNavProvider>
+                <SelectionProvider>
+                  <AddFilesButton />
+                  <AppShell />
+                </SelectionProvider>
+              </HistoryNavProvider>
             </NavProvider>
           </HistoryProvider>
         </QueueProvider>

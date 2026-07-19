@@ -34,6 +34,11 @@ interface HistoryContextValue {
   // there is nothing else to display). Cleared on the next successful
   // refresh.
   syncError?: string;
+  // Sidebar follow-up (2026-07-19): raw `items` above stays unfiltered --
+  // trash()/remove() and friends still key off the full list. HistoryView
+  // is the one place that reads searchQuery to derive what it renders.
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
   trashedIds: Set<number>;
   // Per-row failures from trash()/remove() -- kept separate from the
   // whole-list `error` above, which is only for a failed initial load.
@@ -96,6 +101,7 @@ export function HistoryProvider({
   const [status, setStatus] = useState<HistoryStatus>(() => (items.length > 0 ? "ready" : "loading"));
   const [error, setError] = useState<string>();
   const [syncError, setSyncError] = useState<string>();
+  const [searchQuery, setSearchQuery] = useState("");
   const [trashedIds, setTrashedIds] = useState<Set<number>>(new Set());
   const [actionErrors, setActionErrors] = useState<Map<number, string>>(new Map());
 
@@ -169,7 +175,20 @@ export function HistoryProvider({
 
   return (
     <HistoryContext.Provider
-      value={{ items, status, error, syncError, trashedIds, actionErrors, refresh, trash, remove, reportActionError }}
+      value={{
+        items,
+        status,
+        error,
+        syncError,
+        searchQuery,
+        setSearchQuery,
+        trashedIds,
+        actionErrors,
+        refresh,
+        trash,
+        remove,
+        reportActionError,
+      }}
     >
       {children}
     </HistoryContext.Provider>

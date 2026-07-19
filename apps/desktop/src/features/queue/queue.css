@@ -8,6 +8,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /* The content pane now needs its own scroll -- .app is a fixed-height row
+     layout (sidebar + content), it no longer grows with content the way the
+     old column layout's min-height: 100vh did (sidebar redesign, 2026-07-19). */
+  overflow-y: auto;
 }
 
 .drop-zone {

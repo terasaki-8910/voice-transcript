@@ -1,19 +1,23 @@
 // F14 scaffold, grown incrementally: F20 (theme toggle) and F19 (language
 // toggle) built the toolbar shell; F17 (gui-queue) replaces the placeholder
-// body with the real queue screen -- QueueView renders its own toolbar
-// (Queue/History tabs + Add files), composing ThemeToggle/LanguageToggle
-// into it. F18 (gui-history) adds HistoryProvider as a sibling of
-// QueueProvider -- both stay mounted for the app's lifetime so switching
-// tabs doesn't lose queue progress or refetch history from scratch. F21
-// (native-menu) adds NavProvider/SelectionProvider (shared state the
-// native menu's events need to reach from outside QueueView) and
+// body with the real queue screen. F18 (gui-history) adds HistoryProvider as
+// a sibling of QueueProvider -- both stay mounted for the app's lifetime so
+// switching tabs doesn't lose queue progress or refetch history from
+// scratch. F21 (native-menu) adds NavProvider/SelectionProvider (shared
+// state the native menu's events need to reach from outside the tree) and
 // AppShell, which owns whether PreferencesView is open and wires
 // useMenuEvents -- both need to sit inside every other provider.
+//
+// Sidebar redesign (2026-07-19): AppLayout (Sidebar + QueueView) replaces
+// QueueView's own toolbar. HistoryNavProvider (back/forward through
+// individually-View'd History entries) sits inside NavProvider -- it calls
+// useNav() internally to switch to the History tab when navigating.
 import { useEffect, useRef, useState } from "react";
 import { QueueProvider, useQueue } from "./features/queue/QueueContext";
 import type { QueueItemStatus } from "./features/queue/QueueContext";
-import { QueueView } from "./features/queue/QueueView";
+import { AppLayout } from "./features/layout/AppLayout";
 import { HistoryProvider, useHistory } from "./features/history/HistoryContext";
+import { HistoryNavProvider } from "./features/history/HistoryNavContext";
 import { NavProvider } from "./features/nav/NavContext";
 import { SelectionProvider } from "./features/selection/SelectionContext";
 import { PreferencesView } from "./features/preferences/PreferencesView";
@@ -72,7 +76,7 @@ export function AppShell() {
 
   return (
     <>
-      <QueueView />
+      <AppLayout preferencesOpen={showPreferences} onOpenPreferences={() => setShowPreferences(true)} />
       {showPreferences && <PreferencesView onClose={() => setShowPreferences(false)} />}
     </>
   );
@@ -83,9 +87,11 @@ export function App() {
     <QueueProvider>
       <HistoryProvider>
         <NavProvider>
-          <SelectionProvider>
-            <AppShell />
-          </SelectionProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>
+              <AppShell />
+            </SelectionProvider>
+          </HistoryNavProvider>
         </NavProvider>
       </HistoryProvider>
     </QueueProvider>

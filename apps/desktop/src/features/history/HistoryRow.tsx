@@ -15,19 +15,20 @@
 //   reachable via the native menu's Export item + a prior "View" click to
 //   set the selection) -- exports this row's own transcript directly,
 //   independent of SelectionContext.
-import { useState } from "react";
+//
+// Sidebar follow-up (2026-07-19): "expanded" is no longer a local useState --
+// it's derived from HistoryNavContext's currentId, so the sidebar's
+// back/forward buttons can drive which row is open from outside this
+// component (see HistoryNavContext.tsx for the stack semantics).
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { FiTrash, FiTrash2, FiDownload } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
+import { useHistoryNav } from "./HistoryNavContext";
 import type { HistoryEntry } from "../../lib/tauri";
 import { pickSavePath, exportTranscript } from "../../lib/tauri";
+import { basename } from "../../lib/path";
 import { useSelection } from "../selection/SelectionContext";
-
-function basename(filePath: string): string {
-  const parts = filePath.split(/[/\\]/);
-  return parts[parts.length - 1] || filePath;
-}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -37,12 +38,17 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const { t } = useI18n();
   const { trash, remove, actionErrors, reportActionError } = useHistory();
   const { setSelection } = useSelection();
-  const [expanded, setExpanded] = useState(false);
+  const { currentId, view, close } = useHistoryNav();
+  const expanded = currentId === item.id;
   const actionError = actionErrors.get(item.id);
   const fileName = basename(item.sourceFileName);
 
   const handleView = () => {
-    setExpanded((v) => !v);
+    if (expanded) {
+      close();
+      return;
+    }
+    view(item.id);
     if (item.transcriptText) {
       setSelection({ fileName, text: item.transcriptText, format: "txt" });
     }

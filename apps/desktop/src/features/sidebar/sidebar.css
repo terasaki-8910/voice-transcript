@@ -1,0 +1,206 @@
+/* Sidebar layout + follow-up (collapse rail, back/forward, search, theme
+   icon toggle) -- copied from the approved design/reference-screen.html.
+   Edit that file first if the direction ever changes, then mirror here. */
+@import "../../styles/tokens.css";
+
+/* A flex child of .app (global.css's height:100vh row), so it stretches to
+   full height for free via flexbox's default align-items: stretch -- no
+   explicit height or position needed here, same as how .queue gets its
+   height without setting one. */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-right: 1px solid var(--color-line);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar {
+    transition:
+      width 150ms ease,
+      padding 150ms ease;
+  }
+}
+
+.sidebar-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+/* Amical-style icon row: sidebar collapse + History back/forward. Lives at
+   the top of the sidebar itself since Tauri draws the real native titlebar
+   per-OS -- there's nothing else to attach these to. */
+.sidebar-topbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -6px;
+}
+
+.icon-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.icon-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-toggle:hover {
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+  color: var(--color-ink);
+}
+
+.icon-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-toggle:disabled:hover {
+  background: transparent;
+}
+
+.sidebar-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* Higher specificity than .btn-primary (2 classes vs. 1) so this wins
+   regardless of import order -- sidebar text sits a notch larger than the
+   old toolbar's, closer to the Amical reference sizing. */
+.sidebar-create.btn-primary {
+  font-size: var(--text-base);
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-search svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--color-ink-muted);
+}
+
+.sidebar-search input {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  width: 100%;
+  outline: none;
+}
+
+.sidebar-search input::placeholder {
+  color: var(--color-ink-muted);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-nav-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--color-ink-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-nav-item:hover {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  color: var(--color-ink);
+}
+
+.sidebar-nav-item[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-signal) 14%, transparent);
+  color: var(--color-signal);
+  font-weight: var(--weight-semibold);
+}
+
+.sidebar-nav-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+}
+
+/* Pins the theme/language toggles to the bottom -- deliberately quiet
+   (small, muted) so they never compete with the primary "Add files" action
+   above, same principle as the old toolbar's .settings cluster. */
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
+/* Scoped override only -- .settings itself (toolbar.css) is unchanged/
+   reused as-is; this sits the theme icon-toggle and the language pill side
+   by side in the footer row instead of a toolbar's inline layout. */
+.sidebar-footer .settings {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* Collapse/expand (Amical-style, sidebar follow-up 2026-07-19 -- reverses
+   the original "no collapse" design-gate decision). Collapses to a slim
+   icon-only rail, NOT width: 0 -- a full hide would bury the collapse
+   toggle itself inside the thing it just hid, with no way back. Only the
+   toggle button (first child of .sidebar-topbar) stays visible in the rail. */
+.sidebar.is-collapsed {
+  width: 44px;
+  padding: var(--space-4) var(--space-2);
+}
+
+.sidebar.is-collapsed .sidebar-topbar > button:not(:first-child),
+.sidebar.is-collapsed .brand,
+.sidebar.is-collapsed .sidebar-create,
+.sidebar.is-collapsed .sidebar-search,
+.sidebar.is-collapsed .sidebar-nav,
+.sidebar.is-collapsed .sidebar-footer {
+  display: none;
+}
+
+/* No CSS-driven sun/moon swap here (unlike the static HTML mockup, which
+   has no conditional rendering) -- ThemeToggle.tsx renders exactly one icon
+   at a time based on real theme state, so there is nothing to hide/show. */

@@ -1,6 +1,10 @@
 // F20: pins ThemeProvider/useTheme/ThemeToggle in src/theme/**. ThemeToggle
-// also reads its labels through the shared i18n system (F19), so it needs
+// also reads its label through the shared i18n system (F19), so it needs
 // an I18nProvider ancestor too.
+//
+// Sidebar follow-up (2026-07-19): ThemeToggle is now a single icon button
+// (was a Light/Dark ".tabs" pair) -- assertions moved from per-option
+// aria-selected to the single button's aria-label and which icon is present.
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
@@ -23,20 +27,28 @@ describe("ThemeToggle", () => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("defaults to light and marks the Light tab selected", () => {
+  it("defaults to light", () => {
     renderToggle();
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(screen.getByRole("button", { name: "Light" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Toggle theme" })).toBeDefined();
   });
 
-  it("switching to Dark updates data-theme and persists across a remount", () => {
+  it("clicking switches to dark and persists across a remount", () => {
     const { unmount } = renderToggle();
-    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle theme" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 
     unmount();
     renderToggle();
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(screen.getByRole("button", { name: "Dark" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("clicking again toggles back to light", () => {
+    renderToggle();
+    const button = screen.getByRole("button", { name: "Toggle theme" });
+    fireEvent.click(button);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    fireEvent.click(button);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 });
