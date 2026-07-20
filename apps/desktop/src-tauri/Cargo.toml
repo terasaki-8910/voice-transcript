@@ -1,6 +1,6 @@
 [package]
 name = "voice-transcript-desktop"
-version = "0.0.0"
+version = "0.1.6"
 description = "Voice Transcript desktop app -- Rust shell + React webview, sharing @voice-transcript/core via a Node sidecar"
 authors = ["you"]
 license = ""
