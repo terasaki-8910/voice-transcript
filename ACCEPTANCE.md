@@ -14,7 +14,7 @@ integration acceptance.
 
 ## B. Audio handling (unit, mocked ffmpeg/API)
 - **B1** — When the 16 kHz-mono encode is ≤ 24 MB, the pipeline makes exactly **one** transcription request (no chunking).
-- **B2** — When the encode exceeds 24 MB, the pipeline splits into **N > 1** chunks and makes N requests; boundaries are chosen at **detected silence**, not fixed offsets.
+- **B2** — When the encode exceeds 24 MB, the pipeline splits into **N > 1** chunks and makes N requests. Every chunk stays under the byte budget -- boundaries prefer **detected silence** whenever one falls within budget, falling back to a fixed offset only across a silence-free stretch that alone would otherwise exceed it (2026-07-20: a real 413 from Groq was traced to this gap -- a chunk with no fallback could exceed the cap when its stretch had no detected silence at all).
 - **B3** — When stitching M chunks, each chunk's timestamps are offset by the cumulative duration of preceding chunks; merged timestamps are monotonic non-decreasing.
 - **B4** — If ffmpeg is not on `PATH`, the CLI exits non-zero with an actionable error naming ffmpeg.
 

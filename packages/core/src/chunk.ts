@@ -6,8 +6,15 @@ export interface ChunkPlanInput {
 }
 
 // Interior split points (seconds), ascending, strictly in (0, durationSec).
-// [] means a single upload. Every returned boundary is a member of
-// `silences` -- cuts are at detected silence, never fixed offsets.
+// [] means a single upload. Boundaries prefer a member of `silences` --
+// cuts are at detected silence, not a fixed offset, whenever one is
+// available within budget. Fallback: if a stretch has no detected silence
+// at all within maxChunkDuration (e.g. continuous speech/music with no
+// >=0.5s quiet gap), a fixed-offset cut is forced there so the chunk still
+// fits -- staying under maxBytes is chunking's actual purpose (Groq 413s
+// otherwise), and a rare mid-word cut there is far better than a hard
+// failure. This is the exception, not the default: every other boundary is
+// still silence-aligned.
 export function planChunks(input: ChunkPlanInput): number[] {
   const { durationSec, encodedBytes, maxBytes, silences } = input;
 
@@ -24,24 +31,20 @@ export function planChunks(input: ChunkPlanInput): number[] {
   let chunkStart = 0;
   let i = 0;
 
-  while (i < candidates.length) {
-    let lastFit = -1;
-    let j = i;
-    while (j < candidates.length && candidates[j] - chunkStart <= maxChunkDuration) {
-      lastFit = candidates[j];
-      j++;
+  // Loop on remaining duration, not "any candidates left" -- a silence-free
+  // tail longer than maxChunkDuration must still get cut, even after every
+  // detected silence has already been consumed.
+  while (durationSec - chunkStart > maxChunkDuration) {
+    let cut = -1;
+    while (i < candidates.length && candidates[i] - chunkStart <= maxChunkDuration) {
+      cut = candidates[i];
+      i++;
     }
-    if (j >= candidates.length) {
-      // Every remaining candidate fits in the current chunk, so the tail end
-      // (up to durationSec) fits too -- nothing left to cut.
-      break;
+    if (cut === -1) {
+      cut = chunkStart + maxChunkDuration;
     }
-    // candidates[j] no longer fits; cut at the last one that did, or force a
-    // cut at candidates[j] itself if none has fit since chunkStart.
-    const cut = lastFit >= 0 ? lastFit : candidates[j];
     boundaries.push(cut);
     chunkStart = cut;
-    i = lastFit >= 0 ? j : j + 1;
   }
 
   return boundaries;
