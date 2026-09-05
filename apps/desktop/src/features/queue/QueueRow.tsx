@@ -10,12 +10,14 @@
 // now also available directly on the row (previously only reachable via
 // the native menu + a prior "View" click), independent of SelectionContext.
 import { useState } from "react";
-import { FiDownload, FiTrash } from "react-icons/fi";
+import { FiDownload, FiTrash, FiCopy, FiCheck } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useQueue } from "./QueueContext";
 import type { QueueItem } from "./QueueContext";
 import { useSelection } from "../selection/SelectionContext";
-import { pickSavePath, exportTranscript } from "../../lib/tauri";
+import { pickSavePath, exportTranscript, copyToClipboard } from "../../lib/tauri";
+import { breakAfterJapanesePeriod } from "../../lib/textFormat";
+import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
 
 const CHIP_CLASS: Record<QueueItem["status"], string> = {
   queued: "chip chip-queued",
@@ -32,6 +34,9 @@ export function QueueRow({ item }: { item: QueueItem }) {
   const { t } = useI18n();
   const { retry, remove } = useQueue();
   const { setSelection } = useSelection();
+  const { breakAtPeriod } = useDisplayPreferences();
+  const [fullText, setFullText] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportError, setExportError] = useState<string>();
 
@@ -58,6 +63,17 @@ export function QueueRow({ item }: { item: QueueItem }) {
     }
   };
 
+  const handleCopy = async () => {
+    if (!item.result) return;
+    try {
+      await copyToClipboard(item.result.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      setExportError(errorMessage(err));
+    }
+  };
+
   const statusLabel: Record<QueueItem["status"], string> = {
     queued: t("statusQueued"),
     transcribing: t("statusTranscribing"),
@@ -74,11 +90,35 @@ export function QueueRow({ item }: { item: QueueItem }) {
         </div>
         {item.status === "failed" && item.error && <div className="row-meta fail-reason">{item.error}</div>}
         {exportError && <div className="row-meta fail-reason">{exportError}</div>}
-        {item.status === "done" && expanded && item.result && <p className="row-preview">{item.result.text}</p>}
+        {item.status === "done" && expanded && item.result && (
+          <>
+            <p className={`row-preview${fullText ? " row-preview-full" : ""}`}>
+              {breakAtPeriod ? breakAfterJapanesePeriod(item.result.text) : item.result.text}
+            </p>
+            <button
+              type="button"
+              className="btn-link row-preview-toggle"
+              onClick={() => setFullText((v) => !v)}
+            >
+              {fullText ? t("showLess") : t("showFullText")}
+            </button>
+          </>
+        )}
       </div>
       {item.status === "done" && (
         <button type="button" className="row-action btn-link" onClick={handleView}>
           {expanded ? t("close") : t("view")}
+        </button>
+      )}
+      {item.status === "done" && (
+        <button
+          type="button"
+          className="row-action icon-btn"
+          title={copied ? t("copied") : t("copyTranscript")}
+          aria-label={copied ? t("copied") : t("copyTranscript")}
+          onClick={() => void handleCopy()}
+        >
+          {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
         </button>
       )}
       {item.status === "done" && (

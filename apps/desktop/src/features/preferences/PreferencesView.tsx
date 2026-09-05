@@ -13,6 +13,7 @@
 // a false dismiss.
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/I18nContext";
+import { useDisplayPreferences } from "./DisplayPreferencesContext";
 import { saveApiKey, getApiKeyStatus, saveDatabaseUrl, getDatabaseUrlStatus } from "../../lib/tauri";
 import "./preferences.css";
 
@@ -25,6 +26,7 @@ function errorMessage(err: unknown): string {
 
 export function PreferencesView({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
+  const { breakAtPeriod, setBreakAtPeriod } = useDisplayPreferences();
   const [key, setKey] = useState("");
   const [keyStatus, setKeyStatus] = useState<FieldStatus>("checking");
   const [keySaveState, setKeySaveState] = useState<SaveState>("idle");
@@ -92,6 +94,16 @@ export function PreferencesView({ onClose }: { onClose: () => void }) {
     >
       <div className="modal">
         <h2>{t("preferences")}</h2>
+
+        <label className="modal-checkbox-row">
+          <input
+            type="checkbox"
+            checked={breakAtPeriod}
+            onChange={(e) => setBreakAtPeriod(e.target.checked)}
+          />
+          {t("breakAtPeriodLabel")}
+        </label>
+        <hr className="modal-divider" />
 
         <p className="modal-status">
           {keyStatus === "set" ? t("apiKeySet") : keyStatus === "unset" ? t("apiKeyNotSet") : ""}

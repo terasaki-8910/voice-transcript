@@ -72,3 +72,18 @@
   justify-content: flex-end;
   gap: var(--space-3);
 }
+
+.modal-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  margin-bottom: var(--space-4);
+  cursor: pointer;
+}
+
+.modal-checkbox-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}

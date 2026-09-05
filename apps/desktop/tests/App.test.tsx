@@ -22,6 +22,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { App, AppShell } from "../src/App";
 import { ThemeProvider } from "../src/theme/ThemeContext";
 import { I18nProvider } from "../src/i18n/I18nContext";
+import { DisplayPreferencesProvider } from "../src/features/preferences/DisplayPreferencesContext";
 import { QueueProvider, useQueue } from "../src/features/queue/QueueContext";
 import { HistoryProvider } from "../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../src/features/history/HistoryNavContext";
@@ -46,7 +47,9 @@ describe("App", () => {
     render(
       <I18nProvider>
         <ThemeProvider>
-          <App />
+          <DisplayPreferencesProvider>
+            <App />
+          </DisplayPreferencesProvider>
         </ThemeProvider>
       </I18nProvider>,
     );
@@ -78,18 +81,20 @@ function AppShellHarness({
   return (
     <I18nProvider>
       <ThemeProvider>
-        <QueueProvider transcribeFn={transcribeFn}>
-          <HistoryProvider listHistoryFn={listHistoryFn}>
-            <NavProvider>
-              <HistoryNavProvider>
-                <SelectionProvider>
-                  <AddFilesButton />
-                  <AppShell />
-                </SelectionProvider>
-              </HistoryNavProvider>
-            </NavProvider>
-          </HistoryProvider>
-        </QueueProvider>
+        <DisplayPreferencesProvider>
+          <QueueProvider transcribeFn={transcribeFn}>
+            <HistoryProvider listHistoryFn={listHistoryFn}>
+              <NavProvider>
+                <HistoryNavProvider>
+                  <SelectionProvider>
+                    <AddFilesButton />
+                    <AppShell />
+                  </SelectionProvider>
+                </HistoryNavProvider>
+              </NavProvider>
+            </HistoryProvider>
+          </QueueProvider>
+        </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>
   );

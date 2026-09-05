@@ -12,6 +12,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
+import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { QueueRow } from "../../src/features/queue/QueueRow";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
@@ -30,11 +31,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 function RowHarness({ transcribeFn }: { transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> }) {
   return (
     <I18nProvider>
-      <SelectionProvider>
-        <QueueProvider transcribeFn={transcribeFn}>
-          <RowList />
-        </QueueProvider>
-      </SelectionProvider>
+      <DisplayPreferencesProvider>
+        <SelectionProvider>
+          <QueueProvider transcribeFn={transcribeFn}>
+            <RowList />
+          </QueueProvider>
+        </SelectionProvider>
+      </DisplayPreferencesProvider>
     </I18nProvider>
   );
 }

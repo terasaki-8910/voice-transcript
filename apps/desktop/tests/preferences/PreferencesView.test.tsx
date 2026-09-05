@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
+import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
 import { PreferencesView } from "../../src/features/preferences/PreferencesView";
 
 const invoke = vi.fn();
@@ -21,7 +22,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 function renderView(onClose: () => void = vi.fn()) {
   return render(
     <I18nProvider>
-      <PreferencesView onClose={onClose} />
+      <DisplayPreferencesProvider>
+        <PreferencesView onClose={onClose} />
+      </DisplayPreferencesProvider>
     </I18nProvider>,
   );
 }

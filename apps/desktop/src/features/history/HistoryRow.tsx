@@ -37,6 +37,8 @@ import type { HistoryEntry } from "../../lib/tauri";
 import { pickSavePath, exportTranscript, copyToClipboard } from "../../lib/tauri";
 import { basename } from "../../lib/path";
 import { useSelection } from "../selection/SelectionContext";
+import { breakAfterJapanesePeriod } from "../../lib/textFormat";
+import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -143,6 +145,8 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const { setSelection } = useSelection();
   const { currentId, view, close } = useHistoryNav();
   const [copied, setCopied] = useState(false);
+  const { breakAtPeriod } = useDisplayPreferences();
+  const [fullText, setFullText] = useState(false);
   const expanded = currentId === item.id;
   const actionError = actionErrors.get(item.id);
   const fileName = basename(item.sourceFileName);
@@ -222,16 +226,24 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
         </div>
         <div className="row-meta">{item.startedAt.toLocaleString()}</div>
         {actionError && <div className="row-meta fail-reason">{actionError}</div>}
-        {expanded && item.transcriptText && <p className="row-preview">{item.transcriptText}</p>}
+        {expanded && item.transcriptText && (
+          <>
+            <p className={`row-preview${fullText ? " row-preview-full" : ""}`}>
+              {breakAtPeriod ? breakAfterJapanesePeriod(item.transcriptText) : item.transcriptText}
+            </p>
+            <button
+              type="button"
+              className="btn-link row-preview-toggle"
+              onClick={() => setFullText((v) => !v)}
+            >
+              {fullText ? t("showLess") : t("showFullText")}
+            </button>
+          </>
+        )}
       </div>
       {item.transcriptText && (
         <button type="button" className="row-action btn-link" onClick={handleView}>
           {expanded ? t("close") : t("view")}
-        </button>
-      )}
-      {item.transcriptText && (
-        <button type="button" className="row-action icon-btn" title={t("export")} aria-label={t("export")} onClick={() => void handleExport()}>
-          <FiDownload aria-hidden="true" />
         </button>
       )}
       {item.transcriptText && (
@@ -243,6 +255,11 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
           onClick={() => void handleCopy()}
         >
           {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
+        </button>
+      )}
+      {item.transcriptText && (
+        <button type="button" className="row-action icon-btn" title={t("export")} aria-label={t("export")} onClick={() => void handleExport()}>
+          <FiDownload aria-hidden="true" />
         </button>
       )}
       <DeleteMenu

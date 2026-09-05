@@ -14,6 +14,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
+import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
 import { QueueProvider } from "../../src/features/queue/QueueContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext";
@@ -38,17 +39,19 @@ function renderView(transcribeFn: (request: TranscribeRequest) => Promise<Transc
   return render(
     <I18nProvider>
       <ThemeProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <SelectionProvider>
-              <QueueProvider transcribeFn={transcribeFn}>
-                <HistoryProvider listHistoryFn={async () => []}>
-                  <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} />
-                </HistoryProvider>
-              </QueueProvider>
-            </SelectionProvider>
-          </HistoryNavProvider>
-        </NavProvider>
+        <DisplayPreferencesProvider>
+          <NavProvider>
+            <HistoryNavProvider>
+              <SelectionProvider>
+                <QueueProvider transcribeFn={transcribeFn}>
+                  <HistoryProvider listHistoryFn={async () => []}>
+                    <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} />
+                  </HistoryProvider>
+                </QueueProvider>
+              </SelectionProvider>
+            </HistoryNavProvider>
+          </NavProvider>
+        </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>,
   );

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ThemeProvider } from "./theme/ThemeContext";
+import { DisplayPreferencesProvider } from "./features/preferences/DisplayPreferencesContext";
 import { I18nProvider } from "./i18n/I18nContext";
 import "./styles/global.css";
 
@@ -14,7 +15,9 @@ createRoot(container).render(
   <StrictMode>
     <I18nProvider>
       <ThemeProvider>
-        <App />
+        <DisplayPreferencesProvider>
+          <App />
+        </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>
   </StrictMode>,

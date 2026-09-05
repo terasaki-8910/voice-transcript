@@ -2,7 +2,7 @@
 // handleDeleteHistoryEntry/main in src/sidecar.ts -- the Node sidecar the
 // Tauri Rust shell spawns (F15 desktop-ipc, F18 gui-history). All IO is
 // injected, same DI shape as packages/cli/tests/cli.test.ts.
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   handlePing,
   handleTranscribe,
@@ -17,6 +17,18 @@ import type { Transcriber } from "../src/types.js";
 import type { HistoryRecord } from "../src/db/history.js";
 
 const HELLO = { text: "hello world", segments: [{ start: 0, end: 2, text: "hello world" }] };
+
+// handleListHistory/handleGetHistory/handleDeleteHistoryEntry fall back to
+// createDb(), which reads DATABASE_URL straight from process.env (db/
+// client.ts) rather than an injected value. A developer machine or CI
+// runner with DATABASE_URL exported ambiently (e.g. a shared Postgres used
+// by other projects) would otherwise leak into the "no DB configured" cases
+// below and have them try a real network connection instead of taking the
+// undefined-db branch. Stub it out for every test in this file and restore
+// the ambient value afterwards.
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function makeAudio(): AudioBackend {
   return {
@@ -117,6 +129,7 @@ describe("listHistory", () => {
   });
 
   it("returns [] (not an error) when there is no DB configured and no injection", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
     await expect(handleListHistory({})).resolves.toEqual([]);
   });
 });

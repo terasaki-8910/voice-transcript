@@ -45,6 +45,9 @@ export const translations = {
     removeFromQueue: "Remove from queue",
     copyTranscript: "Copy transcript",
     copied: "Copied",
+    breakAtPeriodLabel: "Insert a line break after each Japanese period (。)",
+    showFullText: "Show full text",
+    showLess: "Show less",
   },
   ja: {
     queue: "キュー",
@@ -88,6 +91,9 @@ export const translations = {
     removeFromQueue: "キューから削除",
     copyTranscript: "文字起こしをコピー",
     copied: "コピーしました",
+    breakAtPeriodLabel: "句点(。)の後で改行する",
+    showFullText: "全文表示",
+    showLess: "折りたたむ",
   },
 } as const;
 

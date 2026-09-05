@@ -27,6 +27,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
+import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext";
 import { HistoryView } from "../../src/features/history/HistoryView";
@@ -67,11 +68,13 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
 function renderWithProviders(children: React.ReactNode) {
   return render(
     <I18nProvider>
-      <NavProvider>
-        <HistoryNavProvider>
-          <SelectionProvider>{children}</SelectionProvider>
-        </HistoryNavProvider>
-      </NavProvider>
+      <DisplayPreferencesProvider>
+        <NavProvider>
+          <HistoryNavProvider>
+            <SelectionProvider>{children}</SelectionProvider>
+          </HistoryNavProvider>
+        </NavProvider>
+      </DisplayPreferencesProvider>
     </I18nProvider>,
   );
 }
