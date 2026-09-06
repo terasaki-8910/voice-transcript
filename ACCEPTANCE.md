@@ -89,6 +89,15 @@ integration acceptance.
   key only when the `GROQ_API_KEY` environment variable is unset; the
   environment variable always takes priority when both are present.
   (Confirmed 2026-07-13.)
+- **G12** — The Settings dialog exposes General / Voice input / Custom
+  dictionary / Connection sections from the existing entry points (sidebar
+  item, native menu, Cmd+,/Ctrl+,), defaulting to Voice input; changing
+  model/language in Voice input changes what the next queued transcription
+  actually sends (closes the previous gap where the GUI hardcoded
+  `whisper-large-v3-turbo` and never sent a language at all). Not a
+  standalone vitest item beyond the unit tests already covering
+  QueueContext's read of the setting — the dialog's rendering is verified by
+  exercising it in the built app, same as G1/G6.
 
 ## H. Transcription history (Postgres)
 - **H1** — Every completed run (CLI or GUI) writes one history record:
@@ -125,3 +134,50 @@ integration acceptance.
   actual multi-platform build success can only be verified by running it) —
   verified by actually running the workflow once as a manual smoke test, at
   or after integration acceptance, not by a unit test.
+
+## J. Microphone recording
+- **J1** — Starting a recording shows an elapsed-time indicator with no
+  auto-stop; nothing in the code imposes a duration cap (no
+  timer/interval that calls stop after a fixed duration).
+- **J2** — Stopping a recording finalizes it to one audio file on disk and
+  adds it to the Queue through the same path a picked file uses;
+  transcribing it produces a non-empty transcript. Manual/exploratory — CI
+  runners have no microphone, same class of gap as G1's real-build
+  verification.
+- **J3** — Recorded audio is written to disk sample-by-sample during
+  capture via a `cpal` input-stream callback into an open
+  `hound::WavWriter`, never buffered whole in memory (Rust unit test:
+  `apps/desktop/src-tauri/src/recording.rs`'s `#[cfg(test)]` module).
+- **J4** — Recording builds cleanly for Linux (`ubuntu-latest`, with
+  `libasound2-dev` present) — the target a webview-`getUserMedia` recorder
+  could not reach at all (verified during implementation: WebKitGTK has no
+  released Tauri version that enables media-stream capture). Same class of
+  check as G1.
+- **J5** — macOS: both `NSMicrophoneUsageDescription` (Info.plist) and the
+  `com.apple.security.device.audio-input` entitlement are present in the
+  built bundle — verified against a real `tauri build` bundle, not
+  `tauri dev` (the dev binary has no Info.plist at all, so a dev-only check
+  cannot catch a missing entitlement).
+
+## K. Custom dictionary (word replacement)
+- **K1** — `applyDictionary()` replaces every occurrence of a stored word
+  with its replacement in both `TranscriptResult.text` and every segment's
+  `text` (unit test, pure function, `packages/core/tests/dictionary.test.ts`).
+- **K2** — A word made only of ASCII characters matches whole-word only
+  (does not fire inside a larger token); a word containing any non-ASCII
+  character matches as a plain substring (unit test, using real
+  substring-containment and boundary cases from the Amical export).
+- **K3** — Importing the same JSON file twice leaves the same row count and
+  the same replacement values (idempotent upsert by word).
+- **K4** — Dictionary CRUD (`packages/core/src/db/dictionary.ts`) uses only
+  the Drizzle query builder, no raw SQL outside migrations (grep/test-
+  enforced: `tests/db-hygiene.test.ts`'s H4 regex already scans all of
+  `packages/core/src/db/**`, so this is covered by the existing test with no
+  changes needed there).
+- **K5** — The custom dictionary is applied identically on the CLI and GUI
+  paths (`packages/cli/src/cli.ts` and `packages/core/src/sidecar.ts` both
+  call `applyDictionary()` right after `runPipeline()`, before
+  `render()`/history) — GUI/CLI parity, same principle as G4.
+- **K6** — A missing/unreachable `DATABASE_URL` never blocks or fails a
+  transcription because of the dictionary fetch — it silently applies zero
+  replacements, same non-blocking rule as H5.

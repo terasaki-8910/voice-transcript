@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Microphone recording (SPEC.md > Microphone recording). Tauri
+	     auto-merges this file with its generated Info.plist (see
+	     v2.tauri.app/distribute/macos-application-bundle). Without this
+	     key, WKWebView-adjacent and CoreAudio mic access both fail --
+	     required regardless of capture method. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voice Transcript uses the microphone to record audio for transcription.</string>
+</dict>
+</plist>

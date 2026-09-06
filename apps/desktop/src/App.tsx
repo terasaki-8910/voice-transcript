@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { QueueProvider, useQueue } from "./features/queue/QueueContext";
 import type { QueueItemStatus } from "./features/queue/QueueContext";
 import { AppLayout } from "./features/layout/AppLayout";
+import { RecordingProvider } from "./features/recording/RecordingContext";
 import { HistoryProvider, useHistory } from "./features/history/HistoryContext";
 import { HistoryNavProvider } from "./features/history/HistoryNavContext";
 import { NavProvider } from "./features/nav/NavContext";
@@ -89,7 +90,9 @@ export function App() {
         <NavProvider>
           <HistoryNavProvider>
             <SelectionProvider>
-              <AppShell />
+              <RecordingProvider>
+                <AppShell />
+              </RecordingProvider>
             </SelectionProvider>
           </HistoryNavProvider>
         </NavProvider>

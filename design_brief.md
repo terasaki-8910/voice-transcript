@@ -133,3 +133,32 @@ Real-usage feedback after using the built sidebar, confirmed via Q&A:
   button styling), which was built directly into the real app's `queue.css` in an earlier
   post-integration fix batch without first being mirrored here -- now corrected so this
   file stays the accurate source of truth going forward.
+
+### Settings surface + recording (2026-09-06)
+Reference: two Amical screenshots (音声入力 settings, カスタム辞書) supplied directly,
+plus this file's own standing rule that Tauri apps get a proper sectioned Settings
+surface. Supersedes the "Sidebar follow-up" entry's "Preferences ... still opens as the
+existing modal, it is not a new full-page Tab/view" -- it is still a modal overlay (same
+entry points, same light-dismiss), but what renders inside it is now sectioned, not flat:
+- **Settings dialog**: grows from `.modal`'s single 420px column into `.settings-modal` --
+  a header (title + Close) above a two-pane body: `.settings-nav` (180px, the same
+  active-item tint language as `.sidebar-nav-item`) and a scrolling `.settings-panel`.
+  Sections: Voice input (default), Custom dictionary, General, Connection -- ui.md's
+  "General/Account/Privacy at minimum" template is for apps with accounts/telemetry; this
+  app has neither, so those two are dropped for the sections it actually has.
+- **Custom dictionary**: a flat `word → replacement` list (`.dictionary-list`/
+  `.dictionary-row`), an inline add row at the top, edit-in-place per row (reuses
+  `.icon-btn`/`.icon-btn-danger` from queue.css), and an Import button. Deliberately not a
+  copy of Amical's own dictionary screen pixel-for-pixel -- same shape (flat list, →
+  arrow), this app's own token/spacing system throughout.
+- **Recording**: a small icon button (`.sidebar-record-btn`) sits beside "Add files" in
+  the sidebar rather than as a second full-width primary action -- both are "get audio
+  in" actions, read as peers, not a dilution of the one-primary-action rule. While
+  recording, `.recording-bar` (danger-toned, reuses the existing `pulse` keyframe from
+  `.chip-active`) sits above the tab content in the main pane -- deliberately NOT only in
+  the sidebar, since the sidebar auto-collapses on narrow windows and an active recording
+  must stay visible regardless of window width or which tab (Queue/History) is open.
+- No waveform/level meter -- considered and deliberately deferred (would need Rust to
+  compute and throttle-emit RMS per audio callback); an elapsed-time counter + pulsing dot
+  is enough for "a standard recording feature," not a stated requirement to visualize
+  input level.

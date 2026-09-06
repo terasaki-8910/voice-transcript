@@ -23,7 +23,9 @@ import { App, AppShell } from "../src/App";
 import { ThemeProvider } from "../src/theme/ThemeContext";
 import { I18nProvider } from "../src/i18n/I18nContext";
 import { DisplayPreferencesProvider } from "../src/features/preferences/DisplayPreferencesContext";
+import { VoiceInputSettingsProvider } from "../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider, useQueue } from "../src/features/queue/QueueContext";
+import { RecordingProvider } from "../src/features/recording/RecordingContext";
 import { HistoryProvider } from "../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../src/features/history/HistoryNavContext";
 import { NavProvider } from "../src/features/nav/NavContext";
@@ -48,7 +50,9 @@ describe("App", () => {
       <I18nProvider>
         <ThemeProvider>
           <DisplayPreferencesProvider>
-            <App />
+            <VoiceInputSettingsProvider>
+              <App />
+            </VoiceInputSettingsProvider>
           </DisplayPreferencesProvider>
         </ThemeProvider>
       </I18nProvider>,
@@ -82,18 +86,22 @@ function AppShellHarness({
     <I18nProvider>
       <ThemeProvider>
         <DisplayPreferencesProvider>
-          <QueueProvider transcribeFn={transcribeFn}>
-            <HistoryProvider listHistoryFn={listHistoryFn}>
-              <NavProvider>
-                <HistoryNavProvider>
-                  <SelectionProvider>
-                    <AddFilesButton />
-                    <AppShell />
-                  </SelectionProvider>
-                </HistoryNavProvider>
-              </NavProvider>
-            </HistoryProvider>
-          </QueueProvider>
+          <VoiceInputSettingsProvider>
+            <QueueProvider transcribeFn={transcribeFn}>
+              <HistoryProvider listHistoryFn={listHistoryFn}>
+                <NavProvider>
+                  <HistoryNavProvider>
+                    <SelectionProvider>
+                      <RecordingProvider>
+                        <AddFilesButton />
+                        <AppShell />
+                      </RecordingProvider>
+                    </SelectionProvider>
+                  </HistoryNavProvider>
+                </NavProvider>
+              </HistoryProvider>
+            </QueueProvider>
+          </VoiceInputSettingsProvider>
         </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>

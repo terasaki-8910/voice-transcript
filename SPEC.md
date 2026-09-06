@@ -58,7 +58,10 @@ history of past runs.
   - `--model <name>` — Whisper model (default: `whisper-large-v3-turbo`)
   - `--language <code>` — force language (default: auto-detect)
 - Exit code `0` on success; non-zero on error, with a message on stderr.
-- Unchanged by the GUI addition; still single-file, no history/DB dependency.
+- Unchanged by the GUI addition; still single-file. It does read the same
+  history/dictionary DB layer as the GUI (records one history entry per run,
+  applies the custom dictionary -- see below), just with no queue/multi-file
+  concept of its own.
 
 ## GUI (desktop, Tauri)
 - **Targets:** Windows, Linux, macOS — all three are formal targets (built and
@@ -101,18 +104,68 @@ history of past runs.
   **Export** (the currently-open/selected transcript, in one of the
   existing formats — txt/srt/vtt/json, no new format), **View on GitHub**
   (opens the project repo in the default browser; likely under a Help
-  menu), and **Preferences...** (opens the Preferences view — see
-  "Preferences (API key, database URL)" below), bound to the
+  menu), and **Preferences...** (opens the Settings dialog — see
+  "Settings" below), bound to the
   platform-conventional shortcut: Cmd+, on macOS, Ctrl+, on Windows/Linux.
   Standard OS/Tauri menu conventions (About, Quit, Edit commands, Window
   menu on macOS, etc.) are included by platform convention and aren't
   itemized here.
 
-## Preferences (API key, database URL)
-- A Preferences view lets the user set `GROQ_API_KEY` and `DATABASE_URL`
-  from the GUI instead of only via environment variables. Reachable via the
-  native menu's **Preferences...** item and its platform shortcut
-  (Cmd+,/Ctrl+,).
+## Microphone recording
+- The GUI can record directly from the microphone as a second way to get
+  audio into the queue, alongside picking a file — a "Record" control sits
+  beside "Add files" in the sidebar, and a persistent bar (visible
+  regardless of which tab is active) shows elapsed time and a Stop control
+  while recording. A finished recording is finalized to a WAV file and
+  queued exactly like a picked file — no special-casing in the
+  transcription pipeline downstream.
+- **No duration cap**: the app imposes no timer/stop-after-N-minutes logic.
+  Capture happens natively in Rust (not the webview) and streams samples
+  straight to disk as they arrive, never buffering the whole recording in
+  memory — duration is bounded only by available disk space, not by a
+  software limit. (A standard WAV file's own RIFF size field is 32-bit,
+  which physically caps a single file around 3–4 hours at typical capture
+  rates — well past Groq's own free-tier hourly audio budget below, so not
+  the practical constraint on a useful single session; stated here as an
+  accepted, honest limit rather than hidden.)
+- **Implementation choice (decided after research): native capture via
+  `cpal`, not the webview's `getUserMedia`/`MediaRecorder`.** Verified
+  against this app's actual Tauri/wry versions: WebKitGTK (Linux) has no
+  released Tauri version that enables webview media-stream capture or wires
+  a permission-request handler, so a webview-based recorder would silently
+  not work on one of this app's three formal targets. `cpal`
+  (CoreAudio/WASAPI/ALSA) is the one implementation that is uniformly
+  correct across macOS, Windows, and Linux, at no extra setup cost on macOS
+  versus the webview route (microphone access is gated by the same
+  TCC/hardened-runtime mechanism either way).
+- **macOS permission**: requires both `NSMicrophoneUsageDescription`
+  (Info.plist) and the `com.apple.security.device.audio-input` entitlement
+  (Tauri enables hardened runtime by default, which enforces the
+  entitlement even with the Info.plist key present) — both ship with the
+  app, not left to a future build step.
+- Microphone selection is a Settings > Voice input control (see below);
+  listing devices needs no prior permission grant, only actually opening a
+  capture stream does.
+
+## Settings
+- A sectioned Settings dialog (renamed in substance from the original
+  single-panel Preferences view, same entry points) — sections: **Voice
+  input** (spoken-language auto-detect + override, Whisper model, recording
+  microphone), **Custom dictionary** (see below), **General** (display
+  preferences), **Connection** (`GROQ_API_KEY` / `DATABASE_URL`, described
+  next). Reachable via the sidebar's Settings item, the native menu's
+  **Preferences...** item, and its platform shortcut (Cmd+,/Ctrl+,) — all
+  three open the same dialog, defaulting to the Voice input section.
+- **Voice input's model/language become the GUI's actual transcription
+  defaults** (previously the GUI silently hardcoded
+  `whisper-large-v3-turbo` and never sent a language at all, despite this
+  spec's own promise below that these are "exposed as GUI controls") —
+  changing them here changes what the next queued transcription (including
+  a finished recording) actually sends.
+
+## Connection (API key, database URL)
+- The Connection settings section lets the user set `GROQ_API_KEY` and
+  `DATABASE_URL` from the GUI instead of only via environment variables.
 - **Storage (decided 2026-07-13): a local config file**, not the OS
   keychain. Written by the Rust shell to a file in the OS's per-user
   app-config directory (e.g. via Tauri's `path` API — platform-appropriate:
@@ -132,10 +185,40 @@ history of past runs.
   app's current scope (a single-user personal tool); would need revisiting
   (e.g. moving to OS keychain storage) before any multi-user or
   shared-machine use.
-- The webview never reads or writes these files directly — the Preferences
-  view sends the entered key/URL to a Rust command, which alone touches the
-  filesystem, same trust-boundary pattern as every other secret/fs/DB
+- The webview never reads or writes these files directly — the Connection
+  section sends the entered key/URL to a Rust command, which alone touches
+  the filesystem, same trust-boundary pattern as every other secret/fs/DB
   operation in this app (see Architecture above).
+
+## Custom dictionary (word replacement)
+- A user-maintained list of word → replacement pairs, applied to every
+  completed transcription (CLI and GUI alike, so both interfaces produce
+  identical corrected text — see Architecture's shared-engine principle)
+  before the result is rendered, recorded to history, or returned. Managed
+  from Settings > Custom dictionary: add, edit, delete entries, and
+  **Import** a JSON file of entries.
+- **Storage**: a `dictionary_entries` table in the same Postgres database as
+  transcription history, via the same Drizzle ORM layer (portability rule
+  below applies equally). `word` is unique, making import an idempotent
+  upsert. Like history, this means the dictionary is unavailable when
+  `DATABASE_URL` is unset/unreachable — consistent with H5's existing
+  non-blocking rule: a missing dictionary never fails or blocks a
+  transcription, it just means no replacements are applied that run.
+- **Matching**: case-sensitive and literal. A word made only of ASCII
+  characters matches whole-word only (won't fire inside a larger token); a
+  word containing any non-ASCII character (i.e. any Japanese entry) matches
+  as a plain substring, since Japanese has no whitespace word boundaries.
+  Replacement is a single pass over the text (entries sorted longest-word-
+  first), not a sequential per-entry pass — this is what keeps the result
+  correct and non-cascading as the dictionary grows, and what makes a
+  longer entry take precedence over a shorter one it contains.
+- **Import formats accepted**: this app's own `{ word, replacement }[]`
+  shape, and Amical's vocabulary export shape (`{ entries: [{ word,
+  replacement_word, is_replacement, ... }] }` — entries with `is_replacement`
+  falsy are skipped, since those are Amical's plain vocabulary hints with no
+  replacement, a concept this app doesn't have a use for). Re-importing the
+  same file is idempotent: row count and replacement values don't change on
+  a repeat import.
 
 ## Transcription history (persistence)
 - Every completed run (CLI and GUI both write to the same store) records:
@@ -193,6 +276,13 @@ history of past runs.
   display, transcription history browsing.
 - **Persisted transcription history** in a relational DB (Postgres now,
   portable to MySQL/another host later), covering both CLI and GUI runs.
+- **In-app microphone recording**, no duration cap, via native (`cpal`)
+  capture — a second way to get audio into the GUI's queue, alongside
+  picking a file.
+- **Custom dictionary** (word → replacement pairs) applied to every
+  transcript, CLI and GUI alike, manageable from the GUI (add/edit/delete).
+- **Dictionary import** from a JSON file, including Amical's vocabulary
+  export shape specifically, as an idempotent upsert.
 - **Manually triggered release workflow** building `apps/desktop` installers
   for Windows/Linux/macOS and publishing them to a GitHub Release.
 
@@ -200,7 +290,13 @@ history of past runs.
 - **Speaker diarization** — Groq/Whisper does not support it; would require a paid
   API (Deepgram/AssemblyAI/ElevenLabs) or heavy local `pyannote.audio`. Out.
 - **Translation** to other languages.
-- **Summarization** / any LLM post-processing.
+- **Summarization** / any LLM post-processing — explicitly includes
+  Amical-style automated re-punctuation/reformatting of the transcript via a
+  cloud LLM (considered and declined during the recording/settings/
+  dictionary work): it would need a paid LLM call beyond Groq's
+  transcription endpoint, contradicting the "free tier only" constraint
+  below, and falls under this same exclusion by name so it doesn't get
+  reconsidered piecemeal later.
 - **Batch / directory / multi-file processing in the CLI** — `transcribe` stays
   single-file. (The GUI's multi-file queue, above, is a GUI-only capability —
   it does not add a CLI batch flag.)

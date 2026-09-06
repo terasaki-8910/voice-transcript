@@ -35,6 +35,11 @@ function makeDeps(overrides: Partial<CliDeps> = {}) {
   const makeTranscriber = vi.fn((_key: string) => transcriber);
   const writeFile = vi.fn(async (_p: string, _d: string) => {});
   const recordHistory = vi.fn(async () => {});
+  // Defaults to [] for the same reason recordHistory is stubbed: without
+  // it, main() would fall through to a real createDb() + network call for
+  // the dictionary fetch that now runs on every transcribe (see cli.ts's
+  // fetchDictionary hook, mirroring sidecar.ts's handleTranscribe).
+  const fetchDictionary = vi.fn(async () => []);
   const deps: CliDeps = {
     env: { GROQ_API_KEY: "gsk_dummy_key_for_tests" },
     stdout: (s: string) => out.push(s),
@@ -44,9 +49,10 @@ function makeDeps(overrides: Partial<CliDeps> = {}) {
     writeFile,
     fileExists: vi.fn(async () => true),
     recordHistory,
+    fetchDictionary,
     ...overrides,
   };
-  return { deps, out, err, makeTranscriber, writeFile, transcriber, recordHistory };
+  return { deps, out, err, makeTranscriber, writeFile, transcriber, recordHistory, fetchDictionary };
 }
 
 describe("A1 - no arguments", () => {
@@ -121,6 +127,20 @@ describe("A5 - output routing", () => {
     expect(path).toBe("out.txt");
     expect(data).toContain("hello world");
     expect(out.join("")).not.toContain("hello world");
+  });
+});
+
+describe("custom dictionary applied on the CLI path (parity with the GUI sidecar)", () => {
+  it("applies the fetched dictionary to stdout and the recorded history text", async () => {
+    const { deps, out, recordHistory } = makeDeps({
+      fetchDictionary: vi.fn(async () => [{ word: "hello", replacement: "HI" }]),
+    });
+    const code = await main(["input.m4a"], deps);
+    expect(code).toBe(0);
+    expect(out.join("")).toContain("HI world");
+    expect(recordHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ result: expect.objectContaining({ text: "HI world" }) }),
+    );
   });
 });
 

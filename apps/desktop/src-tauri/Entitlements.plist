@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Microphone recording (SPEC.md > Microphone recording). Tauri
+	     enables hardened runtime by default; under hardened runtime, TCC
+	     denies microphone access SILENTLY (no prompt at all) without this
+	     entitlement, even with NSMicrophoneUsageDescription present in
+	     Info.plist -- both are required together, not either/or. Wired via
+	     bundle.macOS.entitlements in tauri.conf.json. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

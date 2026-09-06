@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useMenuEvents } from "../../src/features/menu/useMenuEvents";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
+import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { NavProvider, useNav } from "../../src/features/nav/NavContext";
 import { SelectionProvider, useSelection } from "../../src/features/selection/SelectionContext";
 import type { Selection } from "../../src/features/selection/SelectionContext";
@@ -65,13 +66,15 @@ function renderHarness(props: Partial<HarnessProps> = {}) {
   };
   const merged = { ...defaults, ...props };
   render(
-    <NavProvider>
-      <SelectionProvider>
-        <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
-          <Harness {...merged} />
-        </QueueProvider>
-      </SelectionProvider>
-    </NavProvider>,
+    <VoiceInputSettingsProvider>
+      <NavProvider>
+        <SelectionProvider>
+          <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
+            <Harness {...merged} />
+          </QueueProvider>
+        </SelectionProvider>
+      </NavProvider>
+    </VoiceInputSettingsProvider>,
   );
   return merged;
 }

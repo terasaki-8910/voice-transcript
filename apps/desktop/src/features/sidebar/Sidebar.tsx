@@ -12,12 +12,24 @@
 // top of the manual toggle button below -- see useAutoCollapse.ts for why
 // it's crossing-only rather than a continuous constraint.
 import { useState } from "react";
-import { FiPlus, FiInbox, FiClock, FiSettings, FiSearch, FiSidebar, FiChevronLeft, FiChevronRight } from "react-icons/fi";
+import {
+  FiPlus,
+  FiInbox,
+  FiClock,
+  FiSettings,
+  FiSearch,
+  FiSidebar,
+  FiChevronLeft,
+  FiChevronRight,
+  FiMic,
+  FiSquare,
+} from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useNav } from "../nav/NavContext";
 import { useHistory } from "../history/HistoryContext";
 import { useHistoryNav } from "../history/HistoryNavContext";
 import { useQueue } from "../queue/QueueContext";
+import { useRecording } from "../recording/RecordingContext";
 import { pickFiles } from "../../lib/tauri";
 import { ThemeToggle } from "../../theme/ThemeToggle";
 import { LanguageToggle } from "../../i18n/LanguageToggle";
@@ -35,12 +47,18 @@ export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
   const { searchQuery, setSearchQuery } = useHistory();
   const { canGoBack, canGoForward, back, forward } = useHistoryNav();
   const { addFiles } = useQueue();
+  const recording = useRecording();
   const [isCollapsed, setIsCollapsed] = useState(isNarrowWindow);
   useAutoCollapse(setIsCollapsed);
 
   const handleAddFiles = async () => {
     const paths = await pickFiles();
     if (paths.length > 0) addFiles(paths);
+  };
+
+  const isRecording = recording.status === "recording";
+  const handleRecordToggle = () => {
+    void (isRecording ? recording.stop() : recording.start());
   };
 
   return (
@@ -80,10 +98,23 @@ export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
         <p className="brand">Voice Transcript</p>
       </div>
 
-      <button type="button" className="btn-primary sidebar-create" onClick={() => void handleAddFiles()}>
-        <FiPlus className="sidebar-nav-icon" aria-hidden="true" />
-        <span>{t("addFiles")}</span>
-      </button>
+      <div className="sidebar-primary-row">
+        <button type="button" className="btn-primary sidebar-create" onClick={() => void handleAddFiles()}>
+          <FiPlus className="sidebar-nav-icon" aria-hidden="true" />
+          <span>{t("addFiles")}</span>
+        </button>
+        <button
+          type="button"
+          className={`sidebar-record-btn${isRecording ? " is-recording" : ""}`}
+          aria-label={isRecording ? t("stopRecording") : t("startRecording")}
+          title={isRecording ? t("stopRecording") : t("startRecording")}
+          disabled={recording.status === "stopping"}
+          onClick={handleRecordToggle}
+        >
+          {isRecording ? <FiSquare aria-hidden="true" /> : <FiMic aria-hidden="true" />}
+        </button>
+      </div>
+      {recording.error && <p className="sidebar-record-error">{recording.error}</p>}
 
       <div className="sidebar-search">
         <FiSearch aria-hidden="true" />

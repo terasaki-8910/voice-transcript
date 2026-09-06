@@ -8,7 +8,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
+import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
+import { RecordingProvider } from "../../src/features/recording/RecordingContext";
 import { HistoryProvider, useHistory } from "../../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext";
 import { NavProvider } from "../../src/features/nav/NavContext";
@@ -38,20 +40,34 @@ function StateProbe() {
   );
 }
 
-function renderSidebar({ preferencesOpen = false, onOpenPreferences = vi.fn() } = {}) {
+function renderSidebar({
+  preferencesOpen = false,
+  onOpenPreferences = vi.fn(),
+  startRecordingFn = vi.fn(async () => {}),
+  stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 1 })),
+}: {
+  preferencesOpen?: boolean;
+  onOpenPreferences?: () => void;
+  startRecordingFn?: (deviceId?: string) => Promise<void>;
+  stopRecordingFn?: () => Promise<{ path: string; durationSeconds: number }>;
+} = {}) {
   return render(
     <I18nProvider>
       <ThemeProvider>
-        <NavProvider>
-          <HistoryNavProvider>
-            <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
-              <HistoryProvider listHistoryFn={async () => []}>
-                <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} />
-                <StateProbe />
-              </HistoryProvider>
-            </QueueProvider>
-          </HistoryNavProvider>
-        </NavProvider>
+        <VoiceInputSettingsProvider>
+          <NavProvider>
+            <HistoryNavProvider>
+              <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
+                <RecordingProvider startRecordingFn={startRecordingFn} stopRecordingFn={stopRecordingFn}>
+                  <HistoryProvider listHistoryFn={async () => []}>
+                    <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} />
+                    <StateProbe />
+                  </HistoryProvider>
+                </RecordingProvider>
+              </QueueProvider>
+            </HistoryNavProvider>
+          </NavProvider>
+        </VoiceInputSettingsProvider>
       </ThemeProvider>
     </I18nProvider>,
   );
@@ -179,5 +195,45 @@ describe("Sidebar", () => {
     // manual choice above should not be reverted.
     setWindowWidth(510);
     expect(sidebar?.className).not.toContain("is-collapsed");
+  });
+
+  // SPEC.md > Microphone recording: a second way to get audio into the
+  // queue, alongside "Add files" -- see sidebar.css's .sidebar-primary-row.
+  it("clicking the record button starts recording and swaps to the stop affordance", async () => {
+    const startRecordingFn = vi.fn(async () => {});
+    renderSidebar({ startRecordingFn });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop recording" })).toBeDefined());
+    expect(startRecordingFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("clicking again while recording stops it and adds the file to the queue", async () => {
+    const stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 3 }));
+    renderSidebar({ stopRecordingFn });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop recording" })).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => expect(screen.getByTestId("queue-count").textContent).toBe("1"));
+    expect(stopRecordingFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start recording" })).toBeDefined());
+  });
+
+  it("shows a recording error inline when starting fails", async () => {
+    renderSidebar({
+      startRecordingFn: vi.fn(async () => {
+        throw new Error("No input (microphone) device available.");
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("No input (microphone) device available.")).toBeDefined(),
+    );
   });
 });

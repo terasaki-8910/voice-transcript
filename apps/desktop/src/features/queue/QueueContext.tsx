@@ -7,12 +7,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from "react";
 import { transcribe } from "../../lib/tauri";
 import type { TranscribeRequest, TranscribeResponse } from "../../lib/tauri";
-
-// Mirrors packages/core/src/config.ts's DEFAULT_MODEL -- not imported
-// directly to avoid pulling packages/core's runtime code into the webview
-// bundle for a single string constant (see lib/tauri.ts's "./types"
-// subpath-import comment for the same class of issue with the barrel).
-const DEFAULT_MODEL = "whisper-large-v3-turbo";
+import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
 
 export type QueueItemStatus = "queued" | "transcribing" | "done" | "failed";
 
@@ -60,6 +55,11 @@ export interface QueueProviderProps {
 export function QueueProvider({ children, transcribeFn = transcribe }: QueueProviderProps) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const processingRef = useRef(false);
+  // Settings > Voice input's model/language, instead of a hardcoded default
+  // -- ACCEPTANCE G12. autoDetectLanguage stays the default (Groq's
+  // language param omitted); toggling it off in Settings sends the chosen
+  // override, mirroring packages/cli's --language flag.
+  const { model, autoDetectLanguage, language } = useVoiceInputSettings();
 
   const addFiles = (filePaths: string[]) => {
     setItems((prev) => [
@@ -93,7 +93,12 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
     processingRef.current = true;
     setItems((prev) => prev.map((item) => (item.id === next.id ? { ...item, status: "transcribing" } : item)));
 
-    transcribeFn({ filePath: next.filePath, model: DEFAULT_MODEL, format: "txt" })
+    transcribeFn({
+      filePath: next.filePath,
+      model,
+      format: "txt",
+      language: autoDetectLanguage ? undefined : language,
+    })
       .then((result) => {
         setItems((prev) => prev.map((item) => (item.id === next.id ? { ...item, status: "done", result } : item)));
       })
@@ -104,7 +109,7 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
       .finally(() => {
         processingRef.current = false;
       });
-  }, [items, transcribeFn]);
+  }, [items, transcribeFn, model, autoDetectLanguage, language]);
 
   const value = useMemo<QueueContextValue>(() => ({ items, addFiles, retry, remove }), [items]);
 

@@ -9,12 +9,19 @@ import {
   handleListHistory,
   handleGetHistory,
   handleDeleteHistoryEntry,
+  handleListDictionary,
+  handleAddDictionaryEntry,
+  handleUpdateDictionaryEntry,
+  handleDeleteDictionaryEntry,
+  handleImportDictionary,
+  parseDictionaryImport,
   main,
 } from "../src/sidecar.js";
 import type { SidecarDeps } from "../src/sidecar.js";
 import type { AudioBackend, AudioChunk } from "../src/audio.js";
 import type { Transcriber } from "../src/types.js";
 import type { HistoryRecord } from "../src/db/history.js";
+import type { DictionaryRecord } from "../src/db/dictionary.js";
 
 const HELLO = { text: "hello world", segments: [{ start: 0, end: 2, text: "hello world" }] };
 
@@ -48,6 +55,11 @@ function makeAudio(): AudioBackend {
   };
 }
 
+// listDictionary defaults to [] here for the same reason recordHistory
+// defaults to a mock: handleTranscribe now also fetches the dictionary on
+// every call (fetchDictionarySafe), and without a stub it would fall
+// through to a real createDb() + network call, same class of ambient-env
+// leak the file-level DATABASE_URL comment above already warns about.
 function makeDeps(overrides: Partial<SidecarDeps> = {}): { deps: SidecarDeps; recordHistory: ReturnType<typeof vi.fn>; transcriber: Transcriber } {
   const transcriber: Transcriber = { transcribe: vi.fn(async () => HELLO) };
   const recordHistory = vi.fn(async () => {});
@@ -56,6 +68,7 @@ function makeDeps(overrides: Partial<SidecarDeps> = {}): { deps: SidecarDeps; re
     audio: makeAudio(),
     makeTranscriber: vi.fn((_key: string) => transcriber),
     recordHistory,
+    listDictionary: vi.fn(async () => []),
     ...overrides,
   };
   return { deps, recordHistory, transcriber };
@@ -87,6 +100,20 @@ describe("transcribe", () => {
       handleTranscribe({ filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" }, deps),
     ).rejects.toThrow(/GROQ_API_KEY/);
     expect(transcriber.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("applies the custom dictionary to the result before rendering/recording history", async () => {
+    const listDictionary = vi.fn(async () => [makeDictionaryRecord({ word: "hello", replacement: "HI" })]);
+    const { deps, recordHistory } = makeDeps({ listDictionary });
+    const result = await handleTranscribe(
+      { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" },
+      deps,
+    );
+    expect(result.text).toBe("HI world");
+    expect(result.rendered).toContain("HI world");
+    expect(recordHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ result: expect.objectContaining({ text: "HI world" }) }),
+    );
   });
 
   it("records failure history and rethrows when the pipeline fails", async () => {
@@ -162,6 +189,128 @@ describe("deleteHistoryEntry", () => {
     const deleteHistoryEntry = vi.fn(async () => {});
     await expect(handleDeleteHistoryEntry({ id: 99 }, { getHistory, deleteHistoryEntry })).rejects.toThrow(/99/);
     expect(deleteHistoryEntry).not.toHaveBeenCalled();
+  });
+});
+
+function makeDictionaryRecord(overrides: Partial<DictionaryRecord> = {}): DictionaryRecord {
+  return {
+    id: 1,
+    word: "スパークル",
+    replacement: "SPARQL",
+    createdAt: new Date("2026-07-13T00:00:00Z"),
+    updatedAt: new Date("2026-07-13T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+describe("listDictionary", () => {
+  it("returns the injected list", async () => {
+    const record = makeDictionaryRecord();
+    const listDictionary = vi.fn(async () => [record]);
+    await expect(handleListDictionary({ listDictionary })).resolves.toEqual([record]);
+  });
+
+  it("returns [] (not an error) when there is no DB configured and no injection", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    await expect(handleListDictionary({})).resolves.toEqual([]);
+  });
+});
+
+describe("addDictionaryEntry", () => {
+  it("adds and returns the new record", async () => {
+    const record = makeDictionaryRecord({ id: 5, word: "cloud.md", replacement: "CLAUDE.md" });
+    const addDictionaryEntry = vi.fn(async () => record);
+    const result = await handleAddDictionaryEntry(
+      { word: "cloud.md", replacement: "CLAUDE.md" },
+      { addDictionaryEntry },
+    );
+    expect(result).toEqual(record);
+    expect(addDictionaryEntry).toHaveBeenCalledWith({ word: "cloud.md", replacement: "CLAUDE.md" });
+  });
+});
+
+describe("updateDictionaryEntry", () => {
+  it("updates and returns the record", async () => {
+    const record = makeDictionaryRecord({ id: 2, replacement: "updated" });
+    const updateDictionaryEntry = vi.fn(async () => record);
+    const result = await handleUpdateDictionaryEntry(
+      { id: 2, word: "スパークル", replacement: "updated" },
+      { updateDictionaryEntry },
+    );
+    expect(result).toEqual(record);
+    expect(updateDictionaryEntry).toHaveBeenCalledWith(2, { word: "スパークル", replacement: "updated" });
+  });
+
+  it("throws when the id doesn't exist", async () => {
+    const updateDictionaryEntry = vi.fn(async () => undefined);
+    await expect(
+      handleUpdateDictionaryEntry({ id: 99, word: "x", replacement: "y" }, { updateDictionaryEntry }),
+    ).rejects.toThrow(/99/);
+  });
+});
+
+describe("deleteDictionaryEntry", () => {
+  it("deletes and returns the id", async () => {
+    const deleteDictionaryEntry = vi.fn(async () => {});
+    await expect(handleDeleteDictionaryEntry({ id: 4 }, { deleteDictionaryEntry })).resolves.toEqual({ id: 4 });
+    expect(deleteDictionaryEntry).toHaveBeenCalledWith(4);
+  });
+});
+
+describe("parseDictionaryImport", () => {
+  it("parses an Amical export, mapping replacement_word and skipping non-replacement entries", () => {
+    const json = JSON.stringify({
+      source_device: "windows",
+      count: 2,
+      entries: [
+        { word: "スパークル", replacement_word: "SPARQL", is_replacement: 1 },
+        { word: "vocab-hint-only", replacement_word: "", is_replacement: 0 },
+      ],
+    });
+    expect(parseDictionaryImport(json)).toEqual({
+      entries: [{ word: "スパークル", replacement: "SPARQL" }],
+      skipped: 1,
+    });
+  });
+
+  it("parses the plain [{ word, replacement }] shape", () => {
+    const json = JSON.stringify([{ word: "a", replacement: "b" }]);
+    expect(parseDictionaryImport(json)).toEqual({ entries: [{ word: "a", replacement: "b" }], skipped: 0 });
+  });
+
+  it("throws on an unrecognized shape", () => {
+    expect(() => parseDictionaryImport(JSON.stringify({ nope: true }))).toThrow(/unrecognized/i);
+  });
+
+  // tauri-capability-reviewer finding (defense-in-depth): Node's own
+  // SyntaxError for invalid JSON embeds a snippet of the offending input
+  // (e.g. `Unexpected token 'g', "gsk_123"... is not valid JSON`), which
+  // this app's Rust side would otherwise surface verbatim to the webview.
+  // A clean, fixed message must never leak any part of the input.
+  it("throws a clean, fixed message on invalid JSON -- never the raw input", () => {
+    expect(() => parseDictionaryImport("gsk_not_actually_json_1234567890")).toThrow(
+      "Not a valid dictionary JSON file.",
+    );
+    try {
+      parseDictionaryImport("gsk_not_actually_json_1234567890");
+    } catch (err) {
+      expect(String(err)).not.toContain("gsk_");
+    }
+  });
+});
+
+describe("importDictionary", () => {
+  it("parses and imports, folding any skipped-by-parse count into the result", async () => {
+    const importDictionary = vi.fn(async () => ({ inserted: 1, updated: 0, skipped: 0 }));
+    const json = JSON.stringify({
+      entries: [
+        { word: "a", replacement_word: "b", is_replacement: 1 },
+        { word: "hint", replacement_word: "", is_replacement: 0 },
+      ],
+    });
+    const result = await handleImportDictionary({ json }, { importDictionary });
+    expect(importDictionary).toHaveBeenCalledWith([{ word: "a", replacement: "b" }]);
+    expect(result).toEqual({ inserted: 1, updated: 0, skipped: 1 });
   });
 });
 

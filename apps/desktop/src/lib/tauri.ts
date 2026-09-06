@@ -56,6 +56,7 @@ export async function pickFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
+
 // F18 (gui-history). Mirrors packages/core/src/db/history.ts's HistoryRecord
 // by hand (same manual-sync convention as TranscribeResponse above) --
 // startedAt arrives as an ISO string (JSON has no Date type), parsed to a
@@ -171,4 +172,90 @@ export function setMenuLanguage(lang: string): Promise<void> {
 // grants clipboard-manager:allow-write-text only, no read grant).
 export function copyToClipboard(text: string): Promise<void> {
   return writeText(text);
+}
+
+// Custom dictionary (word replacement). Mirrors HistoryEntry's manual DTO
+// mapping pattern above -- createdAt/updatedAt arrive as ISO strings.
+export interface DictionaryEntryRecord {
+  id: number;
+  word: string;
+  replacement: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface DictionaryEntryDto {
+  id: number;
+  word: string;
+  replacement: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function fromDictionaryDto(dto: DictionaryEntryDto): DictionaryEntryRecord {
+  return { ...dto, createdAt: new Date(dto.createdAt), updatedAt: new Date(dto.updatedAt) };
+}
+
+export async function listDictionary(): Promise<DictionaryEntryRecord[]> {
+  const rows = await invoke<DictionaryEntryDto[]>("list_dictionary");
+  return rows.map(fromDictionaryDto);
+}
+
+export async function addDictionaryEntry(word: string, replacement: string): Promise<DictionaryEntryRecord> {
+  const row = await invoke<DictionaryEntryDto>("add_dictionary_entry", { request: { word, replacement } });
+  return fromDictionaryDto(row);
+}
+
+export async function updateDictionaryEntry(
+  id: number,
+  word: string,
+  replacement: string,
+): Promise<DictionaryEntryRecord> {
+  const row = await invoke<DictionaryEntryDto>("update_dictionary_entry", { request: { id, word, replacement } });
+  return fromDictionaryDto(row);
+}
+
+export function deleteDictionaryEntry(id: number): Promise<void> {
+  return invoke("delete_dictionary_entry", { id });
+}
+
+export interface DictionaryImportResult {
+  inserted: number;
+  updated: number;
+  skipped: number;
+}
+
+// Takes no path argument by design (tauri-capability-reviewer finding): the
+// native file-picker dialog is driven entirely inside the Rust command
+// (commands.rs's import_dictionary_file), not by the webview, so there is no
+// IPC-reachable way to ask Rust to read an arbitrary local file. Resolves to
+// null if the user cancels the dialog.
+export function importDictionaryFile(): Promise<DictionaryImportResult | null> {
+  return invoke("import_dictionary_file");
+}
+
+// Microphone recording (SPEC.md > Microphone recording). All capture happens
+// in Rust (recording.rs, cpal -> hound WAV) -- the webview only ever sends a
+// chosen device id and receives a finished file's path/duration; no audio
+// bytes cross this boundary.
+export interface InputDevice {
+  id: string;
+  name: string;
+}
+
+export function listInputDevices(): Promise<InputDevice[]> {
+  return invoke("list_input_devices");
+}
+
+export function startRecording(deviceId?: string): Promise<void> {
+  return invoke("start_recording", { deviceId: deviceId ?? null });
+}
+
+export interface RecordingResult {
+  path: string;
+  durationSeconds: number;
+}
+
+export function stopRecording(): Promise<RecordingResult> {
+  return invoke("stop_recording");
 }

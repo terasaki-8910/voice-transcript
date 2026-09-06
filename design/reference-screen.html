@@ -486,6 +486,131 @@
   .menu-item-danger { color: var(--color-danger); }
   .menu-item-danger:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
 
+  /* ---- Settings surface + recording (design gate, 2026-09-06). ---- */
+  .sidebar-primary-row { display: flex; align-items: stretch; gap: var(--space-2); }
+  .sidebar-create { flex: 1; }
+  .sidebar-record-btn {
+    appearance: none;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .sidebar-record-btn svg { width: 16px; height: 16px; }
+  .sidebar-record-btn:hover { color: var(--color-ink); border-color: var(--color-ink-muted); }
+  .sidebar-record-btn.is-recording {
+    background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+  .recording-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    color: var(--color-danger);
+    font-size: var(--text-sm);
+  }
+  .recording-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--color-danger);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .recording-elapsed { font-family: var(--font-mono); color: var(--color-ink); }
+  .recording-bar .btn-link { margin-left: auto; color: var(--color-danger); }
+
+  /* Settings dialog: grows .modal from a single 420px column into a
+     two-pane sectioned surface. Demo below renders it inline (not
+     position: fixed) so it doesn't cover the rest of this reference page --
+     the real app's version is a true fixed overlay, unchanged from the
+     original Preferences modal's backdrop/light-dismiss behavior. */
+  .settings-demo-frame {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: var(--space-6) 0;
+    background: rgb(0 0 0 / 0.35);
+  }
+  .settings-modal {
+    width: 720px;
+    max-width: calc(100vw - var(--space-6));
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+    display: flex;
+    flex-direction: column;
+    max-height: 520px;
+    overflow: hidden;
+  }
+  .settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .settings-header h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+  .settings-body { display: flex; flex: 1; min-height: 0; }
+  .settings-nav {
+    width: 180px;
+    flex-shrink: 0;
+    padding: var(--space-3);
+    border-right: 1px solid var(--color-line);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .settings-nav-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink-muted);
+    text-align: left;
+    font: inherit;
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .settings-nav-item[aria-current="page"] {
+    background: color-mix(in srgb, var(--color-signal) 14%, transparent);
+    color: var(--color-signal);
+    font-weight: var(--weight-semibold);
+  }
+  .settings-panel { flex: 1; min-width: 0; padding: var(--space-5); overflow-y: auto; }
+  .settings-hint { margin: 0 0 var(--space-4); font-size: var(--text-xs); color: var(--color-ink-muted); }
+  .dictionary-add-row, .dictionary-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .dictionary-add-row { margin-bottom: var(--space-3); }
+  .dictionary-add-row input, .dictionary-row input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-ink);
+    background: var(--color-paper);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+  }
+  .dictionary-list { list-style: none; margin: 0; padding: 0; }
+  .dictionary-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--color-line); font-size: var(--text-sm); }
+  .dictionary-replacement { flex: 1; color: var(--color-ink-muted); }
+
   /* ---- auto-collapse approximation (design gate follow-up, 2026-07-19):
      the real app only forces the rail state at the MOMENT the window
      crosses 640px, leaving a manual toggle done in between alone -- a pure
@@ -537,13 +662,26 @@
       <p class="brand">Voice Transcript</p>
     </div>
 
-    <button class="btn-primary sidebar-create">
-      <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-      <span data-en="Add files" data-ja="ファイルを追加">Add files</span>
-    </button>
+    <!-- Recording (settings surface + recording, design gate 2026-09-06):
+         a second way to get audio into the queue, alongside "Add files" --
+         both read as peers under one "get audio in" primary action, not a
+         dilution of the one-primary-action rule. -->
+    <div class="sidebar-primary-row">
+      <button class="btn-primary sidebar-create">
+        <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span data-en="Add files" data-ja="ファイルを追加">Add files</span>
+      </button>
+      <button class="sidebar-record-btn" aria-label="Start recording" title="Start recording">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+        </svg>
+      </button>
+    </div>
 
     <div class="sidebar-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -610,6 +748,17 @@
   </aside>
 
   <main class="queue" aria-label="Transcription queue">
+    <!-- Recording bar: visible regardless of Queue/History tab, and
+         regardless of sidebar collapse state (unlike sidebar-record-btn
+         above) -- an active recording must never become invisible just
+         because the window narrowed. -->
+    <div class="recording-bar" role="status">
+      <span class="recording-dot" aria-hidden="true"></span>
+      <span data-en="Recording" data-ja="録音中">Recording</span>
+      <span class="recording-elapsed">12:47</span>
+      <button class="btn-link" data-en="Stop recording" data-ja="録音を停止">Stop recording</button>
+    </div>
+
     <div class="row">
       <div class="row-main">
         <div class="row-top">
@@ -721,6 +870,81 @@
       <button class="row-action btn-link" data-en="Retry" data-ja="再試行">Retry</button>
     </div>
   </main>
+</div>
+
+<!-- Settings dialog (design gate, 2026-09-06) -- shown open below the main
+     view for review, same "shown open, no interactivity needed for a
+     mockup" convention as the delete-menu demo above. Rendered inline
+     (not position: fixed) purely so it doesn't cover the rest of this
+     reference page -- see .settings-demo-frame's comment. Custom dictionary
+     is the section shown open here; Voice input is the real app's default. -->
+<div class="settings-demo-frame">
+  <div class="modal settings-modal">
+    <div class="settings-header">
+      <h2 data-en="Preferences" data-ja="環境設定">Preferences</h2>
+      <button class="btn-link" data-en="Close" data-ja="閉じる">Close</button>
+    </div>
+    <div class="settings-body">
+      <nav class="settings-nav" aria-label="Preferences">
+        <button class="settings-nav-item" data-en="Voice input" data-ja="音声入力">Voice input</button>
+        <button class="settings-nav-item" aria-current="page" data-en="Custom dictionary" data-ja="カスタム辞書">Custom dictionary</button>
+        <button class="settings-nav-item" data-en="General" data-ja="一般">General</button>
+        <button class="settings-nav-item" data-en="Connection" data-ja="接続">Connection</button>
+      </nav>
+      <div class="settings-panel">
+        <p class="settings-hint" data-en="Manage word replacements applied to every transcript." data-ja="文字起こしに適用される単語の置き換えを管理します。">
+          Manage word replacements applied to every transcript.
+        </p>
+        <div class="dictionary-add-row">
+          <input type="text" aria-label="Word" placeholder="Word" data-en-placeholder="Word" data-ja-placeholder="単語" />
+          <span aria-hidden="true">&#8594;</span>
+          <input type="text" aria-label="Replacement" placeholder="Replacement" data-en-placeholder="Replacement" data-ja-placeholder="置き換え後" />
+          <button class="icon-btn" aria-label="Add word" title="Add word">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+        <ul class="dictionary-list">
+          <li class="dictionary-row">
+            <span>スパークル</span>
+            <span aria-hidden="true">&#8594;</span>
+            <span class="dictionary-replacement">SPARQL</span>
+            <button class="icon-btn" aria-label="Edit entry" title="Edit entry">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"></path>
+              </svg>
+            </button>
+            <button class="icon-btn icon-btn-danger" aria-label="Delete entry" title="Delete entry">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </li>
+          <li class="dictionary-row">
+            <span>cloud.md</span>
+            <span aria-hidden="true">&#8594;</span>
+            <span class="dictionary-replacement">CLAUDE.md</span>
+            <button class="icon-btn" aria-label="Edit entry" title="Edit entry">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"></path>
+              </svg>
+            </button>
+            <button class="icon-btn icon-btn-danger" aria-label="Delete entry" title="Delete entry">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>

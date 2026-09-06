@@ -1,5 +1,5 @@
 import { access, writeFile as fsWriteFile } from "node:fs/promises";
-import type { AudioBackend, Transcriber, HistoryRecordInput } from "@voice-transcript/core";
+import type { AudioBackend, Transcriber, HistoryRecordInput, DictionaryEntry } from "@voice-transcript/core";
 import {
   createFfmpegBackend,
   render,
@@ -8,6 +8,9 @@ import {
   createDb,
   recordHistorySafe,
   defaultMigrationsFolder,
+  ensureSchema,
+  listDictionary,
+  applyDictionary,
 } from "@voice-transcript/core";
 import { parseArgs, UsageError } from "./args.js";
 
@@ -25,6 +28,23 @@ export interface CliDeps {
   // that: no DATABASE_URL or an unreachable DB never blocks or corrupts the
   // transcription result, it only logs and returns.
   recordHistory?: (input: HistoryRecordInput) => Promise<void>;
+  // Custom dictionary (word replacement), applied to every run same as the
+  // GUI (packages/core/src/sidecar.ts's handleTranscribe) so CLI/GUI parity
+  // (ACCEPTANCE G4) holds. Must never throw -- the default logs and returns
+  // [] on any failure, same non-blocking rule as history.
+  fetchDictionary?: () => Promise<DictionaryEntry[]>;
+}
+
+async function defaultFetchDictionary(stderr: (s: string) => void): Promise<DictionaryEntry[]> {
+  try {
+    const db = createDb();
+    if (!db) return [];
+    await ensureSchema(db, defaultMigrationsFolder());
+    return await listDictionary(db);
+  } catch (err) {
+    stderr(`[dictionary] failed to load dictionary (non-blocking): ${errorMessage(err)}\n`);
+    return [];
+  }
 }
 
 async function defaultFileExists(path: string): Promise<boolean> {
@@ -71,6 +91,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   const recordHistory =
     deps.recordHistory ??
     ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input, defaultMigrationsFolder()));
+  const fetchDictionary = deps.fetchDictionary ?? (() => defaultFetchDictionary(stderr));
 
   let options;
   try {
@@ -103,13 +124,18 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
 
   try {
     const transcriber = makeTranscriber(apiKey);
-    const result = await runPipeline(options.input, {
+    const rawResult = await runPipeline(options.input, {
       audio,
       transcriber,
       model: options.model,
       language: options.language,
       onProgress: (msg) => stderr(`${msg}\n`),
     });
+    // Custom dictionary (word replacement) -- same hook point as the GUI's
+    // sidecar.ts: after runPipeline, before render()/history, so stdout/the
+    // written file and the recorded history text are both corrected.
+    const dictionaryEntries = await fetchDictionary();
+    const result = applyDictionary(rawResult, dictionaryEntries);
     const rendered = render(result, options.format);
     if (options.output) {
       await writeFile(options.output, rendered);

@@ -15,7 +15,37 @@ import { QueueRow } from "./QueueRow";
 import { useDragDrop } from "./useDragDrop";
 import { HistoryView } from "../history/HistoryView";
 import { useNav } from "../nav/NavContext";
+import { useRecording } from "../recording/RecordingContext";
+import { formatElapsed } from "../recording/formatElapsed";
 import "./queue.css";
+
+// Recording (SPEC.md > Microphone recording): visible regardless of which
+// tab is active, since recording keeps running in the background if the
+// user switches to History -- unlike the Sidebar's record button, this bar
+// survives the sidebar auto-collapsing on a narrow window (sidebar.css
+// hides .sidebar-primary-row below 640px; this bar lives in the always-
+// visible content pane instead).
+function RecordingBar() {
+  const { t } = useI18n();
+  const recording = useRecording();
+  if (recording.status === "idle") return null;
+
+  return (
+    <div className="recording-bar" role="status">
+      <span className="recording-dot" aria-hidden="true" />
+      <span>{t("recording")}</span>
+      <span className="recording-elapsed">{formatElapsed(recording.elapsedSeconds)}</span>
+      <button
+        type="button"
+        className="btn-link"
+        disabled={recording.status === "stopping"}
+        onClick={() => void recording.stop()}
+      >
+        {t("stopRecording")}
+      </button>
+    </div>
+  );
+}
 
 export function QueueView() {
   const { t } = useI18n();
@@ -26,6 +56,7 @@ export function QueueView() {
   if (activeTab === "history") {
     return (
       <main className="queue" aria-label="Transcription history">
+        <RecordingBar />
         <HistoryView />
       </main>
     );
@@ -33,6 +64,7 @@ export function QueueView() {
 
   return (
     <main className="queue" aria-label="Transcription queue">
+      <RecordingBar />
       <div className={`drop-zone${isDragging ? " is-dragging" : ""}`}>{t("dropHint")}</div>
       {items.length === 0 ? (
         <p style={{ fontSize: "var(--text-sm)", color: "var(--color-ink-muted)", textAlign: "center" }}>

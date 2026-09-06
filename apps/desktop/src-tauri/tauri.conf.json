@@ -38,6 +38,9 @@
     "externalBin": ["binaries/core-sidecar"],
     "resources": {
       "resources/db-migrations": "db-migrations"
+    },
+    "macOS": {
+      "entitlements": "Entitlements.plist"
     }
   }
 }

@@ -87,3 +87,155 @@
   width: auto;
   margin: 0;
 }
+
+/* Settings surface (sectioned dialog, see PreferencesView.tsx's header
+   comment) -- .modal-overlay/.modal above stay the shared backdrop/panel
+   base; .settings-modal only overrides sizing and switches to a two-pane
+   layout instead of one flat column. */
+.settings-modal {
+  width: 720px;
+  max-width: calc(100vw - var(--space-6));
+  max-height: 80vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+
+.settings-header h2 {
+  margin: 0;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 180px;
+  flex-shrink: 0;
+  padding: var(--space-3);
+  border-right: 1px solid var(--color-line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-muted);
+  text-align: left;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  color: var(--color-ink);
+}
+
+.settings-nav-item[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-signal) 14%, transparent);
+  color: var(--color-signal);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-panel {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+
+.settings-section .modal-divider:last-of-type {
+  display: none;
+}
+
+.settings-hint {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+}
+
+/* Custom dictionary (SPEC.md > Custom dictionary). */
+.dictionary-add-row,
+.dictionary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dictionary-add-row {
+  margin-bottom: var(--space-3);
+}
+
+.dictionary-add-row input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.dictionary-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.dictionary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dictionary-row {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-line);
+  font-size: var(--text-sm);
+}
+
+.dictionary-row input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.dictionary-word {
+  color: var(--color-ink);
+}
+
+.dictionary-replacement {
+  flex: 1;
+  color: var(--color-ink-muted);
+}

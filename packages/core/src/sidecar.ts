@@ -19,9 +19,70 @@ import { runPipeline } from "./pipeline.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
 import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry } from "./db/history.js";
+import {
+  listDictionary,
+  addDictionaryEntry,
+  updateDictionaryEntry,
+  deleteDictionaryEntry,
+  importDictionaryEntries,
+} from "./db/dictionary.js";
+import type { DictionaryRecord, ImportResult } from "./db/dictionary.js";
+import { applyDictionary } from "./dictionary.js";
+import type { DictionaryEntry } from "./dictionary.js";
 import { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 import type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
 import type { OutputFormat } from "./types.js";
+
+// Amical's vocabulary export shape (source_device/count wrapper, snake_case
+// fields, is_replacement as 0|1) -- the ONLY other shape import-dictionary
+// accepts besides the plain { word, replacement }[] this app's own DB uses.
+// Entries with is_replacement falsy are skipped: Amical also stores plain
+// vocabulary hints (no replacement) under the same export, which this app
+// has no use for (see SPEC.md > Custom dictionary).
+interface AmicalDictionaryExport {
+  entries: Array<{ word: string; replacement_word: string; is_replacement?: number }>;
+}
+
+function isAmicalExport(value: unknown): value is AmicalDictionaryExport {
+  return typeof value === "object" && value !== null && Array.isArray((value as { entries?: unknown }).entries);
+}
+
+export function parseDictionaryImport(json: string): { entries: DictionaryEntry[]; skipped: number } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    // Deliberately a clean, fixed message -- Node's own SyntaxError embeds a
+    // snippet of the invalid input (e.g. `Unexpected token 'g', "gsk_123"...
+    // is not valid JSON`), which this app's Rust side surfaces verbatim to
+    // the webview on failure. Now unreachable via an attacker-chosen file
+    // (import_dictionary_file only ever reads a path the user just picked
+    // through a native dialog -- see commands.rs), but this is the second,
+    // defense-in-depth layer flagged by tauri-capability-reviewer: never let
+    // a raw parse error carry file content into a UI-visible string.
+    throw new Error("Not a valid dictionary JSON file.");
+  }
+
+  if (isAmicalExport(parsed)) {
+    let skipped = 0;
+    const entries: DictionaryEntry[] = [];
+    for (const raw of parsed.entries) {
+      if (!raw.is_replacement) {
+        skipped++;
+        continue;
+      }
+      entries.push({ word: raw.word, replacement: raw.replacement_word });
+    }
+    return { entries, skipped };
+  }
+
+  if (Array.isArray(parsed)) {
+    const entries = parsed as Array<{ word: string; replacement: string }>;
+    return { entries: entries.map((e) => ({ word: e.word, replacement: e.replacement })), skipped: 0 };
+  }
+
+  throw new Error("Unrecognized dictionary import format.");
+}
 
 // MIGRATIONS_DIR is set by the Rust shell (apps/desktop/src-tauri/src/
 // commands.rs) from Tauri's bundled resource directory when this file runs
@@ -66,6 +127,29 @@ export interface SidecarDeps {
   listHistory?: () => Promise<HistoryRecord[]>;
   getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
   deleteHistoryEntry?: (id: number) => Promise<void>;
+  listDictionary?: () => Promise<DictionaryRecord[]>;
+  addDictionaryEntry?: (entry: DictionaryEntry) => Promise<DictionaryRecord>;
+  updateDictionaryEntry?: (id: number, entry: DictionaryEntry) => Promise<DictionaryRecord | undefined>;
+  deleteDictionaryEntry?: (id: number) => Promise<void>;
+  importDictionary?: (entries: DictionaryEntry[]) => Promise<ImportResult>;
+}
+
+// Used by handleTranscribe: a dictionary fetch failure is caught and logged,
+// never fatal -- same non-blocking rule recordHistorySafe applies to H5.
+async function fetchDictionarySafe(
+  env: Record<string, string | undefined>,
+  deps: SidecarDeps,
+): Promise<DictionaryEntry[]> {
+  if (deps.listDictionary) return deps.listDictionary();
+  try {
+    const db = createDb();
+    if (!db) return [];
+    await ensureSchema(db, migrationsFolder(env));
+    return await listDictionary(db);
+  } catch (err) {
+    console.error("[dictionary] failed to load dictionary (non-blocking):", err);
+    return [];
+  }
 }
 
 export async function handlePing(): Promise<string> {
@@ -99,13 +183,19 @@ export async function handleTranscribe(
 
   try {
     const transcriber = makeTranscriber(apiKey);
-    const result = await runPipeline(args.filePath, {
+    const rawResult = await runPipeline(args.filePath, {
       audio,
       transcriber,
       model: args.model,
       language: args.language,
       onProgress: (msg) => process.stderr.write(`${msg}\n`),
     });
+    // Custom dictionary (word replacement) applied here -- after
+    // runPipeline, before render()/recordHistory() -- so the stored history
+    // text, the rendered/exported output, and this response's text are all
+    // the corrected text. runPipeline() itself stays DB-free and pure.
+    const dictionaryEntries = await fetchDictionarySafe(env, deps);
+    const result = applyDictionary(rawResult, dictionaryEntries);
     const rendered = render(result, args.format);
     await recordHistory({ ...historyBase, status: "success", result });
     return { text: result.text, rendered, language: result.language, duration: result.duration };
@@ -170,6 +260,80 @@ export async function handleDeleteHistoryEntry(
   return { sourceFileName: record.sourceFileName };
 }
 
+// Custom dictionary CRUD + import -- same inject-first-else-createDb()
+// pattern as the history handlers above. Reads return [] with no DB (never
+// throw); writes throw a clear error when there's no DB to write to.
+export async function handleListDictionary(deps: SidecarDeps = {}): Promise<DictionaryRecord[]> {
+  if (deps.listDictionary) return deps.listDictionary();
+  const db = createDb();
+  if (!db) return [];
+  await ensureSchema(db, migrationsFolder(process.env));
+  return listDictionary(db);
+}
+
+export async function handleAddDictionaryEntry(
+  args: DictionaryEntry,
+  deps: SidecarDeps = {},
+): Promise<DictionaryRecord> {
+  if (deps.addDictionaryEntry) return deps.addDictionaryEntry(args);
+  const db = createDb();
+  if (!db) throw new Error("DATABASE_URL not set; cannot add a dictionary entry.");
+  await ensureSchema(db, migrationsFolder(process.env));
+  return addDictionaryEntry(db, args);
+}
+
+export async function handleUpdateDictionaryEntry(
+  args: { id: number } & DictionaryEntry,
+  deps: SidecarDeps = {},
+): Promise<DictionaryRecord> {
+  const { id, ...entry } = args;
+  const record = deps.updateDictionaryEntry
+    ? await deps.updateDictionaryEntry(id, entry)
+    : await (async () => {
+        const db = createDb();
+        if (!db) throw new Error("DATABASE_URL not set; cannot update a dictionary entry.");
+        await ensureSchema(db, migrationsFolder(process.env));
+        return updateDictionaryEntry(db, id, entry);
+      })();
+  if (!record) throw new Error(`Dictionary entry ${id} not found.`);
+  return record;
+}
+
+export async function handleDeleteDictionaryEntry(
+  args: { id: number },
+  deps: SidecarDeps = {},
+): Promise<{ id: number }> {
+  if (deps.deleteDictionaryEntry) {
+    await deps.deleteDictionaryEntry(args.id);
+    return { id: args.id };
+  }
+  const db = createDb();
+  if (!db) throw new Error("DATABASE_URL not set; cannot delete a dictionary entry.");
+  await ensureSchema(db, migrationsFolder(process.env));
+  await deleteDictionaryEntry(db, args.id);
+  return { id: args.id };
+}
+
+// Parses argv[3] as raw JSON text (Rust reads a user-picked file and hands
+// its contents straight through -- see commands.rs's import_dictionary_file)
+// and upserts by word. Accepts both an Amical export and this app's own
+// plain [{ word, replacement }] shape (parseDictionaryImport above).
+export async function handleImportDictionary(
+  args: { json: string },
+  deps: SidecarDeps = {},
+): Promise<ImportResult> {
+  const { entries, skipped } = parseDictionaryImport(args.json);
+  const result = deps.importDictionary
+    ? await deps.importDictionary(entries)
+    : await (async () => {
+        const db = createDb();
+        if (!db) throw new Error("DATABASE_URL not set; cannot import a dictionary.");
+        await ensureSchema(db, migrationsFolder(process.env));
+        return importDictionaryEntries(db, entries);
+      })();
+  return { ...result, skipped: result.skipped + skipped };
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -200,6 +364,29 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       case "delete-history-entry": {
         const args = JSON.parse(argJson ?? "{}") as { id: number };
         data = await handleDeleteHistoryEntry(args);
+        break;
+      }
+      case "list-dictionary":
+        data = await handleListDictionary();
+        break;
+      case "add-dictionary-entry": {
+        const args = JSON.parse(argJson ?? "{}") as DictionaryEntry;
+        data = await handleAddDictionaryEntry(args);
+        break;
+      }
+      case "update-dictionary-entry": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number } & DictionaryEntry;
+        data = await handleUpdateDictionaryEntry(args);
+        break;
+      }
+      case "delete-dictionary-entry": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number };
+        data = await handleDeleteDictionaryEntry(args);
+        break;
+      }
+      case "import-dictionary": {
+        const args = JSON.parse(argJson ?? "{}") as { json: string };
+        data = await handleImportDictionary(args);
         break;
       }
       default:

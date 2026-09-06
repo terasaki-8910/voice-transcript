@@ -6,6 +6,7 @@
 // response (see .claude/agents/tauri-capability-reviewer.md).
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::ShellExt;
 
 // camelCase: the webview passes `{ filePath, model, language, format }`
@@ -288,6 +289,111 @@ pub async fn delete_history_entry(app: tauri::AppHandle, id: i64) -> Result<Tras
 #[tauri::command]
 pub fn export_transcript(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("failed to write export file: {e}"))
+}
+
+// Custom dictionary (word replacement). Four of these five proxy the
+// sidecar 1:1, same pattern as the history commands above; import_dictionary_file
+// (below) additionally drives the native file dialog itself -- see its own
+// comment for why. No new capability grant needed for any of them: these are
+// app-defined commands like ping/transcribe, not a plugin ACL surface.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryRecordDto {
+    pub id: i64,
+    pub word: String,
+    pub replacement: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryEntryRequest {
+    pub word: String,
+    pub replacement: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDictionaryEntryRequest {
+    pub id: i64,
+    pub word: String,
+    pub replacement: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportResultDto {
+    pub inserted: i64,
+    pub updated: i64,
+    pub skipped: i64,
+}
+
+#[tauri::command]
+pub async fn list_dictionary(app: tauri::AppHandle) -> Result<Vec<DictionaryRecordDto>, String> {
+    call_sidecar(&app, "list-dictionary", "null").await
+}
+
+#[tauri::command]
+pub async fn add_dictionary_entry(
+    app: tauri::AppHandle,
+    request: DictionaryEntryRequest,
+) -> Result<DictionaryRecordDto, String> {
+    let arg_json = serde_json::json!({ "word": request.word, "replacement": request.replacement }).to_string();
+    call_sidecar(&app, "add-dictionary-entry", &arg_json).await
+}
+
+#[tauri::command]
+pub async fn update_dictionary_entry(
+    app: tauri::AppHandle,
+    request: UpdateDictionaryEntryRequest,
+) -> Result<DictionaryRecordDto, String> {
+    let arg_json = serde_json::json!({
+        "id": request.id,
+        "word": request.word,
+        "replacement": request.replacement,
+    })
+    .to_string();
+    call_sidecar(&app, "update-dictionary-entry", &arg_json).await
+}
+
+#[derive(Debug, Deserialize)]
+struct DeletedDictionaryEntry {
+    #[allow(dead_code)]
+    id: i64,
+}
+
+#[tauri::command]
+pub async fn delete_dictionary_entry(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    let arg_json = serde_json::json!({ "id": id }).to_string();
+    let _: DeletedDictionaryEntry = call_sidecar(&app, "delete-dictionary-entry", &arg_json).await?;
+    Ok(())
+}
+
+// SECURITY: deliberately takes NO path argument. An earlier version of this
+// command accepted `path: String` from the webview on the assumption that
+// only DictionarySection.tsx's picker would ever call it -- that is a UI
+// convention, not an IPC-enforced boundary: any script running in the
+// webview can invoke() a registered command with arbitrary arguments
+// (Tauri's capability system gates plugin permissions, not app-defined
+// command parameters), so a `path: String` parameter here would let
+// malicious JS read arbitrary local files, including this app's own
+// plaintext-secret config files (config.rs -- the API key / DATABASE_URL
+// live at a well-known OS path derived from this app's public bundle
+// identifier). Fixed (found by tauri-capability-reviewer) by doing the pick
+// and the read as one atomic Rust-side operation: the native file dialog is
+// invoked here, not the webview, so the only path this command ever reads
+// is one the user just interactively chose through a real OS picker.
+// Returns Ok(None) if the user cancels the dialog (not an error).
+#[tauri::command]
+pub async fn import_dictionary_file(app: tauri::AppHandle) -> Result<Option<ImportResultDto>, String> {
+    let Some(file_path) = app.dialog().file().add_filter("JSON", &["json"]).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file_path.into_path().map_err(|e| format!("invalid file path: {e}"))?;
+    let contents = std::fs::read_to_string(&path).map_err(|e| format!("failed to read import file: {e}"))?;
+    let arg_json = serde_json::json!({ "json": contents }).to_string();
+    let result: ImportResultDto = call_sidecar(&app, "import-dictionary", &arg_json).await?;
+    Ok(Some(result))
 }
 
 #[cfg(test)]

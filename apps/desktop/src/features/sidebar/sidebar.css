@@ -76,12 +76,24 @@
   background: transparent;
 }
 
+/* Recording (SPEC.md > Microphone recording): a second way to get audio
+   into the queue, alongside "Add files" -- both are "get audio in" actions,
+   so they sit as peers in one row rather than as a single competing
+   full-width button (design_brief.md's "one primary action" principle is
+   about not scattering unrelated actions, not about there being exactly one
+   button). */
+.sidebar-primary-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
 .sidebar-create {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  width: 100%;
+  flex: 1;
 }
 
 /* Higher specificity than .btn-primary (2 classes vs. 1) so this wins
@@ -89,6 +101,46 @@
    old toolbar's, closer to the Amical reference sizing. */
 .sidebar-create.btn-primary {
   font-size: var(--text-base);
+}
+
+.sidebar-record-btn {
+  appearance: none;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.sidebar-record-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar-record-btn:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink-muted);
+}
+
+.sidebar-record-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sidebar-record-btn.is-recording {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.sidebar-record-error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-danger);
 }
 
 .sidebar-search {
@@ -194,7 +246,8 @@
 
 .sidebar.is-collapsed .sidebar-topbar > button:not(:first-child),
 .sidebar.is-collapsed .brand,
-.sidebar.is-collapsed .sidebar-create,
+.sidebar.is-collapsed .sidebar-primary-row,
+.sidebar.is-collapsed .sidebar-record-error,
 .sidebar.is-collapsed .sidebar-search,
 .sidebar.is-collapsed .sidebar-nav,
 .sidebar.is-collapsed .sidebar-footer {

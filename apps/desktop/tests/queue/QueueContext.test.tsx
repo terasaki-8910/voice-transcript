@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
+import { VoiceInputSettingsProvider, useVoiceInputSettings } from "../../src/features/preferences/VoiceInputSettingsContext";
 import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
 function deferred<T>() {
@@ -44,9 +45,11 @@ function QueueInspector() {
 
 function renderQueue(transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse>) {
   return render(
-    <QueueProvider transcribeFn={transcribeFn}>
-      <QueueInspector />
-    </QueueProvider>,
+    <VoiceInputSettingsProvider>
+      <QueueProvider transcribeFn={transcribeFn}>
+        <QueueInspector />
+      </QueueProvider>
+    </VoiceInputSettingsProvider>,
   );
 }
 
@@ -127,5 +130,77 @@ describe("QueueContext", () => {
 
     deferreds[2].resolve({ text: "hello a retried", rendered: "hello a retried" });
     await waitFor(() => expect(screen.getByTestId("a.m4a").textContent).toContain("done"));
+  });
+});
+
+// ACCEPTANCE G12: QueueContext must read Settings > Voice input's model and
+// language instead of a hardcoded default -- this is what makes SPEC.md's
+// "model/language exposed as GUI controls" promise true. Exercises the real
+// VoiceInputSettingsContext (not a mock) so a regression back to a hardcoded
+// constant would actually fail this test.
+function SettingsInspector() {
+  const { model, autoDetectLanguage, setSettings } = useVoiceInputSettings();
+  return (
+    <div>
+      <p data-testid="model">{model}</p>
+      <button type="button" onClick={() => setSettings({ model: "whisper-large-v3" })}>
+        use-large-v3
+      </button>
+      <button
+        type="button"
+        onClick={() => setSettings({ autoDetectLanguage: false, language: "fr" })}
+        disabled={!autoDetectLanguage}
+      >
+        force-french
+      </button>
+    </div>
+  );
+}
+
+describe("QueueContext reads Voice input settings (G12)", () => {
+  it("sends the Settings-selected model instead of a hardcoded default", async () => {
+    const transcribeFn = vi.fn((_request: TranscribeRequest) => Promise.resolve({ text: "", rendered: "" }));
+    render(
+      <VoiceInputSettingsProvider>
+        <SettingsInspector />
+        <QueueProvider transcribeFn={transcribeFn}>
+          <QueueInspector />
+        </QueueProvider>
+      </VoiceInputSettingsProvider>,
+    );
+
+    fireEvent.click(screen.getByText("use-large-v3"));
+    await waitFor(() => expect(screen.getByTestId("model").textContent).toBe("whisper-large-v3"));
+
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(transcribeFn).toHaveBeenCalled());
+    expect(transcribeFn.mock.calls[0][0]).toMatchObject({ model: "whisper-large-v3" });
+  });
+
+  it("omits language while auto-detect is on, and sends the override once it's off", async () => {
+    const transcribeFn = vi.fn((_request: TranscribeRequest) => Promise.resolve({ text: "", rendered: "" }));
+    render(
+      <VoiceInputSettingsProvider>
+        <SettingsInspector />
+        <QueueProvider transcribeFn={transcribeFn}>
+          <QueueInspector />
+        </QueueProvider>
+      </VoiceInputSettingsProvider>,
+    );
+
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(transcribeFn.mock.calls.length).toBeGreaterThanOrEqual(1));
+    expect(transcribeFn.mock.calls[0][0].language).toBeUndefined();
+
+    // Let the first batch fully settle (transcribeFn resolves immediately,
+    // unlike the deferred() tests above -- both queued items can finish
+    // before this point) before switching settings and enqueuing more, so
+    // the new calls are unambiguously the ones made under the new setting.
+    await waitFor(() => expect(screen.getByTestId("a.m4a").textContent).toContain("done"));
+    fireEvent.click(screen.getByText("force-french"));
+    const callsBeforeSecondBatch = transcribeFn.mock.calls.length;
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(transcribeFn.mock.calls.length).toBeGreaterThan(callsBeforeSecondBatch));
+    expect(transcribeFn.mock.calls[callsBeforeSecondBatch][0].language).toBe("fr");
   });
 });

@@ -15,7 +15,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
 import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
+import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider } from "../../src/features/queue/QueueContext";
+import { RecordingProvider } from "../../src/features/recording/RecordingContext";
 import { HistoryProvider } from "../../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext";
 import { NavProvider } from "../../src/features/nav/NavContext";
@@ -40,17 +42,21 @@ function renderView(transcribeFn: (request: TranscribeRequest) => Promise<Transc
     <I18nProvider>
       <ThemeProvider>
         <DisplayPreferencesProvider>
-          <NavProvider>
-            <HistoryNavProvider>
-              <SelectionProvider>
-                <QueueProvider transcribeFn={transcribeFn}>
-                  <HistoryProvider listHistoryFn={async () => []}>
-                    <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} />
-                  </HistoryProvider>
-                </QueueProvider>
-              </SelectionProvider>
-            </HistoryNavProvider>
-          </NavProvider>
+          <VoiceInputSettingsProvider>
+            <NavProvider>
+              <HistoryNavProvider>
+                <SelectionProvider>
+                  <QueueProvider transcribeFn={transcribeFn}>
+                    <RecordingProvider>
+                      <HistoryProvider listHistoryFn={async () => []}>
+                        <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} />
+                      </HistoryProvider>
+                    </RecordingProvider>
+                  </QueueProvider>
+                </SelectionProvider>
+              </HistoryNavProvider>
+            </NavProvider>
+          </VoiceInputSettingsProvider>
         </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>,

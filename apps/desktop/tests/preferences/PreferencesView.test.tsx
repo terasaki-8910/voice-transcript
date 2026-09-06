@@ -1,17 +1,23 @@
-// F21 (native-menu, Preferences). ACCEPTANCE G11: pins the status display
-// (never shows the key/URL itself, only set/unset), saving each field, and
-// that a save failure surfaces an error instead of silently closing.
-// @tauri-apps/api/core's invoke is mocked directly (lib/tauri.ts's
-// saveApiKey/getApiKeyStatus/saveDatabaseUrl/getDatabaseUrlStatus have no
-// injectable seam, unlike the higher-level contexts elsewhere in this app --
-// consistent with how other tests mock raw Tauri API calls at the module
-// boundary). Both API key and database URL status checks fire on mount, so
-// every test that renders the view needs two queued invoke resolutions, in
-// call order (get_api_key_status, then get_database_url_status).
+// F21 (native-menu, Preferences); Settings surface revision (see
+// design_brief.md's dated entry, and PreferencesView.tsx's header comment).
+// ACCEPTANCE G11: pins the status display (never shows the key/URL itself,
+// only set/unset), saving each field, and that a save failure surfaces an
+// error instead of silently closing. @tauri-apps/api/core's invoke is
+// mocked directly (lib/tauri.ts's saveApiKey/getApiKeyStatus/
+// saveDatabaseUrl/getDatabaseUrlStatus/listInputDevices have no injectable
+// seam, unlike the higher-level contexts elsewhere in this app -- consistent
+// with how other tests mock raw Tauri API calls at the module boundary).
+//
+// The dialog now opens on the Voice input section by default (not
+// Connection), so VoiceInputSection's mount-time list_input_devices() call
+// is the FIRST invoke() every test sees, before the API-key/database-URL
+// tests below navigate into the Connection section and trigger
+// get_api_key_status/get_database_url_status, in that order.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
+import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { PreferencesView } from "../../src/features/preferences/PreferencesView";
 
 const invoke = vi.fn();
@@ -23,16 +29,51 @@ function renderView(onClose: () => void = vi.fn()) {
   return render(
     <I18nProvider>
       <DisplayPreferencesProvider>
-        <PreferencesView onClose={onClose} />
+        <VoiceInputSettingsProvider>
+          <PreferencesView onClose={onClose} />
+        </VoiceInputSettingsProvider>
       </DisplayPreferencesProvider>
     </I18nProvider>,
   );
 }
 
 function mockMountStatus(keySet: boolean, databaseUrlSet: boolean) {
+  invoke.mockResolvedValueOnce([]); // list_input_devices (Voice input is the default section)
   invoke.mockResolvedValueOnce(keySet); // get_api_key_status
   invoke.mockResolvedValueOnce(databaseUrlSet); // get_database_url_status
 }
+
+// Every API-key/database-URL test needs the Connection section open first --
+// that's what actually mounts ConnectionSection and fires its status checks.
+async function renderConnectionSection(onClose: () => void = vi.fn()) {
+  const result = renderView(onClose);
+  fireEvent.click(screen.getByRole("button", { name: "Connection" }));
+  await waitFor(() => expect(screen.getByLabelText("Groq API key")).toBeDefined());
+  return result;
+}
+
+describe("PreferencesView - section navigation", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("opens on the Voice input section by default", async () => {
+    invoke.mockResolvedValueOnce([]); // list_input_devices
+    renderView();
+    await waitFor(() => expect(screen.getByLabelText("Model")).toBeDefined());
+    expect(screen.getByRole("button", { name: "Voice input" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("switches sections via the settings nav", async () => {
+    mockMountStatus(false, false);
+    renderView();
+    await waitFor(() => expect(screen.getByLabelText("Model")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom dictionary" }));
+    expect(screen.getByText("Manage word replacements applied to every transcript.")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Custom dictionary" }).getAttribute("aria-current")).toBe("page");
+  });
+});
 
 describe("PreferencesView - API key", () => {
   beforeEach(() => {
@@ -41,7 +82,7 @@ describe("PreferencesView - API key", () => {
 
   it("shows 'not set' when no key is saved yet", async () => {
     mockMountStatus(false, false);
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     expect(invoke).toHaveBeenCalledWith("get_api_key_status");
@@ -49,14 +90,14 @@ describe("PreferencesView - API key", () => {
 
   it("shows 'set' when a key is already saved", async () => {
     mockMountStatus(true, false);
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("API key is set.")).toBeDefined());
   });
 
   it("Save is disabled until a key is typed, and never displays the typed value back as saved state", async () => {
     mockMountStatus(false, false);
-    renderView();
+    await renderConnectionSection();
 
     const saveKey = await screen.findByRole("button", { name: "Save Groq API key" });
     expect(saveKey).toHaveProperty("disabled", true);
@@ -68,7 +109,7 @@ describe("PreferencesView - API key", () => {
   it("saving calls save_api_key with the typed key, then clears the input and shows 'set'", async () => {
     mockMountStatus(false, false);
     invoke.mockResolvedValueOnce(undefined); // save_api_key
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
 
@@ -85,7 +126,7 @@ describe("PreferencesView - API key", () => {
     mockMountStatus(false, false);
     invoke.mockRejectedValueOnce(new Error("failed to write config file"));
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
     await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     fireEvent.change(screen.getByLabelText("Groq API key"), { target: { value: "gsk_test_key" } });
@@ -98,9 +139,8 @@ describe("PreferencesView - API key", () => {
   it("Close calls onClose", async () => {
     mockMountStatus(false, false);
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
-    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -110,9 +150,8 @@ describe("PreferencesView - API key", () => {
   it("clicking the backdrop calls onClose", async () => {
     mockMountStatus(false, false);
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
-    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     fireEvent.click(screen.getByRole("dialog"));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -120,9 +159,8 @@ describe("PreferencesView - API key", () => {
   it("clicking inside the modal panel does not call onClose", async () => {
     mockMountStatus(false, false);
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
-    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     fireEvent.click(screen.getByText("Preferences"));
     fireEvent.click(screen.getByLabelText("Groq API key"));
     expect(onClose).not.toHaveBeenCalled();
@@ -131,9 +169,8 @@ describe("PreferencesView - API key", () => {
   it("pressing Escape calls onClose", async () => {
     mockMountStatus(false, false);
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
-    await waitFor(() => expect(screen.getByText("No API key is set yet.")).toBeDefined());
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -146,7 +183,7 @@ describe("PreferencesView - database URL", () => {
 
   it("shows 'not set' when no database URL is saved yet", async () => {
     mockMountStatus(false, false);
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("No database URL is set yet.")).toBeDefined());
     expect(invoke).toHaveBeenCalledWith("get_database_url_status");
@@ -154,14 +191,14 @@ describe("PreferencesView - database URL", () => {
 
   it("shows 'set' when a database URL is already saved", async () => {
     mockMountStatus(false, true);
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("Database URL is set.")).toBeDefined());
   });
 
   it("Save is disabled until a URL is typed, and never displays the typed value back as saved state", async () => {
     mockMountStatus(false, false);
-    renderView();
+    await renderConnectionSection();
 
     const saveUrl = await screen.findByRole("button", { name: "Save database URL" });
     expect(saveUrl).toHaveProperty("disabled", true);
@@ -175,7 +212,7 @@ describe("PreferencesView - database URL", () => {
   it("saving calls save_database_url with the typed URL, then clears the input and shows 'set'", async () => {
     mockMountStatus(false, false);
     invoke.mockResolvedValueOnce(undefined); // save_database_url
-    renderView();
+    await renderConnectionSection();
 
     await waitFor(() => expect(screen.getByText("No database URL is set yet.")).toBeDefined());
 
@@ -193,9 +230,8 @@ describe("PreferencesView - database URL", () => {
     mockMountStatus(false, false);
     invoke.mockRejectedValueOnce(new Error("Database URL must start with postgres:// or postgresql://"));
     const onClose = vi.fn();
-    renderView(onClose);
+    await renderConnectionSection(onClose);
 
-    await waitFor(() => expect(screen.getByText("No database URL is set yet.")).toBeDefined());
     fireEvent.change(screen.getByLabelText("PostgreSQL database URL"), { target: { value: "mysql://bad" } });
     fireEvent.click(screen.getByRole("button", { name: "Save database URL" }));
 

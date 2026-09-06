@@ -32,9 +32,31 @@
 // reliable across all three target platforms inside WRY, so this uses the
 // official plugin instead. Write-only grant (clipboard-manager:allow-write-text
 // in capabilities/default.json) -- the app never reads the system clipboard.
+//
+// Custom dictionary (word replacement) adds list_dictionary/
+// add_dictionary_entry/update_dictionary_entry/delete_dictionary_entry
+// (proxy the sidecar, same pattern as the history commands) plus
+// import_dictionary_file, which drives the native file dialog itself from
+// inside the command (tauri_plugin_dialog's blocking_pick_file(), not a
+// path argument the webview could supply -- an earlier version took
+// `path: String` from the webview, which tauri-capability-reviewer flagged
+// as an arbitrary-local-file-read primitive reachable by any webview script,
+// not just the intended picker UI; see commands.rs's comment on the fix)
+// and forwards the picked file's contents to the sidecar for parsing -- no
+// new capability grant needed (dialog:allow-open already covers this).
+//
+// Microphone recording adds recording.rs (cpal capture -> hound WAV,
+// entirely in Rust -- no bytes cross the webview/IPC boundary during
+// capture) with start_recording/stop_recording/list_input_devices. Chosen
+// over webview getUserMedia because WebKitGTK (Linux) has no released Tauri
+// version that enables media-stream capture (see design/notes on this
+// decision) -- cpal is the one implementation that is uniformly correct on
+// macOS/Windows/Linux. No new capability grant: these are app-defined
+// commands, not a plugin ACL surface.
 mod commands;
 mod config;
 mod menu;
+mod recording;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,6 +65,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(recording::RecordingManager::new())
         .menu(|app| menu::build(app, "en"))
         .on_menu_event(menu::handle_event)
         .invoke_handler(tauri::generate_handler![
@@ -57,6 +80,14 @@ pub fn run() {
             config::save_database_url,
             config::get_database_url_status,
             menu::set_menu_language,
+            commands::list_dictionary,
+            commands::add_dictionary_entry,
+            commands::update_dictionary_entry,
+            commands::delete_dictionary_entry,
+            commands::import_dictionary_file,
+            recording::list_input_devices,
+            recording::start_recording,
+            recording::stop_recording,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

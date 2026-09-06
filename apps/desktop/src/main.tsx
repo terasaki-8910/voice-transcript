@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ThemeProvider } from "./theme/ThemeContext";
 import { DisplayPreferencesProvider } from "./features/preferences/DisplayPreferencesContext";
+import { VoiceInputSettingsProvider } from "./features/preferences/VoiceInputSettingsContext";
 import { I18nProvider } from "./i18n/I18nContext";
 import "./styles/global.css";
 
@@ -16,7 +17,9 @@ createRoot(container).render(
     <I18nProvider>
       <ThemeProvider>
         <DisplayPreferencesProvider>
-          <App />
+          <VoiceInputSettingsProvider>
+            <App />
+          </VoiceInputSettingsProvider>
         </DisplayPreferencesProvider>
       </ThemeProvider>
     </I18nProvider>

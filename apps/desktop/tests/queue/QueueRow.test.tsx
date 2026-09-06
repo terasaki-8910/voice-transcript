@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
+import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { QueueRow } from "../../src/features/queue/QueueRow";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
@@ -32,11 +33,13 @@ function RowHarness({ transcribeFn }: { transcribeFn: (request: TranscribeReques
   return (
     <I18nProvider>
       <DisplayPreferencesProvider>
-        <SelectionProvider>
-          <QueueProvider transcribeFn={transcribeFn}>
-            <RowList />
-          </QueueProvider>
-        </SelectionProvider>
+        <VoiceInputSettingsProvider>
+          <SelectionProvider>
+            <QueueProvider transcribeFn={transcribeFn}>
+              <RowList />
+            </QueueProvider>
+          </SelectionProvider>
+        </VoiceInputSettingsProvider>
       </DisplayPreferencesProvider>
     </I18nProvider>
   );
