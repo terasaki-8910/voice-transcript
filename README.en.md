@@ -8,8 +8,9 @@
 
 Transcribe audio to text with Groq's hosted Whisper API — from a terminal CLI or a
 cross-platform desktop app — reliably handling **audio longer than one hour** via
-silence-based chunking and stitching. One shared engine, two front ends, and a persisted
-history of every run.
+silence-based chunking and stitching. One shared engine, two front ends, a persisted
+history of every run, in-app microphone recording with no duration cap, and a
+user-maintained dictionary of word corrections applied to every transcript.
 
 ## Requirements
 - **Node.js 24**
@@ -64,7 +65,19 @@ pnpm --filter desktop tauri dev                        # development loop
 - **Progress:** per-file, and per-chunk when a long file is split — no indeterminate spinner.
 - **History:** every run (CLI and GUI) is persisted; the history view lists past runs and
   opens one to read its stored transcript without re-calling the API.
-- **Same options as the CLI** (format, model, language) exposed as controls, not flags.
+- **Same options as the CLI** (format, model, language) exposed as controls in
+  Settings, not flags — they become the defaults every queued transcription uses.
+- **Microphone recording, no duration cap:** a Record control sits beside "Add files" in
+  the sidebar; a finished recording joins the queue exactly like a picked file. Capture is
+  native (Rust, via `cpal`), not the webview — samples stream straight to a WAV file as
+  they arrive, never buffered whole in memory, so length is bounded only by disk space,
+  not a software timer. (Chosen deliberately over the webview's own recording API: no
+  released Tauri version enables microphone capture inside the Linux webview, so a
+  browser-API recorder would silently not work on one of this app's three targets.)
+- **Custom dictionary:** word → replacement pairs applied to every completed transcript,
+  CLI and GUI alike, so both interfaces produce identical corrected text. Manage entries
+  from Settings, or import a JSON file of pairs (including Amical's vocabulary-export
+  shape) as an idempotent upsert.
 - **Interface language:** Japanese and English, switchable in-app with no restart. This is
   separate from `--language`, which is the audio's spoken language.
 - **Theme:** explicit light/dark toggle (not only OS-following).
@@ -85,20 +98,28 @@ pnpm --filter desktop tauri dev                        # development loop
   <img src="docs/screenshots/preferences-dark.png" alt="Preferences view" width="49%">
 </p>
 
-### Preferences (API key, database URL)
-The Preferences view sets `GROQ_API_KEY` and `DATABASE_URL` from the GUI instead of only
-via environment variables. Both are written by the Rust shell to **local config files** in
-the OS's per-user app-config directory (`~/Library/Application Support/…` on macOS,
-`%APPDATA%\…` on Windows, `~/.config/…` on Linux), outside the repo and never committed.
-The webview never touches these files directly, and neither value is ever read back to
-it — Preferences only shows whether one is currently set. The sidecar uses a
-Preferences-saved value only when the matching environment variable is unset; the
-environment always wins when both are present.
+### Settings
+Opened via the sidebar's Settings item, the native menu's **Preferences...** item, or
+Cmd+,/Ctrl+, — all three reach the same sectioned dialog, defaulting to Voice input:
 
-Tradeoff, stated plainly: this is plaintext-on-disk, not an encrypted OS-keychain entry —
-protected only by owner-only file permissions and living outside the repo. Acceptable for
-this single-user personal tool; it would need revisiting (e.g. moving to the OS keychain)
-before any multi-user or shared-machine use.
+- **Voice input** — Whisper model, spoken-language auto-detect + override, and the
+  recording microphone. These are the actual defaults every queued transcription
+  (including a finished recording) sends.
+- **Custom dictionary** — add, edit, delete, and import word-replacement entries (see above).
+- **General** — display preferences (currently: line breaks after each Japanese period).
+- **Connection** — sets `GROQ_API_KEY` and `DATABASE_URL` from the GUI instead of only via
+  environment variables. Both are written by the Rust shell to **local config files** in
+  the OS's per-user app-config directory (`~/Library/Application Support/…` on macOS,
+  `%APPDATA%\…` on Windows, `~/.config/…` on Linux), outside the repo and never committed.
+  The webview never touches these files directly, and neither value is ever read back to
+  it — Connection only shows whether one is currently set. The sidecar uses a saved value
+  only when the matching environment variable is unset; the environment always wins when
+  both are present.
+
+Tradeoff, stated plainly: the API key/database URL are plaintext-on-disk, not an encrypted
+OS-keychain entry — protected only by owner-only file permissions and living outside the
+repo. Acceptable for this single-user personal tool; it would need revisiting (e.g. moving
+to the OS keychain) before any multi-user or shared-machine use.
 
 ## Output and long-audio behavior
 - Formats: `txt` (default, no timestamps), `srt`, `vtt`, `json` (segment/word timestamps).
@@ -119,6 +140,24 @@ SQL outside migrations) so a later move to MySQL or another host is a config cha
 rewrite. The app connects to your Postgres and creates its own tables there automatically
 on first connect if they don't already exist (an idempotent, tracked migration, safe to run
 every time); it does not provision the database itself, and does not back it up.
+
+## Custom dictionary (word replacement)
+Applied after transcription, before the result is rendered, recorded to history, or
+returned — identically on the CLI and GUI paths. Matching is case-sensitive and literal: a
+word made only of ASCII characters matches whole-word only (won't fire inside a larger
+token); a word containing any non-ASCII character (any Japanese entry) matches as a plain
+substring, since Japanese has no whitespace word boundaries. Replacement is a single pass
+over the text with entries sorted longest-word-first — this is what keeps a longer entry
+taking precedence over a shorter one it contains, and keeps the result non-cascading as
+the dictionary grows. Entries live in the same Postgres database as history (a
+`dictionary_entries` table, unique on `word`), so, like history, the dictionary is
+unavailable when `DATABASE_URL` is unset/unreachable — this never blocks or fails a
+transcription, it just means no replacements run.
+
+Import accepts this app's own `{ word, replacement }[]` shape, and Amical's vocabulary
+export shape directly (`{ entries: [{ word, replacement_word, is_replacement, ... }] }` —
+entries with `is_replacement` falsy are skipped). Re-importing the same file is idempotent:
+row count and replacement values don't change on a repeat import.
 
 ## Release automation
 A manually triggered GitHub Actions workflow (`.github/workflows/release.yml`,
@@ -148,6 +187,10 @@ SmartScreen warning (Run anyway), and Linux's `.AppImage`/`.deb` need no signatu
 - History needs a reachable Postgres, but transcription must still complete if the DB is
   unset or unreachable — only the history write fails, and it fails loudly (logged), never
   silently and never blocking or corrupting the transcript.
+- Recording has no software-imposed duration cap, but a standard WAV file's own RIFF size
+  field physically caps a single recording around 3–4 hours at typical capture rates —
+  well past Groq's own hourly audio budget above, so not the practical limit on a useful
+  single session.
 - Local-only git; nothing is pushed unless asked. Generated artifacts are in English.
 
 ## Out of scope (explicit)
