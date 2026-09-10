@@ -73,7 +73,11 @@
   gap: var(--space-3);
 }
 
-.modal-checkbox-row {
+/* Selector must out-specify `.modal label` above (0,1,1), which otherwise
+   wins on display/color and lays the row out as a block -- that dropped the
+   checkbox onto its own line, detached above the text it labels. Same for
+   the box itself against `.modal input`'s display:block/width:100%. */
+.modal label.modal-checkbox-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -83,7 +87,9 @@
   cursor: pointer;
 }
 
-.modal-checkbox-row input[type="checkbox"] {
+.modal .modal-checkbox-row input[type="checkbox"] {
+  display: inline-block;
+  flex-shrink: 0;
   width: auto;
   margin: 0;
 }
@@ -163,7 +169,10 @@
   overflow-y: auto;
 }
 
-.settings-section .modal-divider:last-of-type {
+/* Only a divider with nothing after it is decoration; `:last-of-type` also
+   matched dividers that still had content below them (it ignores non-<hr>
+   siblings), silently swallowing a real group separator. */
+.settings-section .modal-divider:last-child {
   display: none;
 }
 
@@ -238,4 +247,74 @@
 .dictionary-replacement {
   flex: 1;
   color: var(--color-ink-muted);
+}
+
+/* Selects. Previously unstyled, so every dropdown rendered as the OS's own
+   raised popup button -- a glossy, shadowed control sitting on top of an
+   otherwise flat token-built panel, and sized to its longest option so the
+   three dropdowns in Voice input never lined up. Now they match .modal
+   input exactly (same box, same fill, same border, full width), with the
+   disclosure chevron drawn in CSS on a wrapper rather than pulled in as an
+   image -- a data-URI SVG would have to hardcode its own stroke color,
+   which the token rule forbids and which could not follow the theme. */
+.modal select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-6) var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.modal select:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.modal select:disabled {
+  color: var(--color-ink-muted);
+  background: var(--color-surface-sunken);
+  cursor: default;
+}
+
+.select-wrap {
+  position: relative;
+  display: block;
+  margin-top: var(--space-2);
+}
+
+/* Chevron: two borders of a square, rotated -- pure CSS, so it inherits the
+   theme's ink color and needs no asset. Pointer-events off so the whole
+   control (chevron included) still opens the menu. */
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--color-ink-muted);
+  border-bottom: 1.5px solid var(--color-ink-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.select-wrap:has(select:disabled)::after {
+  opacity: 0.5;
+}
+
+/* A hint describes the control directly above it, so it must read as
+   attached to that control: pull the control's own bottom margin in, rather
+   than leaving a full --space-4 on both sides of the hint, which made it
+   float between two unrelated rows. */
+.modal label.modal-checkbox-row:has(+ .settings-hint),
+.modal label:has(+ .settings-hint) {
+  margin-bottom: var(--space-1);
 }

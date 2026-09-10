@@ -30,17 +30,19 @@ export function VoiceInputSection() {
     <div className="settings-section">
       <label htmlFor="voice-input-model">
         {t("voiceInputModelLabel")}
-        <select
-          id="voice-input-model"
-          value={model}
-          onChange={(e) => setSettings({ model: e.target.value as WhisperModel })}
-        >
-          {WHISPER_MODELS.map((m) => (
-            <option key={m} value={m}>
-              {t(MODEL_LABEL_KEYS[m])}
-            </option>
-          ))}
-        </select>
+        <span className="select-wrap">
+          <select
+            id="voice-input-model"
+            value={model}
+            onChange={(e) => setSettings({ model: e.target.value as WhisperModel })}
+          >
+            {WHISPER_MODELS.map((m) => (
+              <option key={m} value={m}>
+                {t(MODEL_LABEL_KEYS[m])}
+              </option>
+            ))}
+          </select>
+        </span>
       </label>
 
       <hr className="modal-divider" />
@@ -56,36 +58,40 @@ export function VoiceInputSection() {
       <p className="settings-hint">{t("voiceInputAutoDetectDescription")}</p>
       <label htmlFor="voice-input-language">
         {t("voiceInputLanguageLabel")}
-        <select
-          id="voice-input-language"
-          value={language}
-          disabled={autoDetectLanguage}
-          onChange={(e) => setSettings({ language: e.target.value })}
-        >
-          {LANGUAGE_OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {t(opt.labelKey)}
-            </option>
-          ))}
-        </select>
+        <span className="select-wrap">
+          <select
+            id="voice-input-language"
+            value={language}
+            disabled={autoDetectLanguage}
+            onChange={(e) => setSettings({ language: e.target.value })}
+          >
+            {LANGUAGE_OPTIONS.map((opt) => (
+              <option key={opt.code} value={opt.code}>
+                {t(opt.labelKey)}
+              </option>
+            ))}
+          </select>
+        </span>
       </label>
 
       <hr className="modal-divider" />
 
       <label htmlFor="voice-input-mic">
         {t("voiceInputMicLabel")}
-        <select
-          id="voice-input-mic"
-          value={micDeviceId ?? ""}
-          onChange={(e) => setSettings({ micDeviceId: e.target.value || undefined })}
-        >
-          <option value="">{t("voiceInputMicDefault")}</option>
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+        <span className="select-wrap">
+          <select
+            id="voice-input-mic"
+            value={micDeviceId ?? ""}
+            onChange={(e) => setSettings({ micDeviceId: e.target.value || undefined })}
+          >
+            <option value="">{t("voiceInputMicDefault")}</option>
+            {devices.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </span>
       </label>
       <p className="settings-hint">{t("voiceInputMicDescription")}</p>
       {devicesError && <p className="fail-reason">{devicesError}</p>}

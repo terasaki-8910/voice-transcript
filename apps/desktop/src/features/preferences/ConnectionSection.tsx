@@ -66,9 +66,9 @@ export function ConnectionSection() {
 
   return (
     <div className="settings-section">
-      <p className="modal-status">
-        {keyStatus === "set" ? t("apiKeySet") : keyStatus === "unset" ? t("apiKeyNotSet") : ""}
-      </p>
+      {keyStatus !== "checking" && (
+        <p className="modal-status">{keyStatus === "set" ? t("apiKeySet") : t("apiKeyNotSet")}</p>
+      )}
       <label htmlFor="api-key-input">
         {t("apiKeyLabel")}
         <input
@@ -94,13 +94,11 @@ export function ConnectionSection() {
 
       <hr className="modal-divider" />
 
-      <p className="modal-status">
-        {databaseUrlStatus === "set"
-          ? t("databaseUrlSet")
-          : databaseUrlStatus === "unset"
-            ? t("databaseUrlNotSet")
-            : ""}
-      </p>
+      {databaseUrlStatus !== "checking" && (
+        <p className="modal-status">
+          {databaseUrlStatus === "set" ? t("databaseUrlSet") : t("databaseUrlNotSet")}
+        </p>
+      )}
       <label htmlFor="database-url-input">
         {t("databaseUrlLabel")}
         <input
