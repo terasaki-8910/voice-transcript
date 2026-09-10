@@ -11,6 +11,7 @@
 // selection is read by RecordingContext when starting a recording.
 import { createContext, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import type { AudioSource } from "../../lib/tauri";
 
 const STORAGE_KEY = "voice-transcript-voice-input-settings";
 
@@ -39,18 +40,39 @@ export const LANGUAGE_OPTIONS: readonly LanguageOption[] = [
   { code: "de", labelKey: "languageGerman" },
 ];
 
+// Recording sources, in the order they appear in the picker. "both" mixes
+// the microphone and the system's output into one mono track (recording.rs);
+// "system" alone is the "transcribe this call/video" case where the room's
+// own noise is not wanted.
+export interface AudioSourceOption {
+  value: AudioSource;
+  labelKey: "audioSourceMicrophone" | "audioSourceSystem" | "audioSourceBoth";
+}
+export const AUDIO_SOURCE_OPTIONS: readonly AudioSourceOption[] = [
+  { value: "microphone", labelKey: "audioSourceMicrophone" },
+  { value: "system", labelKey: "audioSourceSystem" },
+  { value: "both", labelKey: "audioSourceBoth" },
+];
+
 export interface VoiceInputSettings {
   model: WhisperModel;
   autoDetectLanguage: boolean;
   language: string;
+  audioSource: AudioSource;
   micDeviceId?: string;
+  outputDeviceId?: string;
 }
 
 const DEFAULT_SETTINGS: VoiceInputSettings = {
   model: "whisper-large-v3-turbo",
   autoDetectLanguage: true,
   language: "ja",
+  // Microphone-only stays the default: system capture needs a permission
+  // grant on macOS and exists on no Linux build, so it has to be chosen, not
+  // inherited by anyone who upgrades into this version.
+  audioSource: "microphone",
   micDeviceId: undefined,
+  outputDeviceId: undefined,
 };
 
 function readStoredSettings(): VoiceInputSettings {

@@ -9,5 +9,15 @@
 	     required regardless of capture method. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Voice Transcript uses the microphone to record audio for transcription.</string>
+	<!-- System audio recording (SPEC.md > Audio recording). Its own TCC
+	     category, separate from the microphone: capturing what other apps
+	     are playing goes through a Core Audio process tap (macOS 14.6+),
+	     which prompts on first stream start, not on tap creation. Denial is
+	     enforced silently -- every Core Audio call still returns noErr and
+	     the tap simply delivers zeroes -- which is why recording.rs reports
+	     a wholly-silent source back to the GUI instead of trusting the
+	     status codes. -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Voice Transcript records system audio so playback from other apps can be transcribed.</string>
 </dict>
 </plist>

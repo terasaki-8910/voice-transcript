@@ -86,6 +86,7 @@ pub fn run() {
             commands::delete_dictionary_entry,
             commands::import_dictionary_file,
             recording::list_input_devices,
+            recording::list_output_devices,
             recording::start_recording,
             recording::stop_recording,
         ])

@@ -44,12 +44,12 @@ function renderSidebar({
   preferencesOpen = false,
   onOpenPreferences = vi.fn(),
   startRecordingFn = vi.fn(async () => {}),
-  stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 1 })),
+  stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 1, silentSources: [] })),
 }: {
   preferencesOpen?: boolean;
   onOpenPreferences?: () => void;
-  startRecordingFn?: (deviceId?: string) => Promise<void>;
-  stopRecordingFn?: () => Promise<{ path: string; durationSeconds: number }>;
+  startRecordingFn?: () => Promise<void>;
+  stopRecordingFn?: () => Promise<{ path: string; durationSeconds: number; silentSources: string[] }>;
 } = {}) {
   return render(
     <I18nProvider>
@@ -210,7 +210,7 @@ describe("Sidebar", () => {
   });
 
   it("clicking again while recording stops it and adds the file to the queue", async () => {
-    const stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 3 }));
+    const stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 3, silentSources: [] }));
     renderSidebar({ stopRecordingFn });
 
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));

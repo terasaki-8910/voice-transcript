@@ -1,4 +1,4 @@
-// Microphone recording (SPEC.md > Microphone recording). Owns the
+// Audio recording (SPEC.md > Audio recording). Owns the
 // start/stop/elapsed-time state shared between the sidebar's Record control
 // (Sidebar.tsx) and the persistent active-recording bar (QueueView.tsx) --
 // two different places in the tree need the same state, hence a Context
@@ -15,7 +15,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { startRecording, stopRecording } from "../../lib/tauri";
-import type { RecordingResult } from "../../lib/tauri";
+import type { RecordingResult, StartRecordingOptions } from "../../lib/tauri";
 import { useQueue } from "../queue/QueueContext";
 import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
 
@@ -25,6 +25,10 @@ interface RecordingContextValue {
   status: RecordingStatus;
   elapsedSeconds: number;
   error?: string;
+  // Sources that were captured but delivered only digital silence. Kept
+  // separate from `error`: the file is real and already queued, so this is a
+  // "check your permissions" note, not a failure.
+  silentSources?: string[];
   start: () => Promise<void>;
   stop: () => Promise<void>;
 }
@@ -34,7 +38,7 @@ const RecordingContext = createContext<RecordingContextValue | null>(null);
 export interface RecordingProviderProps {
   children: ReactNode;
   // Injectable for tests -- default to the real Tauri-backed functions.
-  startRecordingFn?: (deviceId?: string) => Promise<void>;
+  startRecordingFn?: (options: StartRecordingOptions) => Promise<void>;
   stopRecordingFn?: () => Promise<RecordingResult>;
 }
 
@@ -44,10 +48,11 @@ export function RecordingProvider({
   stopRecordingFn = stopRecording,
 }: RecordingProviderProps) {
   const { addFiles } = useQueue();
-  const { micDeviceId } = useVoiceInputSettings();
+  const { audioSource, micDeviceId, outputDeviceId } = useVoiceInputSettings();
   const [status, setStatus] = useState<RecordingStatus>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string>();
+  const [silentSources, setSilentSources] = useState<string[]>();
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -58,8 +63,9 @@ export function RecordingProvider({
 
   const start = async () => {
     setError(undefined);
+    setSilentSources(undefined);
     try {
-      await startRecordingFn(micDeviceId);
+      await startRecordingFn({ source: audioSource, deviceId: micDeviceId, outputDeviceId });
       setElapsedSeconds(0);
       setStatus("recording");
       intervalRef.current = setInterval(() => {
@@ -79,6 +85,7 @@ export function RecordingProvider({
     try {
       const result = await stopRecordingFn();
       addFiles([result.path]);
+      setSilentSources(result.silentSources?.length ? result.silentSources : undefined);
       setStatus("idle");
       setElapsedSeconds(0);
     } catch (err) {
@@ -93,7 +100,7 @@ export function RecordingProvider({
   // (e.g. a start() still using a mic the user just switched away from in
   // Settings). This context isn't a hot re-render path, so there's no real
   // cost to skipping memoization here.
-  const value: RecordingContextValue = { status, elapsedSeconds, error, start, stop };
+  const value: RecordingContextValue = { status, elapsedSeconds, error, silentSources, start, stop };
 
   return <RecordingContext.Provider value={value}>{children}</RecordingContext.Provider>;
 }

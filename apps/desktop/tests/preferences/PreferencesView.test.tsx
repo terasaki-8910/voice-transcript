@@ -22,7 +22,20 @@ import { PreferencesView } from "../../src/features/preferences/PreferencesView"
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invoke(...args),
+  invoke: (command: string, ...rest: unknown[]) => {
+    // The Voice input section enumerates audio devices when it mounts, and
+    // it is the default section, so those calls land before anything any
+    // test here actually asserts on. They are answered by name instead of
+    // from the ordered queue below -- otherwise adding or removing a device
+    // call reshuffles every mockResolvedValueOnce in the file.
+    if (command === "list_input_devices" || command === "list_output_devices") {
+      // Deliberately not recorded on the spy: routing them through it would
+      // consume the mockResolvedValueOnce values queued for the calls these
+      // tests are actually about.
+      return Promise.resolve([]);
+    }
+    return invoke(command, ...rest);
+  },
 }));
 
 function renderView(onClose: () => void = vi.fn()) {
@@ -38,7 +51,6 @@ function renderView(onClose: () => void = vi.fn()) {
 }
 
 function mockMountStatus(keySet: boolean, databaseUrlSet: boolean) {
-  invoke.mockResolvedValueOnce([]); // list_input_devices (Voice input is the default section)
   invoke.mockResolvedValueOnce(keySet); // get_api_key_status
   invoke.mockResolvedValueOnce(databaseUrlSet); // get_database_url_status
 }
@@ -58,7 +70,6 @@ describe("PreferencesView - section navigation", () => {
   });
 
   it("opens on the Voice input section by default", async () => {
-    invoke.mockResolvedValueOnce([]); // list_input_devices
     renderView();
     await waitFor(() => expect(screen.getByLabelText("Model")).toBeDefined());
     expect(screen.getByRole("button", { name: "Voice input" }).getAttribute("aria-current")).toBe("page");

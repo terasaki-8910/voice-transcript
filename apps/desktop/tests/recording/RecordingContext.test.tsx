@@ -1,4 +1,4 @@
-// Microphone recording (SPEC.md > Microphone recording). Pins
+// Audio recording (SPEC.md > Audio recording). Pins
 // RecordingContext's start/stop lifecycle: a successful stop hands the
 // finished file to the existing queue (addFiles) exactly like a picked
 // file; a failure at either step surfaces as `error` without leaving the
@@ -9,7 +9,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { RecordingProvider, useRecording } from "../../src/features/recording/RecordingContext";
 import { VoiceInputSettingsProvider, useVoiceInputSettings } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
-import type { RecordingResult } from "../../src/lib/tauri";
+import type { RecordingResult, StartRecordingOptions } from "../../src/lib/tauri";
 
 beforeEach(() => {
   // shouldAdvanceTime: real wall-clock time still passes in the background
@@ -27,9 +27,16 @@ afterEach(() => {
 });
 
 interface HarnessProps {
-  startRecordingFn: (deviceId?: string) => Promise<void>;
+  startRecordingFn: (options: StartRecordingOptions) => Promise<void>;
   stopRecordingFn: () => Promise<RecordingResult>;
 }
+
+const finished = (over: Partial<RecordingResult> = {}): RecordingResult => ({
+  path: "",
+  durationSeconds: 0,
+  silentSources: [],
+  ...over,
+});
 
 function Harness() {
   const recording = useRecording();
@@ -40,6 +47,7 @@ function Harness() {
       <p data-testid="status">{recording.status}</p>
       <p data-testid="elapsed">{recording.elapsedSeconds}</p>
       <p data-testid="error">{recording.error ?? ""}</p>
+      <p data-testid="silent">{(recording.silentSources ?? []).join(",")}</p>
       <p data-testid="queue-count">{items.length}</p>
       <button type="button" onClick={() => void recording.start()}>
         start
@@ -49,6 +57,9 @@ function Harness() {
       </button>
       <button type="button" onClick={() => setSettings({ micDeviceId: "mic-2" })}>
         use-mic-2
+      </button>
+      <button type="button" onClick={() => setSettings({ audioSource: "both", outputDeviceId: "out-9" })}>
+        use-both
       </button>
     </div>
   );
@@ -68,25 +79,85 @@ function renderHarness(props: HarnessProps) {
 
 describe("RecordingContext", () => {
   it("starts idle", () => {
-    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn: vi.fn(async () => ({ path: "", durationSeconds: 0 })) });
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn: vi.fn(async () => finished()) });
     expect(screen.getByTestId("status").textContent).toBe("idle");
   });
 
   it("start() passes the selected mic device id and transitions to recording", async () => {
     const startRecordingFn = vi.fn(async () => {});
-    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => ({ path: "", durationSeconds: 0 })) });
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()) });
 
     fireEvent.click(screen.getByText("use-mic-2"));
     fireEvent.click(screen.getByText("start"));
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
-    expect(startRecordingFn).toHaveBeenCalledWith("mic-2");
+    expect(startRecordingFn).toHaveBeenCalledWith({
+      source: "microphone",
+      deviceId: "mic-2",
+      outputDeviceId: undefined,
+    });
+  });
+
+  it("start() passes the chosen audio source and output device through", async () => {
+    const startRecordingFn = vi.fn(async () => {});
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()) });
+
+    fireEvent.click(screen.getByText("use-both"));
+    fireEvent.click(screen.getByText("start"));
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    expect(startRecordingFn).toHaveBeenCalledWith({
+      source: "both",
+      deviceId: undefined,
+      outputDeviceId: "out-9",
+    });
+  });
+
+  it("defaults to microphone-only when nothing has been chosen", async () => {
+    // Upgrading into this version must not start capturing system audio on
+    // its own -- that needs a macOS permission grant the user never gave.
+    const startRecordingFn = vi.fn(async () => {});
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()) });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    expect(startRecordingFn).toHaveBeenCalledWith(expect.objectContaining({ source: "microphone" }));
+  });
+
+  it("reports a source that recorded nothing but silence, without failing the recording", async () => {
+    // macOS denies system-audio capture silently: the stream opens, the file
+    // is real, and every frame is zero. The queue still gets the file.
+    const stopRecordingFn = vi.fn(async () =>
+      finished({ path: "/recordings/r2.wav", silentSources: ["system audio"] }),
+    );
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    fireEvent.click(screen.getByText("stop"));
+
+    await waitFor(() => expect(screen.getByTestId("silent").textContent).toBe("system audio"));
+    expect(screen.getByTestId("error").textContent).toBe("");
+    expect(screen.getByTestId("queue-count").textContent).toBe("1");
+  });
+
+  it("clears a previous silent-source warning when a new recording starts", async () => {
+    const stopRecordingFn = vi.fn(async () => finished({ silentSources: ["system audio"] }));
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    fireEvent.click(screen.getByText("stop"));
+    await waitFor(() => expect(screen.getByTestId("silent").textContent).toBe("system audio"));
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("silent").textContent).toBe(""));
   });
 
   it("ticks elapsedSeconds once a second while recording, with no upper bound", async () => {
     renderHarness({
       startRecordingFn: vi.fn(async () => {}),
-      stopRecordingFn: vi.fn(async () => ({ path: "", durationSeconds: 0 })),
+      stopRecordingFn: vi.fn(async () => finished()),
     });
 
     fireEvent.click(screen.getByText("start"));
@@ -108,7 +179,7 @@ describe("RecordingContext", () => {
     const startRecordingFn = vi.fn(async () => {
       throw new Error("no microphone available");
     });
-    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => ({ path: "", durationSeconds: 0 })) });
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()) });
 
     fireEvent.click(screen.getByText("start"));
     await waitFor(() => expect(screen.getByTestId("error").textContent).toBe("no microphone available"));
@@ -116,7 +187,7 @@ describe("RecordingContext", () => {
   });
 
   it("stop() finalizes the recording, adds it to the queue, and resets to idle", async () => {
-    const stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r1.wav", durationSeconds: 12 }));
+    const stopRecordingFn = vi.fn(async () => finished({ path: "/recordings/r1.wav", durationSeconds: 12 }));
     renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn });
 
     fireEvent.click(screen.getByText("start"));

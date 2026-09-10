@@ -1,26 +1,37 @@
 // Settings > Voice input (ACCEPTANCE G12). Pins that changing model/
-// language/mic here actually updates VoiceInputSettingsContext -- the
-// context this app's QueueContext/RecordingContext read from, not just that
-// the controls render.
+// language/audio source/devices here actually updates
+// VoiceInputSettingsContext -- the context this app's QueueContext/
+// RecordingContext read from, not just that the controls render.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { VoiceInputSettingsProvider, useVoiceInputSettings } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { VoiceInputSection } from "../../src/features/preferences/VoiceInputSection";
 
-const invoke = vi.fn();
+// Routed by command name rather than call order: the section fires
+// list_input_devices and list_output_devices from the same effect, and a
+// once-per-call queue would bind whichever happened to land first.
+const inputDevices = vi.fn<() => Promise<unknown>>();
+const outputDevices = vi.fn<() => Promise<unknown>>();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invoke(...args),
+  invoke: (command: string) => {
+    if (command === "list_input_devices") return inputDevices();
+    if (command === "list_output_devices") return outputDevices();
+    throw new Error(`unexpected command: ${command}`);
+  },
 }));
 
 function SettingsProbe() {
-  const { model, autoDetectLanguage, language, micDeviceId } = useVoiceInputSettings();
+  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId } =
+    useVoiceInputSettings();
   return (
     <div>
       <p data-testid="probe-model">{model}</p>
       <p data-testid="probe-auto-detect">{String(autoDetectLanguage)}</p>
       <p data-testid="probe-language">{language}</p>
+      <p data-testid="probe-source">{audioSource}</p>
       <p data-testid="probe-mic">{micDeviceId ?? ""}</p>
+      <p data-testid="probe-output">{outputDeviceId ?? ""}</p>
     </div>
   );
 }
@@ -38,12 +49,12 @@ function renderSection() {
 
 describe("VoiceInputSection", () => {
   beforeEach(() => {
-    invoke.mockReset();
+    inputDevices.mockReset().mockResolvedValue([]);
+    outputDevices.mockReset().mockResolvedValue([{ id: "out-1", name: "MacBook Pro Speakers" }]);
     window.localStorage.clear();
   });
 
   it("changing the model updates VoiceInputSettingsContext", async () => {
-    invoke.mockResolvedValueOnce([]); // list_input_devices
     renderSection();
     await waitFor(() => expect(screen.getByLabelText("Model")).toBeDefined());
 
@@ -52,7 +63,6 @@ describe("VoiceInputSection", () => {
   });
 
   it("defaults to auto-detect on, with the language override disabled", async () => {
-    invoke.mockResolvedValueOnce([]);
     renderSection();
     await waitFor(() => expect(screen.getByLabelText("Auto-detect language")).toBeDefined());
 
@@ -61,7 +71,6 @@ describe("VoiceInputSection", () => {
   });
 
   it("turning off auto-detect enables the language override and changing it updates the context", async () => {
-    invoke.mockResolvedValueOnce([]);
     renderSection();
     await waitFor(() => expect(screen.getByLabelText("Auto-detect language")).toBeDefined());
 
@@ -74,7 +83,7 @@ describe("VoiceInputSection", () => {
   });
 
   it("lists microphones returned by list_input_devices and selecting one updates the context", async () => {
-    invoke.mockResolvedValueOnce([
+    inputDevices.mockResolvedValue([
       { id: "mic-1", name: "Built-in Microphone" },
       { id: "mic-2", name: "USB Mic" },
     ]);
@@ -85,8 +94,50 @@ describe("VoiceInputSection", () => {
     expect(screen.getByTestId("probe-mic").textContent).toBe("mic-2");
   });
 
+  it("defaults to microphone-only and hides the output picker until system audio is chosen", async () => {
+    renderSection();
+    await waitFor(() => expect(screen.getByLabelText("Audio source")).toBeDefined());
+
+    expect(screen.getByTestId("probe-source").textContent).toBe("microphone");
+    expect(screen.queryByLabelText("Output device to capture")).toBeNull();
+  });
+
+  it("choosing a system source updates the context and reveals the output picker", async () => {
+    renderSection();
+    await waitFor(() => expect(screen.getByLabelText("Audio source")).toBeDefined());
+
+    fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "both" } });
+    expect(screen.getByTestId("probe-source").textContent).toBe("both");
+
+    await waitFor(() => expect(screen.getByLabelText("Output device to capture")).toBeDefined());
+    fireEvent.change(screen.getByLabelText("Output device to capture"), { target: { value: "out-1" } });
+    expect(screen.getByTestId("probe-output").textContent).toBe("out-1");
+  });
+
+  it("disables the microphone picker when only system audio is being captured", async () => {
+    renderSection();
+    await waitFor(() => expect(screen.getByLabelText("Audio source")).toBeDefined());
+
+    fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "system" } });
+    expect(screen.getByLabelText("Microphone")).toHaveProperty("disabled", true);
+  });
+
+  it("says system audio is unavailable when the platform reports no output devices", async () => {
+    // Linux: recording.rs returns an empty list rather than an error, which
+    // is how the GUI knows to disable the option instead of offering a
+    // picker that could only ever produce silence.
+    outputDevices.mockResolvedValue([]);
+    renderSection();
+
+    await waitFor(() =>
+      expect(screen.getByText("System audio capture is not available on this platform.")).toBeDefined(),
+    );
+    const systemOption = screen.getByRole("option", { name: "System audio" });
+    expect(systemOption).toHaveProperty("disabled", true);
+  });
+
   it("shows an inline error if the device list fails to load, without crashing the section", async () => {
-    invoke.mockRejectedValueOnce(new Error("failed to enumerate input devices"));
+    inputDevices.mockRejectedValue(new Error("failed to enumerate input devices"));
     renderSection();
 
     await waitFor(() => expect(screen.getByText("failed to enumerate input devices")).toBeDefined());

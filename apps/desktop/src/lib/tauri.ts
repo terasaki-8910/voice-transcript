@@ -234,26 +234,49 @@ export function importDictionaryFile(): Promise<DictionaryImportResult | null> {
   return invoke("import_dictionary_file");
 }
 
-// Microphone recording (SPEC.md > Microphone recording). All capture happens
-// in Rust (recording.rs, cpal -> hound WAV) -- the webview only ever sends a
-// chosen device id and receives a finished file's path/duration; no audio
-// bytes cross this boundary.
+// Audio recording (SPEC.md > Audio recording). All capture happens in Rust
+// (recording.rs, cpal -> hound WAV) -- the webview only ever sends the
+// chosen source and device ids and receives a finished file's path/duration;
+// no audio bytes cross this boundary.
 export interface InputDevice {
   id: string;
   name: string;
 }
 
+// "system" and "both" capture the output device (WASAPI loopback on Windows,
+// a Core Audio process tap on macOS 14.6+). Linux has neither, and
+// list_output_devices returns an empty list there.
+export type AudioSource = "microphone" | "system" | "both";
+
 export function listInputDevices(): Promise<InputDevice[]> {
   return invoke("list_input_devices");
 }
 
-export function startRecording(deviceId?: string): Promise<void> {
-  return invoke("start_recording", { deviceId: deviceId ?? null });
+export function listOutputDevices(): Promise<InputDevice[]> {
+  return invoke("list_output_devices");
+}
+
+export interface StartRecordingOptions {
+  source: AudioSource;
+  deviceId?: string;
+  outputDeviceId?: string;
+}
+
+export function startRecording(options: StartRecordingOptions): Promise<void> {
+  return invoke("start_recording", {
+    source: options.source,
+    deviceId: options.deviceId ?? null,
+    outputDeviceId: options.outputDeviceId ?? null,
+  });
 }
 
 export interface RecordingResult {
   path: string;
   durationSeconds: number;
+  // Requested sources that produced nothing but digital silence -- the only
+  // way to notice a silently-denied macOS system-audio permission (see
+  // recording.rs's RecordingOutcome).
+  silentSources: string[];
 }
 
 export function stopRecording(): Promise<RecordingResult> {

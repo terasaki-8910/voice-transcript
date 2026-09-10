@@ -135,7 +135,7 @@ integration acceptance.
   verified by actually running the workflow once as a manual smoke test, at
   or after integration acceptance, not by a unit test.
 
-## J. Microphone recording
+## J. Audio recording
 - **J1** — Starting a recording shows an elapsed-time indicator with no
   auto-stop; nothing in the code imposes a duration cap (no
   timer/interval that calls stop after a fixed duration).
@@ -158,6 +158,32 @@ integration acceptance.
   built bundle — verified against a real `tauri build` bundle, not
   `tauri dev` (the dev binary has no Info.plist at all, so a dev-only check
   cannot catch a missing entitlement).
+- **J6** — The audio source (microphone / system audio / both) chosen in
+  Settings > Voice input is what `start_recording` is actually called with,
+  and an install that has never chosen one records the microphone only
+  (`apps/desktop/tests/recording/RecordingContext.test.tsx`,
+  `apps/desktop/tests/preferences/VoiceInputSection.test.tsx`, plus
+  `recording.rs`'s `audio_source_defaults_to_microphone_only`).
+- **J7** — Mixing two sources is sample-correct and stays continuous across
+  mixer ticks: resampling between differing device rates interpolates rather
+  than dropping frames, a starved source contributes silence while holding
+  its read position, and a source whose clock runs fast has its backlog
+  bounded instead of growing for the whole session (Rust unit tests in
+  `recording.rs`'s `#[cfg(test)]` module).
+- **J8** — A source that captured nothing but digital silence is reported
+  back and surfaced in the GUI without failing the recording — the file is
+  still finalized and still queued. This is the only detectable form of a
+  denied macOS system-audio permission, which TCC enforces silently (Rust
+  peak-tracking tests + `RecordingContext.test.tsx`).
+- **J9** — Linux refuses system-audio capture with an explicit message
+  naming the monitor-source workaround, and the GUI disables the option
+  there rather than offering a picker that could only return silence
+  (`recording.rs`'s `linux_reports_system_capture_as_unavailable`, and
+  `VoiceInputSection.test.tsx`'s empty-output-device case). Manual on Linux
+  itself; the platform split is unit-pinned.
+- **J10** — macOS: `NSAudioCaptureUsageDescription` is present in the built
+  bundle — system capture is its own TCC category, so the microphone keys
+  in J5 do not cover it. Same real-`tauri build` check as J5.
 
 ## K. Custom dictionary (word replacement)
 - **K1** — `applyDictionary()` replaces every occurrence of a stored word

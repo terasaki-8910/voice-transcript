@@ -115,6 +115,15 @@ export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
         </button>
       </div>
       {recording.error && <p className="sidebar-record-error">{recording.error}</p>}
+      {recording.silentSources && (
+        // The recording itself succeeded and is already queued -- this only
+        // says one of the chosen sources delivered silence, which on macOS
+        // almost always means the system-audio permission was never granted
+        // (TCC denies it without any error, see recording.rs).
+        <p className="sidebar-record-warning" role="status">
+          {t("recordingSilentSource").replace("{sources}", recording.silentSources.join(", "))}
+        </p>
+      )}
 
       <div className="sidebar-search">
         <FiSearch aria-hidden="true" />

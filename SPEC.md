@@ -111,7 +111,7 @@ history of past runs.
   menu on macOS, etc.) are included by platform convention and aren't
   itemized here.
 
-## Microphone recording
+## Audio recording
 - The GUI can record directly from the microphone as a second way to get
   audio into the queue, alongside picking a file — a "Record" control sits
   beside "Add files" in the sidebar, and a persistent bar (visible
@@ -146,12 +146,53 @@ history of past runs.
 - Microphone selection is a Settings > Voice input control (see below);
   listing devices needs no prior permission grant, only actually opening a
   capture stream does.
+- **Audio source (added 2026-09-10): microphone, system audio, or both.**
+  "System audio" records what the computer itself is playing — the other
+  side of a call, a video — and "both" mixes it with the microphone into a
+  single track, which is the meeting/interview case. Microphone-only stays
+  the default: system capture needs a permission grant on macOS and does not
+  exist at all on Linux, so it is chosen, never inherited on upgrade.
+- **Implementation: the same `cpal` capture path, pointed at an output
+  device.** cpal turns an output device into a capture device when you open
+  an input stream on it — WASAPI loopback on Windows, a Core Audio process
+  tap feeding a private aggregate device on macOS 14.6+. No second audio
+  library, no virtual-device install (BlackHole/VB-Cable) asked of the user.
+- **Linux is microphone-only, stated up front.** ALSA has no loopback path,
+  and PulseAudio/PipeWire monitor sources are not visible to cpal's ALSA
+  host, so the GUI disables the system-audio options there and
+  `start_recording` refuses them with a message naming the workaround (route
+  playback through a monitor source and select it as the microphone) rather
+  than opening a stream that would return silence.
+- **macOS permission**: system capture is its own TCC category, separate
+  from the microphone — it needs `NSAudioCaptureUsageDescription` in
+  Info.plist, and it prompts on the first stream *start*, not when the tap
+  is created. A denial is enforced **silently**: every Core Audio call still
+  returns `noErr` and the tap simply delivers zeroes. Because no API reports
+  this, the recorder tracks each source's peak level and reports any source
+  that produced nothing but digital silence back to the GUI, which shows a
+  "check the permission" note next to the Record control. The recording
+  itself still succeeds and is still queued.
+- **Output format: 16-bit mono PCM at the capture rate**, for every source
+  including microphone-only — one mixing path, no branch for the two-source
+  build. Two capture devices cannot be summed without first agreeing on a
+  rate and a channel count, and the pipeline downstream re-encodes every
+  input to 16 kHz mono before upload anyway (`packages/core/src/audio.ts`),
+  so nothing that reaches Groq is lost. Accepted tradeoffs, stated rather
+  than hidden: recordings are no longer archival stereo, and summing two
+  sources is hard-clamped at full scale rather than each being attenuated by
+  half — a quiet microphone keeps its level, at the cost of clipping in the
+  rare instant where both sources peak together.
+- **Alignment between the two sources is driven by the wall clock**, not by
+  sample counts: two devices run on two independent clocks, so a source that
+  falls behind contributes silence for that stretch instead of pushing
+  everything after it out of sync for the rest of an hour-long session.
 
 ## Settings
 - A sectioned Settings dialog (renamed in substance from the original
   single-panel Preferences view, same entry points) — sections: **Voice
-  input** (spoken-language auto-detect + override, Whisper model, recording
-  microphone), **Custom dictionary** (see below), **General** (display
+  input** (spoken-language auto-detect + override, Whisper model, audio
+  source, recording microphone, captured output device), **Custom
+  dictionary** (see below), **General** (display
   preferences), **Connection** (`GROQ_API_KEY` / `DATABASE_URL`, described
   next). Reachable via the sidebar's Settings item, the native menu's
   **Preferences...** item, and its platform shortcut (Cmd+,/Ctrl+,) — all
