@@ -27,10 +27,10 @@ export interface UseTranscriptNotes {
 }
 
 // transcriptionId is undefined whenever this row's transcription never got
-// a DB id (no DATABASE_URL configured, or the history write itself failed
-// -- see TranscribeResponse's `id` comment in lib/tauri.ts): the hook then
-// reports an always-empty, read-only note list rather than erroring, so a
-// row can render normally with notes simply unavailable.
+// a DB id (no database connection configured, or the history write itself
+// failed -- see TranscribeResponse's `id` comment in lib/tauri.ts): the
+// hook then reports an always-empty, read-only note list rather than
+// erroring, so a row can render normally with notes simply unavailable.
 //
 // knownNoteCount, when passed as exactly 0, skips the initial listNotes()
 // fetch entirely -- HistoryRow gets this from listHistory()'s own bulk

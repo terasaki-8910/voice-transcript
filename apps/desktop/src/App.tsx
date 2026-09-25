@@ -22,6 +22,7 @@ import { HistoryNavProvider } from "./features/history/HistoryNavContext";
 import { NavProvider } from "./features/nav/NavContext";
 import { SelectionProvider } from "./features/selection/SelectionContext";
 import { PreferencesView } from "./features/preferences/PreferencesView";
+import { SearchModal } from "./features/search/SearchModal";
 import { useMenuEvents } from "./features/menu/useMenuEvents";
 import { useI18n } from "./i18n/I18nContext";
 import { setMenuLanguage } from "./lib/tauri";
@@ -32,7 +33,24 @@ import { setMenuLanguage } from "./lib/tauri";
 // wiring without needing the real Tauri bridge.
 export function AppShell() {
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   useMenuEvents(() => setShowPreferences(true));
+
+  // Cmd+F (macOS) / Ctrl+F (Windows/Linux): the conventional in-app search
+  // shortcut, works regardless of which tab has focus (not gated behind
+  // the sidebar having focus first) -- webview-level, not a native OS menu
+  // item, since it only needs to work while this window is focused, the
+  // same class of shortcut as a browser's own find-in-page.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // The sidecar writes a history record as soon as a queue item finishes
   // (success or failure -- both are recorded, per packages/core/src/
@@ -77,8 +95,13 @@ export function AppShell() {
 
   return (
     <>
-      <AppLayout preferencesOpen={showPreferences} onOpenPreferences={() => setShowPreferences(true)} />
+      <AppLayout
+        preferencesOpen={showPreferences}
+        onOpenPreferences={() => setShowPreferences(true)}
+        onOpenSearch={() => setShowSearch(true)}
+      />
       {showPreferences && <PreferencesView onClose={() => setShowPreferences(false)} />}
+      {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
     </>
   );
 }

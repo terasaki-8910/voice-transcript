@@ -34,9 +34,9 @@ export interface TranscribeResponse {
   language?: string;
   duration?: number;
   // The new transcriptions.id -- absent whenever no history row was
-  // written (no DATABASE_URL configured, or the write itself failed).
-  // Transcript notes (below) need it to attach a note to a Queue item, not
-  // only to a row already listed in History.
+  // written (no database connection configured, or the write itself
+  // failed). Transcript notes (below) need it to attach a note to a Queue
+  // item, not only to a row already listed in History.
   id?: number;
 }
 
@@ -117,6 +117,33 @@ function fromDto(dto: HistoryEntryDto): HistoryEntry {
 export async function listHistory(): Promise<HistoryEntry[]> {
   const rows = await invoke<HistoryEntryDto[]>("list_history");
   return rows.map(fromDto);
+}
+
+// Search (SPEC.md > Search): title, transcript body, and note text at
+// once, space-separated terms ANDed together -- queries the whole table
+// via the sidecar (db/history.ts's searchHistory), not just whatever
+// listHistory() already has loaded, so it reaches history past that
+// call's own limit and reaches note text at all (notes aren't bulk-loaded
+// client-side, see useTranscriptNotes' knownNoteCount).
+export interface HistorySearchResult {
+  id: number;
+  sourceFileName: string;
+  startedAt: Date;
+  transcriptText: string | null;
+  matchedNotes: { quotedText: string; note: string }[];
+}
+
+interface HistorySearchResultDto {
+  id: number;
+  sourceFileName: string;
+  startedAt: string;
+  transcriptText: string | null;
+  matchedNotes: { quotedText: string; note: string }[];
+}
+
+export async function searchHistory(query: string): Promise<HistorySearchResult[]> {
+  const rows = await invoke<HistorySearchResultDto[]>("search_history", { query });
+  return rows.map((dto) => ({ ...dto, startedAt: new Date(dto.startedAt) }));
 }
 
 export interface TrashResult {

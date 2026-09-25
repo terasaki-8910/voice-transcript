@@ -266,6 +266,33 @@ pub async fn list_history(app: tauri::AppHandle) -> Result<Vec<HistoryRecordDto>
     call_sidecar(&app, "list-history", "null").await
 }
 
+// Search (SPEC.md > Search): title, transcript body, and note text at once,
+// space-separated terms ANDed together -- the sidecar owns tokenization and
+// the query itself (packages/core/src/db/history.ts's searchHistory), this
+// is a thin proxy like list_history above.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchedNoteDto {
+    pub quoted_text: String,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorySearchResultDto {
+    pub id: i64,
+    pub source_file_name: String,
+    pub started_at: String,
+    pub transcript_text: Option<String>,
+    pub matched_notes: Vec<MatchedNoteDto>,
+}
+
+#[tauri::command]
+pub async fn search_history(app: tauri::AppHandle, query: String) -> Result<Vec<HistorySearchResultDto>, String> {
+    let arg_json = serde_json::json!({ "query": query }).to_string();
+    call_sidecar(&app, "search-history", &arg_json).await
+}
+
 // No standalone get_history command: list_history's rows already include
 // transcriptText, so "opening" an entry in the UI is just expanding
 // already-fetched data, not a new fetch. The sidecar's "get-history" action
@@ -559,6 +586,24 @@ mod tests {
         assert_eq!(parsed.start_offset, 4);
         assert_eq!(parsed.end_offset, 11);
         assert_eq!(parsed.quoted_text, "2GOMCP");
+    }
+
+    // Same regression class, for search_history -- including the nested
+    // matchedNotes array, which is where a missed rename_all on the INNER
+    // struct would otherwise slip through unnoticed.
+    #[test]
+    fn history_search_result_dto_decodes_camel_case_sidecar_json() {
+        let json = r#"[{
+            "id": 1,
+            "sourceFileName": "/audio/a.m4a",
+            "startedAt": "2026-09-25T00:00:00.000Z",
+            "transcriptText": "hello 2GOMCP",
+            "matchedNotes": [{"quotedText": "2GOMCP", "note": "正しくはTogoMCP"}]
+        }]"#;
+        let parsed: Vec<HistorySearchResultDto> =
+            serde_json::from_str(json).expect("must decode camelCase search result");
+        assert_eq!(parsed[0].source_file_name, "/audio/a.m4a");
+        assert_eq!(parsed[0].matched_notes[0].quoted_text, "2GOMCP");
     }
 
     #[test]

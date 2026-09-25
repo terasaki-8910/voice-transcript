@@ -303,11 +303,27 @@ history of past runs.
 - **Copy, two modes**: the existing "copy transcript" action is unchanged
   (transcript text only, exactly as before — most transcripts have no
   notes at all, so nothing about the common case should change). A second
-  "copy with notes" action appears ONLY once a row actually has notes
-  (never as a second, redundant button when it would behave identically to
-  the first) and appends a footer after the transcript body — quoting each
-  note's own snippet and text, in reading order — rather than editing the
-  body or inserting inline markers.
+  "copy with notes" mode appears ONLY once a row actually has notes (never
+  a redundant control when it would behave identically to the first) and
+  appends a footer after the transcript body — quoting each note's own
+  snippet and text, in reading order — rather than editing the body or
+  inserting inline markers. **Presentation (revised 2026-09-25, user-
+  reported):** the two modes share ONE icon-sized trigger, not two
+  differently-shaped controls side by side — a plain copy icon while there
+  are no notes (unchanged), which becomes a small 2-item menu (same
+  pattern as the row's Trash/Delete control) only once notes exist. An
+  icon-plus-text-link pair was tried first and read as visually
+  mismatched and wider than every other row action.
+- **Every note action gives immediate "working" feedback (added
+  2026-09-25, user-reported):** add/edit/delete/link-to-dictionary all
+  round-trip through the sidecar, which is a fresh subprocess per call
+  (no persistent connection — see Architecture), easily several hundred
+  ms. Clicking Save/Delete disables the form and swaps its label
+  (e.g. "Saving...") the instant the click registers, rather than leaving
+  the popover apparently inert until it suddenly closes — which read as
+  broken — and doubles as a duplicate-submission guard (a second click,
+  or an outside click/Escape, is ignored while a request from the same
+  popover is in flight).
 - **Storage**: a `transcript_notes` table (Postgres, same DB/ORM as history
   and the dictionary), foreign-keyed to `transcriptions.id` with an
   `ON DELETE CASCADE` — deleting a history entry also removes its notes,
@@ -317,6 +333,50 @@ history of past runs.
   leftJoin+count, not a per-row follow-up call) so the History list can
   decide whether a given row has anything to fetch without a separate
   round trip per row.
+
+## Search (added 2026-09-25, user-requested)
+- A dedicated search icon sits next to the sidebar's collapse toggle
+  (top of the sidebar, reachable even when the sidebar itself is
+  collapsed to its icon-only rail) and opens a modal covering **title,
+  transcript body, and note text, all three at once** — not the sidebar's
+  own existing inline "文字起こしを検索" filter box, which is unchanged
+  and stays as the quick, always-visible filter it already was.
+- **Why a separate modal, not an extension of the inline filter**: the
+  inline box only filters the page of history already loaded client-side
+  (at most `listHistory()`'s own row limit) by title and body — it can't
+  reach older history, and it can't reach note text at all (note bodies
+  aren't bulk-loaded client-side for every row, see Transcript notes'
+  `noteCount` design above). This modal instead queries the whole table
+  through a dedicated backend search, so it reaches everything.
+- **Multi-word search is AND, one word can match a different field than
+  another**: space-separated terms in the query box must ALL match
+  somewhere in a given transcript, but each term is free to match the
+  title, the transcript body, or a note — they don't all have to match
+  the same field. Matching is case-insensitive.
+- **A note-only match is still explained, not just a bare filename**: if
+  neither the title nor the transcript body contains a term but one of
+  the transcript's notes does, the result still surfaces (that's the
+  point of searching notes at all) and shows the matching note's own
+  text, not an empty-looking row with no visible reason it matched.
+- **Convenience behavior**: results update as you type, debounced (not
+  fired per keystroke — see the architecture note on why below); matched
+  terms are highlighted inline in the title/snippet/note text shown;
+  arrow keys move a focused result and Enter opens it, without needing to
+  leave the text field; Escape or a backdrop click closes the modal
+  (same light-dismiss convention as every other modal in this app);
+  Cmd+F/Ctrl+F opens it from anywhere in the app, not only by clicking
+  the icon.
+- **Debounced, deliberately**: this app's sidecar has no persistent
+  connection — every command is its own freshly spawned Node subprocess
+  (see Architecture) — so searching on every keystroke would spawn one
+  subprocess per character typed. A short pause in typing (250ms) before
+  a search actually fires keeps this to roughly one call per completed
+  thought, not one per letter.
+- **Implementation**: `ilike`/`or`/`and`/`exists` from the query builder
+  (no raw SQL, same H4 portability rule as every other query) — a note
+  match uses an `EXISTS` subquery against `transcript_notes` rather than
+  a join, so a transcription with several matching notes still produces
+  exactly one result row.
 
 ## Transcription history (persistence)
 - Every completed run (CLI and GUI both write to the same store) records:

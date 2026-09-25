@@ -275,3 +275,47 @@ integration acceptance.
 - **L10** — `CopyMenu`'s "copied" checkmark only appears once the copy has
   actually resolved — a rejected `onCopy`/`onCopyWithNotes` never flashes
   it (`apps/desktop/tests/notes/CopyMenu.test.tsx`).
+
+## M. Search
+- **M1** — `searchHistory()` matches a term against title, transcript body,
+  OR note text (case-insensitive), and ANDs multiple space-separated terms
+  together -- a transcription matching term1 via its title and term2 only
+  via a note still comes back, and a transcription matching only one of two
+  required terms does not. Verified against a real Postgres instance, not
+  just mocks (manual run, `packages/core/src/db/history.ts`).
+- **M2** — A note-only match (neither the title nor the transcript body
+  contains any search term) still returns the transcription, with the
+  specific matching note(s) attached in `matchedNotes` so the UI can show
+  why it matched (same manual DB run as M1).
+- **M3** — `searchHistory()` uses only `ilike`/`or`/`and`/`exists` from the
+  Drizzle query builder, no raw SQL (H4 hygiene test,
+  `tests/db-hygiene.test.ts`, already scans all of
+  `packages/core/src/db/**` with no changes needed there) -- a note match
+  is an `EXISTS` subquery, not a `leftJoin`, so a transcription with several
+  matching notes still returns as exactly one result row (covered by the
+  same manual DB run).
+- **M4** — `handleSearchHistory` splits the query on whitespace and returns
+  `[]` without calling the DB at all for an empty or whitespace-only query
+  (`packages/core/tests/sidecar.test.ts`).
+- **M5** — The webview never sends a search per keystroke: `useHistorySearch`
+  debounces (250ms of no typing) before calling `search_history`, and
+  resets that timer on every keystroke rather than queuing one call per
+  character (`apps/desktop/tests/search/useHistorySearch.test.tsx`) --
+  this app's sidecar has no persistent connection (every command is a
+  fresh subprocess, `commands.rs`'s `call_sidecar`), so an undebounced
+  search would spawn one subprocess per character typed.
+- **M6** — Matched terms are highlighted in the rendered title/snippet/note
+  text, longest-term-first when one term is a substring of another, and
+  `highlightTerms`'s segments always reconstruct the original string
+  exactly when concatenated (`apps/desktop/tests/search/
+  searchHighlight.test.ts`).
+- **M7** — Clicking a result (or pressing Enter on the keyboard-focused
+  one) switches to the History tab, opens that entry, and closes the
+  search modal; ArrowUp/ArrowDown move the focused result without opening
+  it; Escape and a backdrop click close the modal without side effects
+  (`apps/desktop/tests/search/SearchModal.test.tsx`).
+- **M8** — The search icon sits next to the sidebar's collapse toggle and
+  is reachable via Cmd+F/Ctrl+F from anywhere in the app, not only by
+  clicking it (`apps/desktop/tests/sidebar/Sidebar.test.tsx`'s search-icon
+  test covers the click path; the keyboard shortcut is wired at the
+  `AppShell` level in `App.tsx`).

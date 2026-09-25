@@ -18,7 +18,7 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
-import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry } from "./db/history.js";
+import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry, searchHistory } from "./db/history.js";
 import {
   listDictionary,
   addDictionaryEntry,
@@ -32,7 +32,7 @@ import type { DictionaryEntry } from "./dictionary.js";
 import { listNotes, addNote, updateNote, deleteNote } from "./db/notes.js";
 import type { TranscriptNoteRecord, NewTranscriptNote } from "./db/notes.js";
 import { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
-import type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
+import type { HistoryRecordInput, HistoryRecord, HistorySearchResult } from "./db/history.js";
 import type { OutputFormat } from "./types.js";
 
 // Amical's vocabulary export shape (source_device/count wrapper, snake_case
@@ -136,6 +136,7 @@ export interface SidecarDeps {
   listHistory?: () => Promise<HistoryRecord[]>;
   getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
   deleteHistoryEntry?: (id: number) => Promise<void>;
+  searchHistory?: (terms: string[]) => Promise<HistorySearchResult[]>;
   listDictionary?: () => Promise<DictionaryRecord[]>;
   addDictionaryEntry?: (entry: DictionaryEntry) => Promise<DictionaryRecord>;
   updateDictionaryEntry?: (id: number, entry: DictionaryEntry) => Promise<DictionaryRecord | undefined>;
@@ -228,6 +229,23 @@ export async function handleListHistory(deps: SidecarDeps = {}): Promise<History
   if (!db) return [];
   await ensureSchema(db, migrationsFolder(process.env));
   return listHistory(db);
+}
+
+// Search (SPEC.md > Search). Splits on whitespace here -- the one place
+// that owns tokenization, rather than duplicating it on the webview side
+// too. Returns [] (not an error) with no DB, same "a read never blocks"
+// rule as handleListHistory.
+export async function handleSearchHistory(
+  args: { query: string },
+  deps: SidecarDeps = {},
+): Promise<HistorySearchResult[]> {
+  const terms = args.query.split(/\s+/).filter((t) => t.length > 0);
+  if (terms.length === 0) return [];
+  if (deps.searchHistory) return deps.searchHistory(terms);
+  const db = createDb();
+  if (!db) return [];
+  await ensureSchema(db, migrationsFolder(process.env));
+  return searchHistory(db, terms);
 }
 
 // ACCEPTANCE H2: open one past run and read its stored transcript. Throws
@@ -432,6 +450,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       case "get-history": {
         const args = JSON.parse(argJson ?? "{}") as { id: number };
         data = await handleGetHistory(args);
+        break;
+      }
+      case "search-history": {
+        const args = JSON.parse(argJson ?? "{}") as { query: string };
+        data = await handleSearchHistory(args);
         break;
       }
       case "delete-history-entry": {

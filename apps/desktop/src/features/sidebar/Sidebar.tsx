@@ -39,9 +39,10 @@ import "./sidebar.css";
 interface SidebarProps {
   preferencesOpen: boolean;
   onOpenPreferences: () => void;
+  onOpenSearch: () => void;
 }
 
-export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
+export function Sidebar({ preferencesOpen, onOpenPreferences, onOpenSearch }: SidebarProps) {
   const { t } = useI18n();
   const { activeTab, setActiveTab } = useNav();
   const { searchQuery, setSearchQuery } = useHistory();
@@ -73,6 +74,15 @@ export function Sidebar({ preferencesOpen, onOpenPreferences }: SidebarProps) {
             onClick={() => setIsCollapsed((v) => !v)}
           >
             <FiSidebar aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="icon-toggle"
+            aria-label={t("openSearch")}
+            title={t("openSearch")}
+            onClick={onOpenSearch}
+          >
+            <FiSearch aria-hidden="true" />
           </button>
           <button
             type="button"

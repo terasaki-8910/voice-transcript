@@ -6,12 +6,13 @@ import { QueueView } from "../queue/QueueView";
 interface AppLayoutProps {
   preferencesOpen: boolean;
   onOpenPreferences: () => void;
+  onOpenSearch: () => void;
 }
 
-export function AppLayout({ preferencesOpen, onOpenPreferences }: AppLayoutProps) {
+export function AppLayout({ preferencesOpen, onOpenPreferences, onOpenSearch }: AppLayoutProps) {
   return (
     <div className="app">
-      <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} />
+      <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} onOpenSearch={onOpenSearch} />
       <QueueView />
     </div>
   );

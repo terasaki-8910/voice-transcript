@@ -1,0 +1,103 @@
+/* Search (SPEC.md > Search). .modal-overlay/.modal are the shared surface
+   (preferences.css) -- this only adds what's specific to the search
+   layout: the input row, the scrolling results list, and per-result
+   styling. */
+@import "../../styles/tokens.css";
+
+.search-modal {
+  width: 560px;
+  max-width: calc(100vw - var(--space-6));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) 0;
+  color: var(--color-ink-muted);
+}
+
+.search-modal-header input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+}
+
+.search-modal-header input:focus-visible {
+  outline: none;
+}
+
+.search-modal .settings-hint {
+  padding: 0 var(--space-5);
+  margin: var(--space-1) 0 var(--space-3);
+}
+
+.search-modal-results {
+  overflow-y: auto;
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+.search-modal-results .modal-status,
+.search-modal-results .fail-reason {
+  padding: 0 var(--space-3);
+}
+
+.search-result-row {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.search-result-row:hover,
+.search-result-row.is-focused {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
+
+.search-result-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.search-result-title {
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-meta {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+}
+
+.search-result-snippet {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Non-interactive (no cursor/hover) -- unlike .transcript-note (features/
+   notes/queue.css), a search match is a passive "here's why this
+   matched," not a clickable annotation. */
+.search-highlight {
+  background: color-mix(in srgb, var(--color-signal) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}

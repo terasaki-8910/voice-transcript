@@ -59,6 +59,11 @@
 // an optional `id` (the new transcriptions.id) so the GUI can attach a note
 // to a just-finished transcription in the Queue, not only to a row already
 // listed in History.
+//
+// Search adds search_history -- title, transcript body, and note text at
+// once, space-separated terms ANDed together. Same proxy pattern, no new
+// capability grant; the actual query lives entirely in the sidecar/DB
+// layer (packages/core/src/db/history.ts's searchHistory).
 mod commands;
 mod config;
 mod menu;
@@ -78,6 +83,7 @@ pub fn run() {
             commands::ping,
             commands::transcribe,
             commands::list_history,
+            commands::search_history,
             commands::trash_audio,
             commands::delete_history_entry,
             commands::export_transcript,

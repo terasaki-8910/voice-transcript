@@ -38,8 +38,9 @@ export {
   listHistory,
   getHistoryById,
   deleteHistoryEntry,
+  searchHistory,
 } from "./db/history.js";
-export type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
+export type { HistoryRecordInput, HistoryRecord, HistorySearchResult } from "./db/history.js";
 export {
   listDictionary,
   addDictionaryEntry,

@@ -1,4 +1,4 @@
-import { eq, desc, count } from "drizzle-orm";
+import { eq, desc, count, ilike, or, and, exists, inArray } from "drizzle-orm";
 import { transcriptions, transcriptNotes } from "./schema.js";
 import { ensureSchema } from "./migrate.js";
 import type { Db } from "./client.js";
@@ -118,6 +118,93 @@ export async function getHistoryById(db: Db, id: number): Promise<HistoryRecord 
     .groupBy(transcriptions.id)
     .limit(1);
   return rows[0];
+}
+
+export interface HistorySearchResult {
+  id: number;
+  sourceFileName: string;
+  startedAt: Date;
+  transcriptText: string | null;
+  // Notes (if any) belonging to this transcription that themselves match
+  // at least one search term -- surfaced so a note-only match (neither the
+  // title nor the body contains the term at all) is still explainable in
+  // the results list, not just a bare filename with no visible reason.
+  matchedNotes: { quotedText: string; note: string }[];
+}
+
+// Search (SPEC.md > Search): title, transcript body, and note text all at
+// once, space-separated terms ANDed together (every term must match
+// somewhere; which field can differ per term) -- terms are ORed across the
+// three fields, note-matching via an EXISTS subquery rather than a
+// leftJoin so a transcription with several notes still produces exactly
+// one result row, not one per matching note. Case-insensitive (ilike),
+// consistent with the existing inline sidebar filter's toLowerCase()
+// substring match. Unlike that filter, this queries the whole table, not
+// just the already-loaded page -- history entries past listHistory()'s own
+// limit are otherwise unreachable by search.
+export async function searchHistory(db: Db, terms: string[], limit = 50): Promise<HistorySearchResult[]> {
+  const cleaned = terms.map((t) => t.trim()).filter((t) => t.length > 0);
+  if (cleaned.length === 0) return [];
+
+  const matchesTerm = (term: string) => {
+    const pattern = `%${term}%`;
+    return or(
+      ilike(transcriptions.sourceFileName, pattern),
+      ilike(transcriptions.transcriptText, pattern),
+      exists(
+        db
+          .select({ id: transcriptNotes.id })
+          .from(transcriptNotes)
+          .where(
+            and(
+              eq(transcriptNotes.transcriptionId, transcriptions.id),
+              or(ilike(transcriptNotes.quotedText, pattern), ilike(transcriptNotes.note, pattern)),
+            ),
+          ),
+      ),
+    );
+  };
+
+  const rows = await db
+    .select({
+      id: transcriptions.id,
+      sourceFileName: transcriptions.sourceFileName,
+      startedAt: transcriptions.startedAt,
+      transcriptText: transcriptions.transcriptText,
+    })
+    .from(transcriptions)
+    .where(and(...cleaned.map(matchesTerm)))
+    .orderBy(desc(transcriptions.startedAt))
+    .limit(limit);
+
+  if (rows.length === 0) return [];
+
+  // Second pass: which of THOSE transcriptions' own notes explain the
+  // match -- a note matching any one term is relevant to show, even if
+  // the transcription as a whole matched via a different term elsewhere.
+  const ids = rows.map((r) => r.id);
+  const matchingNotes = await db
+    .select({
+      transcriptionId: transcriptNotes.transcriptionId,
+      quotedText: transcriptNotes.quotedText,
+      note: transcriptNotes.note,
+    })
+    .from(transcriptNotes)
+    .where(
+      and(
+        inArray(transcriptNotes.transcriptionId, ids),
+        or(...cleaned.map((term) => or(ilike(transcriptNotes.quotedText, `%${term}%`), ilike(transcriptNotes.note, `%${term}%`)))),
+      ),
+    );
+
+  const notesByTranscription = new Map<number, { quotedText: string; note: string }[]>();
+  for (const n of matchingNotes) {
+    const list = notesByTranscription.get(n.transcriptionId) ?? [];
+    list.push({ quotedText: n.quotedText, note: n.note });
+    notesByTranscription.set(n.transcriptionId, list);
+  }
+
+  return rows.map((r) => ({ ...r, matchedNotes: notesByTranscription.get(r.id) ?? [] }));
 }
 
 // ACCEPTANCE G9: remove a history record entirely. A no-op (not an error)

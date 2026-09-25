@@ -49,7 +49,7 @@ function renderView(transcribeFn: (request: TranscribeRequest) => Promise<Transc
                   <QueueProvider transcribeFn={transcribeFn}>
                     <RecordingProvider>
                       <HistoryProvider listHistoryFn={async () => []}>
-                        <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} />
+                        <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} onOpenSearch={() => {}} />
                       </HistoryProvider>
                     </RecordingProvider>
                   </QueueProvider>

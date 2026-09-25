@@ -7,6 +7,7 @@ import {
   handlePing,
   handleTranscribe,
   handleListHistory,
+  handleSearchHistory,
   handleGetHistory,
   handleDeleteHistoryEntry,
   handleListDictionary,
@@ -177,6 +178,32 @@ describe("listHistory", () => {
   it("returns [] (not an error) when there is no DB configured and no injection", async () => {
     vi.stubEnv("DATABASE_URL", undefined);
     await expect(handleListHistory({})).resolves.toEqual([]);
+  });
+});
+
+describe("searchHistory", () => {
+  it("splits the query on whitespace and passes the terms through", async () => {
+    const searchHistory = vi.fn(async () => []);
+    await handleSearchHistory({ query: "  2GOMCP  TogoMCP " }, { searchHistory });
+    expect(searchHistory).toHaveBeenCalledWith(["2GOMCP", "TogoMCP"]);
+  });
+
+  it("returns the injected results", async () => {
+    const result = { id: 1, sourceFileName: "a.m4a", startedAt: new Date(), transcriptText: "hi", matchedNotes: [] };
+    const searchHistory = vi.fn(async () => [result]);
+    await expect(handleSearchHistory({ query: "hi" }, { searchHistory })).resolves.toEqual([result]);
+  });
+
+  it("returns [] without calling searchHistory for an empty or whitespace-only query", async () => {
+    const searchHistory = vi.fn(async () => []);
+    await expect(handleSearchHistory({ query: "" }, { searchHistory })).resolves.toEqual([]);
+    await expect(handleSearchHistory({ query: "   " }, { searchHistory })).resolves.toEqual([]);
+    expect(searchHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns [] (not an error) when there is no DB configured and no injection", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    await expect(handleSearchHistory({ query: "hi" }, {})).resolves.toEqual([]);
   });
 });
 

@@ -43,11 +43,13 @@ function StateProbe() {
 function renderSidebar({
   preferencesOpen = false,
   onOpenPreferences = vi.fn(),
+  onOpenSearch = vi.fn(),
   startRecordingFn = vi.fn(async () => {}),
   stopRecordingFn = vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 1, silentSources: [] })),
 }: {
   preferencesOpen?: boolean;
   onOpenPreferences?: () => void;
+  onOpenSearch?: () => void;
   startRecordingFn?: () => Promise<void>;
   stopRecordingFn?: () => Promise<{ path: string; durationSeconds: number; silentSources: string[] }>;
 } = {}) {
@@ -60,7 +62,7 @@ function renderSidebar({
               <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
                 <RecordingProvider startRecordingFn={startRecordingFn} stopRecordingFn={stopRecordingFn}>
                   <HistoryProvider listHistoryFn={async () => []}>
-                    <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} />
+                    <Sidebar preferencesOpen={preferencesOpen} onOpenPreferences={onOpenPreferences} onOpenSearch={onOpenSearch} />
                     <StateProbe />
                   </HistoryProvider>
                 </RecordingProvider>
@@ -95,6 +97,15 @@ describe("Sidebar", () => {
 
     expect(onOpenPreferences).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Queue" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("clicking the search icon (next to the collapse toggle) calls onOpenSearch", () => {
+    const onOpenSearch = vi.fn();
+    renderSidebar({ onOpenSearch });
+
+    fireEvent.click(screen.getByRole("button", { name: "Search everything" }));
+
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 
   it("marks Preferences as current when preferencesOpen is true, and Queue/History as not", () => {

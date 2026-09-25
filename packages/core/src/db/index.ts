@@ -7,8 +7,9 @@ export {
   listHistory,
   getHistoryById,
   deleteHistoryEntry,
+  searchHistory,
 } from "./history.js";
-export type { HistoryRecordInput, HistoryRecord } from "./history.js";
+export type { HistoryRecordInput, HistoryRecord, HistorySearchResult } from "./history.js";
 export {
   listDictionary,
   addDictionaryEntry,
