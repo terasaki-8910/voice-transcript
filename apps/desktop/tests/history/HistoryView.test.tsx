@@ -61,6 +61,7 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     formats: ["txt"],
     status: "success",
     transcriptText: "hello world",
+    noteCount: 0,
     ...overrides,
   };
 }

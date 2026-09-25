@@ -29,6 +29,8 @@ import {
 import type { DictionaryRecord, ImportResult } from "./db/dictionary.js";
 import { applyDictionary } from "./dictionary.js";
 import type { DictionaryEntry } from "./dictionary.js";
+import { listNotes, addNote, updateNote, deleteNote } from "./db/notes.js";
+import type { TranscriptNoteRecord, NewTranscriptNote } from "./db/notes.js";
 import { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 import type { HistoryRecordInput, HistoryRecord } from "./db/history.js";
 import type { OutputFormat } from "./types.js";
@@ -115,6 +117,13 @@ export interface TranscribeResponse {
   rendered: string;
   language?: string;
   duration?: number;
+  // The new transcriptions.id, so the GUI can attach notes to a just-
+  // finished transcription without waiting for it to show up in a
+  // listHistory() call. Absent whenever recordHistory didn't write a row --
+  // no DATABASE_URL configured, or the DB write itself failed (both
+  // non-fatal to the transcription per ACCEPTANCE H5) -- the GUI treats a
+  // missing id as "notes aren't available here," not an error.
+  id?: number;
 }
 
 // Same injection shape as packages/cli/src/cli.ts's CliDeps -- lets tests
@@ -123,7 +132,7 @@ export interface SidecarDeps {
   env?: Record<string, string | undefined>;
   audio?: AudioBackend;
   makeTranscriber?: (apiKey: string) => Transcriber;
-  recordHistory?: (input: HistoryRecordInput) => Promise<void>;
+  recordHistory?: (input: HistoryRecordInput) => Promise<number | undefined>;
   listHistory?: () => Promise<HistoryRecord[]>;
   getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
   deleteHistoryEntry?: (id: number) => Promise<void>;
@@ -132,6 +141,10 @@ export interface SidecarDeps {
   updateDictionaryEntry?: (id: number, entry: DictionaryEntry) => Promise<DictionaryRecord | undefined>;
   deleteDictionaryEntry?: (id: number) => Promise<void>;
   importDictionary?: (entries: DictionaryEntry[]) => Promise<ImportResult>;
+  listNotes?: (transcriptionId: number) => Promise<TranscriptNoteRecord[]>;
+  addNote?: (input: NewTranscriptNote) => Promise<TranscriptNoteRecord>;
+  updateNote?: (id: number, note: string) => Promise<TranscriptNoteRecord | undefined>;
+  deleteNote?: (id: number) => Promise<void>;
 }
 
 // Used by handleTranscribe: a dictionary fetch failure is caught and logged,
@@ -197,8 +210,8 @@ export async function handleTranscribe(
     const dictionaryEntries = await fetchDictionarySafe(env, deps);
     const result = applyDictionary(rawResult, dictionaryEntries);
     const rendered = render(result, args.format);
-    await recordHistory({ ...historyBase, status: "success", result });
-    return { text: result.text, rendered, language: result.language, duration: result.duration };
+    const id = await recordHistory({ ...historyBase, status: "success", result });
+    return { text: result.text, rendered, language: result.language, duration: result.duration, id };
   } catch (err) {
     await recordHistory({ ...historyBase, status: "failed" });
     throw err;
@@ -314,6 +327,66 @@ export async function handleDeleteDictionaryEntry(
   return { id: args.id };
 }
 
+// Transcript notes (annotations) -- same inject-first-else-createDb()
+// pattern as the dictionary CRUD above. Reads return [] with no DB (never
+// throw, mirroring handleListDictionary); writes throw a clear error when
+// there's no DB to write to, same as the dictionary writes.
+export async function handleListNotes(
+  args: { transcriptionId: number },
+  deps: SidecarDeps = {},
+): Promise<TranscriptNoteRecord[]> {
+  if (deps.listNotes) return deps.listNotes(args.transcriptionId);
+  const db = createDb();
+  if (!db) return [];
+  await ensureSchema(db, migrationsFolder(process.env));
+  return listNotes(db, args.transcriptionId);
+}
+
+export async function handleAddNote(
+  args: NewTranscriptNote,
+  deps: SidecarDeps = {},
+): Promise<TranscriptNoteRecord> {
+  if (args.startOffset < 0 || args.endOffset <= args.startOffset) {
+    throw new Error(`Invalid note range [${args.startOffset}, ${args.endOffset}).`);
+  }
+  if (deps.addNote) return deps.addNote(args);
+  const db = createDb();
+  if (!db) throw new Error("DATABASE_URL not set; cannot add a note.");
+  await ensureSchema(db, migrationsFolder(process.env));
+  return addNote(db, args);
+}
+
+export async function handleUpdateNote(
+  args: { id: number; note: string },
+  deps: SidecarDeps = {},
+): Promise<TranscriptNoteRecord> {
+  const record = deps.updateNote
+    ? await deps.updateNote(args.id, args.note)
+    : await (async () => {
+        const db = createDb();
+        if (!db) throw new Error("DATABASE_URL not set; cannot update a note.");
+        await ensureSchema(db, migrationsFolder(process.env));
+        return updateNote(db, args.id, args.note);
+      })();
+  if (!record) throw new Error(`Note ${args.id} not found.`);
+  return record;
+}
+
+export async function handleDeleteNote(
+  args: { id: number },
+  deps: SidecarDeps = {},
+): Promise<{ id: number }> {
+  if (deps.deleteNote) {
+    await deps.deleteNote(args.id);
+    return { id: args.id };
+  }
+  const db = createDb();
+  if (!db) throw new Error("DATABASE_URL not set; cannot delete a note.");
+  await ensureSchema(db, migrationsFolder(process.env));
+  await deleteNote(db, args.id);
+  return { id: args.id };
+}
+
 // Parses argv[3] as raw JSON text (Rust reads a user-picked file and hands
 // its contents straight through -- see commands.rs's import_dictionary_file)
 // and upserts by word. Accepts both an Amical export and this app's own
@@ -387,6 +460,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       case "import-dictionary": {
         const args = JSON.parse(argJson ?? "{}") as { json: string };
         data = await handleImportDictionary(args);
+        break;
+      }
+      case "list-notes": {
+        const args = JSON.parse(argJson ?? "{}") as { transcriptionId: number };
+        data = await handleListNotes(args);
+        break;
+      }
+      case "add-note": {
+        const args = JSON.parse(argJson ?? "{}") as NewTranscriptNote;
+        data = await handleAddNote(args);
+        break;
+      }
+      case "update-note": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number; note: string };
+        data = await handleUpdateNote(args);
+        break;
+      }
+      case "delete-note": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number };
+        data = await handleDeleteNote(args);
         break;
       }
       default:

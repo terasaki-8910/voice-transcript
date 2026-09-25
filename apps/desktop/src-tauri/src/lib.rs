@@ -53,6 +53,12 @@
 // decision) -- cpal is the one implementation that is uniformly correct on
 // macOS/Windows/Linux. No new capability grant: these are app-defined
 // commands, not a plugin ACL surface.
+// Transcript notes (annotations) adds list_notes/add_note/update_note/
+// delete_note -- same sidecar-proxy pattern as the dictionary commands
+// above, no new capability grant needed. transcribe's response also grows
+// an optional `id` (the new transcriptions.id) so the GUI can attach a note
+// to a just-finished transcription in the Queue, not only to a row already
+// listed in History.
 mod commands;
 mod config;
 mod menu;
@@ -85,6 +91,10 @@ pub fn run() {
             commands::update_dictionary_entry,
             commands::delete_dictionary_entry,
             commands::import_dictionary_file,
+            commands::list_notes,
+            commands::add_note,
+            commands::update_note,
+            commands::delete_note,
             recording::list_input_devices,
             recording::list_output_devices,
             recording::start_recording,

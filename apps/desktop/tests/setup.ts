@@ -25,3 +25,14 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     dispatchEvent: () => false,
   }) as unknown as MediaQueryList;
 }
+
+// jsdom does no layout, so (unlike Element.getBoundingClientRect, which it
+// does stub with a zero rect) it doesn't implement Range.getBoundingClientRect
+// at all -- a real Tauri webview does. Transcript notes (features/notes/
+// AnnotatedTranscript.tsx) position their popover from a selection Range's
+// rect, so without this stub every test that drives a real Selection throws
+// instead of exercising that code.
+if (typeof Range !== "undefined" && !Range.prototype.getBoundingClientRect) {
+  Range.prototype.getBoundingClientRect = () =>
+    ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }) as DOMRect;
+}

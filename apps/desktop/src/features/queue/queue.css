@@ -302,3 +302,106 @@
 .menu-item-danger:hover {
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
+
+/* Transcript notes (SPEC.md > Transcript notes). The highlighted span
+   inside a .row-preview -- signal-tinted rather than a plain underline so
+   it reads as "annotated" at a glance even before hovering, but at low
+   opacity so a heavily-annotated transcript doesn't turn into a wall of
+   color. */
+.transcript-note {
+  background: color-mix(in srgb, var(--color-signal) 22%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.transcript-note:hover {
+  background: color-mix(in srgb, var(--color-signal) 34%, transparent);
+}
+
+/* Fixed positioning (not absolute) deliberately: its anchor rect can sit
+   inside .row-preview, which clips overflow while collapsed (see that
+   rule's own comment) -- fixed positioning is the one placement that
+   escapes that clip since it's relative to the viewport, not any scrolling
+   ancestor. */
+.note-popover {
+  position: fixed;
+  z-index: 50;
+  width: 260px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.note-popover-quote {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+}
+
+.note-popover-body {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  white-space: pre-wrap;
+}
+
+.note-popover-textarea {
+  width: 100%;
+  min-height: 4.5em;
+  padding: var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.note-popover-textarea:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.note-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.note-popover-dictionary {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-2);
+}
+
+.note-popover-dictionary label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+  margin-bottom: var(--space-1);
+}
+
+.note-popover-dictionary-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.note-popover-dictionary-row input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}

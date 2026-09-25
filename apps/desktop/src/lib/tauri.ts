@@ -33,6 +33,11 @@ export interface TranscribeResponse {
   rendered: string;
   language?: string;
   duration?: number;
+  // The new transcriptions.id -- absent whenever no history row was
+  // written (no DATABASE_URL configured, or the write itself failed).
+  // Transcript notes (below) need it to attach a note to a Queue item, not
+  // only to a row already listed in History.
+  id?: number;
 }
 
 export function transcribe(request: TranscribeRequest): Promise<TranscribeResponse> {
@@ -70,6 +75,13 @@ export interface HistoryEntry {
   formats: string[];
   status: "success" | "failed";
   transcriptText?: string;
+  // How many transcript notes point at this row -- from listHistory's own
+  // leftJoin+count (db/history.ts), not a separate fetch. See
+  // useTranscriptNotes' knownNoteCount for why this matters: it lets a row
+  // with zero notes (the common case) skip its own list_notes call
+  // entirely instead of every rendered row spawning a sidecar subprocess
+  // just to learn it has nothing.
+  noteCount: number;
 }
 
 interface HistoryEntryDto {
@@ -81,6 +93,7 @@ interface HistoryEntryDto {
   formats: string[];
   status: "success" | "failed";
   transcriptText: string | null;
+  noteCount: number;
 }
 
 function fromDto(dto: HistoryEntryDto): HistoryEntry {
@@ -93,6 +106,7 @@ function fromDto(dto: HistoryEntryDto): HistoryEntry {
     formats: dto.formats,
     status: dto.status,
     transcriptText: dto.transcriptText ?? undefined,
+    noteCount: dto.noteCount,
   };
 }
 
@@ -232,6 +246,64 @@ export interface DictionaryImportResult {
 // null if the user cancels the dialog.
 export function importDictionaryFile(): Promise<DictionaryImportResult | null> {
   return invoke("import_dictionary_file");
+}
+
+// Transcript notes (annotations). A note anchors to a [startOffset,
+// endOffset) character range of one transcription's transcriptText -- the
+// body text itself is never edited, only the note. Mirrors
+// DictionaryEntryRecord's manual DTO mapping pattern above (createdAt/
+// updatedAt arrive as ISO strings).
+export interface TranscriptNote {
+  id: number;
+  transcriptionId: number;
+  startOffset: number;
+  endOffset: number;
+  quotedText: string;
+  note: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface NoteDto {
+  id: number;
+  transcriptionId: number;
+  startOffset: number;
+  endOffset: number;
+  quotedText: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function fromNoteDto(dto: NoteDto): TranscriptNote {
+  return { ...dto, createdAt: new Date(dto.createdAt), updatedAt: new Date(dto.updatedAt) };
+}
+
+export async function listNotes(transcriptionId: number): Promise<TranscriptNote[]> {
+  const rows = await invoke<NoteDto[]>("list_notes", { transcriptionId });
+  return rows.map(fromNoteDto);
+}
+
+export async function addNote(
+  transcriptionId: number,
+  startOffset: number,
+  endOffset: number,
+  quotedText: string,
+  note: string,
+): Promise<TranscriptNote> {
+  const row = await invoke<NoteDto>("add_note", {
+    request: { transcriptionId, startOffset, endOffset, quotedText, note },
+  });
+  return fromNoteDto(row);
+}
+
+export async function updateNote(id: number, note: string): Promise<TranscriptNote> {
+  const row = await invoke<NoteDto>("update_note", { request: { id, note } });
+  return fromNoteDto(row);
+}
+
+export function deleteNote(id: number): Promise<void> {
+  return invoke("delete_note", { id });
 }
 
 // Audio recording (SPEC.md > Audio recording). All capture happens in Rust

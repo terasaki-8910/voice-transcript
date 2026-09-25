@@ -34,11 +34,13 @@ import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import { useHistoryNav } from "./HistoryNavContext";
 import type { HistoryEntry } from "../../lib/tauri";
-import { pickSavePath, exportTranscript, copyToClipboard } from "../../lib/tauri";
+import { pickSavePath, exportTranscript, copyToClipboard, addDictionaryEntry } from "../../lib/tauri";
 import { basename } from "../../lib/path";
 import { useSelection } from "../selection/SelectionContext";
-import { breakAfterJapanesePeriod } from "../../lib/textFormat";
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
+import { useTranscriptNotes } from "../notes/useTranscriptNotes";
+import { AnnotatedTranscript } from "../notes/AnnotatedTranscript";
+import { formatWithNotes } from "../notes/notesFormat";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -145,11 +147,16 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const { setSelection } = useSelection();
   const { currentId, view, close } = useHistoryNav();
   const [copied, setCopied] = useState(false);
+  const [copiedWithNotes, setCopiedWithNotes] = useState(false);
   const { breakAtPeriod } = useDisplayPreferences();
   const [fullText, setFullText] = useState(false);
   const expanded = currentId === item.id;
   const actionError = actionErrors.get(item.id);
   const fileName = basename(item.sourceFileName);
+  const { notes, add: addNote, update: updateNote, remove: removeNote } = useTranscriptNotes(
+    item.id,
+    item.noteCount,
+  );
 
   const handleView = () => {
     if (expanded) {
@@ -215,6 +222,24 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
     }
   };
 
+  // Separate from handleCopy/copied (not a shared flag) -- these are two
+  // distinct buttons, only shown together once this row actually has
+  // notes, and each needs its own independent "copied" checkmark.
+  const handleCopyWithNotes = async () => {
+    if (!item.transcriptText) return;
+    try {
+      await copyToClipboard(formatWithNotes(item.transcriptText, notes, t("notesFooterHeading")));
+      setCopiedWithNotes(true);
+      setTimeout(() => setCopiedWithNotes(false), 1500);
+    } catch (err) {
+      reportActionError(item.id, errorMessage(err));
+    }
+  };
+
+  const handleLinkToDictionary = async (word: string, replacement: string) => {
+    await addDictionaryEntry(word, replacement);
+  };
+
   return (
     <div className="row">
       <div className="row-main">
@@ -228,9 +253,16 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
         {actionError && <div className="row-meta fail-reason">{actionError}</div>}
         {expanded && item.transcriptText && (
           <>
-            <p className={`row-preview${fullText ? " row-preview-full" : ""}`}>
-              {breakAtPeriod ? breakAfterJapanesePeriod(item.transcriptText) : item.transcriptText}
-            </p>
+            <AnnotatedTranscript
+              text={item.transcriptText}
+              notes={notes}
+              breakAtPeriod={breakAtPeriod}
+              className={`row-preview${fullText ? " row-preview-full" : ""}`}
+              onAddNote={addNote}
+              onUpdateNote={updateNote}
+              onDeleteNote={removeNote}
+              onLinkToDictionary={handleLinkToDictionary}
+            />
             <button
               type="button"
               className="btn-link row-preview-toggle"
@@ -255,6 +287,15 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
           onClick={() => void handleCopy()}
         >
           {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
+        </button>
+      )}
+      {/* Only once this row actually has notes -- an always-visible second
+          copy button that behaves identically to the first whenever there
+          are no notes is exactly the empty-state clutter ui.md warns
+          against, not a helpful affordance. */}
+      {item.transcriptText && notes.length > 0 && (
+        <button type="button" className="row-action btn-link" onClick={() => void handleCopyWithNotes()}>
+          {copiedWithNotes ? t("copied") : t("copyWithNotes")}
         </button>
       )}
       {item.transcriptText && (

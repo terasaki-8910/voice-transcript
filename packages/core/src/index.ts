@@ -29,7 +29,7 @@ export { GroqClient, GroqApiError } from "./groq.js";
 
 export { runPipeline } from "./pipeline.js";
 
-export { transcriptions, transcriptionStatus, dictionaryEntries } from "./db/schema.js";
+export { transcriptions, transcriptionStatus, dictionaryEntries, transcriptNotes } from "./db/schema.js";
 export { createDb } from "./db/client.js";
 export type { Db } from "./db/client.js";
 export {
@@ -48,6 +48,8 @@ export {
   importDictionaryEntries,
 } from "./db/dictionary.js";
 export type { DictionaryRecord, ImportResult } from "./db/dictionary.js";
+export { listNotes, addNote, updateNote, deleteNote } from "./db/notes.js";
+export type { TranscriptNoteRecord, NewTranscriptNote } from "./db/notes.js";
 export { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 
 export { applyDictionary } from "./dictionary.js";

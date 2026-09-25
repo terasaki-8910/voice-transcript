@@ -15,9 +15,11 @@ import { useI18n } from "../../i18n/I18nContext";
 import { useQueue } from "./QueueContext";
 import type { QueueItem } from "./QueueContext";
 import { useSelection } from "../selection/SelectionContext";
-import { pickSavePath, exportTranscript, copyToClipboard } from "../../lib/tauri";
-import { breakAfterJapanesePeriod } from "../../lib/textFormat";
+import { pickSavePath, exportTranscript, copyToClipboard, addDictionaryEntry } from "../../lib/tauri";
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
+import { useTranscriptNotes } from "../notes/useTranscriptNotes";
+import { AnnotatedTranscript } from "../notes/AnnotatedTranscript";
+import { formatWithNotes } from "../notes/notesFormat";
 
 const CHIP_CLASS: Record<QueueItem["status"], string> = {
   queued: "chip chip-queued",
@@ -37,8 +39,14 @@ export function QueueRow({ item }: { item: QueueItem }) {
   const { breakAtPeriod } = useDisplayPreferences();
   const [fullText, setFullText] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedWithNotes, setCopiedWithNotes] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportError, setExportError] = useState<string>();
+  // knownNoteCount is always 0, not just "usually" -- item.result.id (when
+  // present) is a transcriptions.id that `transcribe` only just inserted,
+  // so it provably has no notes yet from any earlier session. This also
+  // means a queue item never spawns a list_notes sidecar call at all.
+  const { notes, add: addNote, update: updateNote, remove: removeNote } = useTranscriptNotes(item.result?.id, 0);
 
   const handleView = () => {
     setExpanded((v) => !v);
@@ -74,6 +82,24 @@ export function QueueRow({ item }: { item: QueueItem }) {
     }
   };
 
+  // Separate from handleCopy/copied (not a shared flag) -- two distinct
+  // buttons, only shown together once this item actually has notes, each
+  // with its own independent "copied" checkmark.
+  const handleCopyWithNotes = async () => {
+    if (!item.result) return;
+    try {
+      await copyToClipboard(formatWithNotes(item.result.text, notes, t("notesFooterHeading")));
+      setCopiedWithNotes(true);
+      setTimeout(() => setCopiedWithNotes(false), 1500);
+    } catch (err) {
+      setExportError(errorMessage(err));
+    }
+  };
+
+  const handleLinkToDictionary = async (word: string, replacement: string) => {
+    await addDictionaryEntry(word, replacement);
+  };
+
   const statusLabel: Record<QueueItem["status"], string> = {
     queued: t("statusQueued"),
     transcribing: t("statusTranscribing"),
@@ -92,9 +118,16 @@ export function QueueRow({ item }: { item: QueueItem }) {
         {exportError && <div className="row-meta fail-reason">{exportError}</div>}
         {item.status === "done" && expanded && item.result && (
           <>
-            <p className={`row-preview${fullText ? " row-preview-full" : ""}`}>
-              {breakAtPeriod ? breakAfterJapanesePeriod(item.result.text) : item.result.text}
-            </p>
+            <AnnotatedTranscript
+              text={item.result.text}
+              notes={notes}
+              breakAtPeriod={breakAtPeriod}
+              className={`row-preview${fullText ? " row-preview-full" : ""}`}
+              onAddNote={addNote}
+              onUpdateNote={updateNote}
+              onDeleteNote={removeNote}
+              onLinkToDictionary={handleLinkToDictionary}
+            />
             <button
               type="button"
               className="btn-link row-preview-toggle"
@@ -119,6 +152,14 @@ export function QueueRow({ item }: { item: QueueItem }) {
           onClick={() => void handleCopy()}
         >
           {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
+        </button>
+      )}
+      {/* Only once this item actually has notes -- see HistoryRow's
+          identical gate for why an always-visible second copy button would
+          be empty-state clutter. */}
+      {item.status === "done" && notes.length > 0 && (
+        <button type="button" className="row-action btn-link" onClick={() => void handleCopyWithNotes()}>
+          {copiedWithNotes ? t("copied") : t("copyWithNotes")}
         </button>
       )}
       {item.status === "done" && (

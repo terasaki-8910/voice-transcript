@@ -261,6 +261,63 @@ history of past runs.
   same file is idempotent: row count and replacement values don't change on
   a repeat import.
 
+## Transcript notes (annotations, added 2026-09-25)
+- A side comment anchored to a specific word/phrase in a transcript — e.g.
+  flagging that "2GOMCP" was misheard and should read "TogoMCP" — without
+  touching the transcript body itself. Available on any row that has a
+  saved history entry, in both **Queue** (a just-finished item, before it's
+  even been looked at in History) and **History**: select a run of text in
+  the row's expanded preview, a small popover opens for the note; a saved
+  note renders as a highlighted span, click it to view/edit/delete.
+- **The transcript body is never edited.** This was a deliberate choice
+  between "correct the text in place" and "leave a side comment," made in
+  favor of the latter — a note is a comment ABOUT the transcript, not a
+  correction TO it. (A future "correct in place" mode, if ever wanted, is a
+  separate feature, not an extension of this one.)
+- **Anchoring: a raw character-offset range into `transcriptText`, not a
+  timestamp.** Two reasons: Whisper segment data (the only timing this app
+  keeps) is sentence/clause-granularity, far coarser than a single
+  misheard word; and `transcriptText` is never edited after it's written
+  (no edit-in-place feature exists), so a plain `[startOffset, endOffset)`
+  pair stays valid indefinitely with no re-anchoring logic needed. Overlapping
+  notes are rejected — kept simple for v1, editing an existing note covers
+  the same-spot case.
+- **Display formatting must not shift the offsets it's measured against.**
+  The existing "line break after each 。" display option
+  (`breakAfterJapanesePeriod`) inserts real `\n` characters into the string
+  it returns — fine for plain display, but it would silently desynchronize
+  any offset measured against its output from the raw stored text. The
+  annotated view instead renders the SAME break points as zero-width
+  `<br>` elements around the raw, unmodified text, so a browser selection's
+  measured offsets always match `transcriptText` exactly, independent of
+  whether that display option is on.
+- **Dictionary link, explicitly not automatic**: a saved note offers an
+  "Add to dictionary" action (prefilled with the note's own quoted
+  snippet). This creates a normal custom-dictionary entry (above) — nothing
+  more. Because the dictionary only applies at transcribe time, doing this
+  does **not** retroactively correct the transcript the note is attached
+  to; it only affects transcriptions made afterward. This is the intended
+  behavior (matches "the body is never edited," above), not a limitation
+  to paper over — the GUI says so in the confirmation message rather than
+  leaving it to be discovered.
+- **Copy, two modes**: the existing "copy transcript" action is unchanged
+  (transcript text only, exactly as before — most transcripts have no
+  notes at all, so nothing about the common case should change). A second
+  "copy with notes" action appears ONLY once a row actually has notes
+  (never as a second, redundant button when it would behave identically to
+  the first) and appends a footer after the transcript body — quoting each
+  note's own snippet and text, in reading order — rather than editing the
+  body or inserting inline markers.
+- **Storage**: a `transcript_notes` table (Postgres, same DB/ORM as history
+  and the dictionary), foreign-keyed to `transcriptions.id` with an
+  `ON DELETE CASCADE` — deleting a history entry also removes its notes,
+  so they can never outlive the transcript they're about. Listing a
+  transcript's notes is a single query keyed by that id; a bulk
+  note-count is computed alongside `listHistory()`'s own query (a
+  leftJoin+count, not a per-row follow-up call) so the History list can
+  decide whether a given row has anything to fetch without a separate
+  round trip per row.
+
 ## Transcription history (persistence)
 - Every completed run (CLI and GUI both write to the same store) records:
   source file name, started-at timestamp, model, language, requested

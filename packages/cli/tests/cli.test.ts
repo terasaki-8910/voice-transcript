@@ -34,7 +34,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}) {
   const transcriber: Transcriber = { transcribe: vi.fn(async () => HELLO) };
   const makeTranscriber = vi.fn((_key: string) => transcriber);
   const writeFile = vi.fn(async (_p: string, _d: string) => {});
-  const recordHistory = vi.fn(async () => {});
+  const recordHistory = vi.fn(async () => 1);
   // Defaults to [] for the same reason recordHistory is stubbed: without
   // it, main() would fall through to a real createDb() + network call for
   // the dictionary fetch that now runs on every transcribe (see cli.ts's

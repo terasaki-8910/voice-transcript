@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, jsonb, pgEnum } from "drizzle-orm/pg-core";
 import type { Segment } from "../types.js";
 
 // Custom dictionary (word replacement): applied to every transcript, GUI and
@@ -27,4 +27,25 @@ export const transcriptions = pgTable("transcriptions", {
   status: transcriptionStatus("status").notNull(),
   transcriptText: text("transcript_text"),
   segments: jsonb("segments").$type<Segment[]>(),
+});
+
+// Transcript notes (annotations): a side comment anchored to a character
+// range of one transcription's transcriptText, e.g. flagging "2GOMCP"
+// should have read "TogoMCP" -- the body text itself is never edited (see
+// SPEC.md > Transcript notes for why: offset anchoring only stays valid
+// because transcriptText is immutable after the row is written, so the
+// note's own text is the only thing this table ever updates). Cascade
+// delete: a note about a transcript that no longer exists is never a state
+// worth keeping.
+export const transcriptNotes = pgTable("transcript_notes", {
+  id: serial("id").primaryKey(),
+  transcriptionId: integer("transcription_id")
+    .notNull()
+    .references(() => transcriptions.id, { onDelete: "cascade" }),
+  startOffset: integer("start_offset").notNull(),
+  endOffset: integer("end_offset").notNull(),
+  quotedText: text("quoted_text").notNull(),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

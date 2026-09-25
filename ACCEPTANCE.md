@@ -207,3 +207,60 @@ integration acceptance.
 - **K6** — A missing/unreachable `DATABASE_URL` never blocks or fails a
   transcription because of the dictionary fetch — it silently applies zero
   replacements, same non-blocking rule as H5.
+
+## L. Transcript notes (annotations)
+- **L1** — Turning a DOM selection into `[startOffset, endOffset)` and
+  rendering notes/period-breaks back onto raw text round-trip exactly:
+  concatenating the rendered DOM's text content always reproduces the
+  original `transcriptText` byte-for-byte, independent of the
+  break-at-period display setting (unit tests,
+  `apps/desktop/tests/notes/textOffsets.test.ts`, including selections
+  that span a `<br>` or a highlighted `<mark>`).
+- **L2** — The transcript body is never mutated by any note action:
+  `AnnotatedTranscript`'s props expose no way to change `text` at all (add/
+  update/delete only ever touch the separate `transcript_notes` table).
+  Verified against a real Postgres instance, not just mocks: adding,
+  reading, updating (anchor untouched, only `note` changes), and deleting
+  notes, plus `ON DELETE CASCADE` removing a transcript's notes when the
+  transcript itself is deleted (manual run against `DATABASE_URL`,
+  `packages/core/src/db/notes.ts` + `history.ts`).
+- **L3** — A new note whose range overlaps an existing one is rejected
+  before any backend call is made (`apps/desktop/tests/notes/
+  useTranscriptNotes.test.tsx`); a range that only touches at a boundary is
+  allowed.
+- **L4** — "Add to dictionary" from a note creates a normal custom-
+  dictionary entry (K above) and nothing else — it cannot retroactively
+  alter the transcript the note is attached to, because no code path from
+  a note ever writes to `transcriptText` (structural guarantee per L2, plus
+  `AnnotatedTranscript.test.tsx`'s dictionary-link test asserting the exact
+  call and the shown confirmation copy).
+- **L5** — "Copy with notes" is a second, distinct action from the existing
+  "copy transcript" (unchanged) and renders only once a row actually has
+  notes — never an always-visible control that would behave identically to
+  the first when there are none (`HistoryRow.tsx`/`QueueRow.tsx`'s
+  `notes.length > 0` gate). Its output appends a footer quoting each note's
+  own snippet and text in reading order (`startOffset`), never edits or
+  marks up the body (`apps/desktop/tests/notes/notesFormat.test.ts`).
+- **L6** — Notes work from the Queue screen, not only History: a `transcribe`
+  response now carries the new `transcriptions.id`
+  (`recordHistory`'s `.returning()` threaded through
+  `TranscribeResponse`/`TranscribeResponseDto` end-to-end — Rust
+  camelCase-decode regression tests plus `packages/core/tests/sidecar.test.ts`),
+  present whenever a history row was actually written and absent
+  (never a crash) when it wasn't. A Queue item's `useTranscriptNotes` call
+  never issues its own `list_notes` sidecar call, since a transcription
+  `transcribe` just inserted provably has zero notes yet
+  (`useTranscriptNotes.test.tsx`'s `knownNoteCount` cases).
+- **L7** — `listHistory()` reports each row's note count via a single
+  leftJoin+count alongside the rows themselves, not a follow-up query per
+  row — so opening a History list of N entries spawns at most one extra
+  sidecar subprocess per row that actually HAS notes, not N (this app's IPC
+  has no persistent connection; every command is its own process, see
+  `commands.rs`'s `call_sidecar`). Verified against a real Postgres: a row
+  with notes and a row without both report the correct count in the same
+  query (manual run, `packages/core/src/db/history.ts`).
+- **L8** — The four note commands (`list_notes`/`add_note`/`update_note`/
+  `delete_note`) mirror the dictionary commands' sidecar-proxy pattern
+  exactly (thin Rust DTO → sidecar `switch` case → `db/notes.ts`), with the
+  same camelCase-decode regression coverage the history/dictionary DTOs
+  already have (`commands.rs`'s `#[cfg(test)]` module).

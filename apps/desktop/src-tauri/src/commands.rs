@@ -26,6 +26,10 @@ pub struct TranscribeResponse {
     pub rendered: String,
     pub language: Option<String>,
     pub duration: Option<f64>,
+    // The new transcriptions.id (transcript notes anchor to it) -- absent
+    // whenever the sidecar didn't write a history row (no DATABASE_URL, or
+    // the write itself failed; see sidecar.ts's TranscribeResponse comment).
+    pub id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,6 +230,12 @@ pub struct HistoryRecordDto {
     pub status: String,
     pub transcript_text: Option<String>,
     pub segments: Option<serde_json::Value>,
+    // How many transcript notes point at this row -- a leftJoin+count done
+    // alongside listHistory's own query (packages/core/src/db/history.ts),
+    // not a separate call, so the webview can decide whether a row has
+    // notes worth fetching without spawning a sidecar subprocess per row
+    // (see useTranscriptNotes' knownNoteCount on the webview side).
+    pub note_count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -396,6 +406,82 @@ pub async fn import_dictionary_file(app: tauri::AppHandle) -> Result<Option<Impo
     Ok(Some(result))
 }
 
+// Transcript notes (annotations) -- sidecar 1:1, same proxy pattern as the
+// dictionary commands above. The webview only ever passes a
+// transcriptionId it already got back from `transcribe`'s own response or
+// from list_history/HistoryEntry.id -- never a raw one it invents, but
+// nothing here needs to enforce that: a note pointing at someone else's
+// transcriptionId is meaningless, not a privilege escalation (SQLite/
+// Postgres just returns [] for it), same trust level as e.g.
+// delete_history_entry's id argument.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecordDto {
+    pub id: i64,
+    pub transcription_id: i64,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub quoted_text: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddNoteRequest {
+    pub transcription_id: i64,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub quoted_text: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNoteRequest {
+    pub id: i64,
+    pub note: String,
+}
+
+#[tauri::command]
+pub async fn list_notes(app: tauri::AppHandle, transcription_id: i64) -> Result<Vec<NoteRecordDto>, String> {
+    let arg_json = serde_json::json!({ "transcriptionId": transcription_id }).to_string();
+    call_sidecar(&app, "list-notes", &arg_json).await
+}
+
+#[tauri::command]
+pub async fn add_note(app: tauri::AppHandle, request: AddNoteRequest) -> Result<NoteRecordDto, String> {
+    let arg_json = serde_json::json!({
+        "transcriptionId": request.transcription_id,
+        "startOffset": request.start_offset,
+        "endOffset": request.end_offset,
+        "quotedText": request.quoted_text,
+        "note": request.note,
+    })
+    .to_string();
+    call_sidecar(&app, "add-note", &arg_json).await
+}
+
+#[tauri::command]
+pub async fn update_note(app: tauri::AppHandle, request: UpdateNoteRequest) -> Result<NoteRecordDto, String> {
+    let arg_json = serde_json::json!({ "id": request.id, "note": request.note }).to_string();
+    call_sidecar(&app, "update-note", &arg_json).await
+}
+
+#[derive(Debug, Deserialize)]
+struct DeletedNote {
+    #[allow(dead_code)]
+    id: i64,
+}
+
+#[tauri::command]
+pub async fn delete_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    let arg_json = serde_json::json!({ "id": id }).to_string();
+    let _: DeletedNote = call_sidecar(&app, "delete-note", &arg_json).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,10 +531,50 @@ mod tests {
             "formats": ["txt"],
             "status": "success",
             "transcriptText": "hello",
-            "segments": null
+            "segments": null,
+            "noteCount": 2
         }"#;
         let parsed: HistoryRecordDto = serde_json::from_str(json).expect("must decode camelCase history record");
         assert_eq!(parsed.source_file_name, "/audio/a.m4a");
         assert_eq!(parsed.transcript_text.as_deref(), Some("hello"));
+        assert_eq!(parsed.note_count, 2);
+    }
+
+    // Same regression class as the two tests above, for the note commands
+    // added alongside transcript notes.
+    #[test]
+    fn note_record_dto_decodes_camel_case_sidecar_json() {
+        let json = r#"{
+            "id": 1,
+            "transcriptionId": 10,
+            "startOffset": 4,
+            "endOffset": 11,
+            "quotedText": "2GOMCP",
+            "note": "正しくはTogoMCP",
+            "createdAt": "2026-09-25T00:00:00.000Z",
+            "updatedAt": "2026-09-25T00:00:00.000Z"
+        }"#;
+        let parsed: NoteRecordDto = serde_json::from_str(json).expect("must decode camelCase note record");
+        assert_eq!(parsed.transcription_id, 10);
+        assert_eq!(parsed.start_offset, 4);
+        assert_eq!(parsed.end_offset, 11);
+        assert_eq!(parsed.quoted_text, "2GOMCP");
+    }
+
+    #[test]
+    fn transcribe_response_decodes_camel_case_sidecar_json_including_the_new_id_field() {
+        let json = r#"{"text":"hi","rendered":"hi","language":null,"duration":null,"id":10}"#;
+        let parsed: TranscribeResponse = serde_json::from_str(json).expect("must decode camelCase transcribe response");
+        assert_eq!(parsed.id, Some(10));
+    }
+
+    #[test]
+    fn transcribe_response_id_is_optional_when_the_sidecar_omits_it() {
+        // Whenever recordHistory writes nothing (no DATABASE_URL, or the
+        // write itself failed) sidecar.ts's TranscribeResponse simply omits
+        // `id` -- this must decode to None, not a parse error.
+        let json = r#"{"text":"hi","rendered":"hi","language":null,"duration":null}"#;
+        let parsed: TranscribeResponse = serde_json::from_str(json).expect("id must be optional");
+        assert_eq!(parsed.id, None);
     }
 }

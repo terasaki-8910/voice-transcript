@@ -27,7 +27,10 @@ export interface CliDeps {
   // recordHistorySafe() (packages/core/src/db), which already guarantees
   // that: no DATABASE_URL or an unreachable DB never blocks or corrupts the
   // transcription result, it only logs and returns.
-  recordHistory?: (input: HistoryRecordInput) => Promise<void>;
+  // The returned id (a transcriptions.id) exists for the GUI's transcript
+  // notes feature -- the CLI has no use for it, but the type has to match
+  // recordHistorySafe's real signature (packages/core/src/db/history.ts).
+  recordHistory?: (input: HistoryRecordInput) => Promise<number | undefined>;
   // Custom dictionary (word replacement), applied to every run same as the
   // GUI (packages/core/src/sidecar.ts's handleTranscribe) so CLI/GUI parity
   // (ACCEPTANCE G4) holds. Must never throw -- the default logs and returns
@@ -65,7 +68,7 @@ function errorMessage(err: unknown): string {
 // thrown error out of main() -- it can only ever affect the exit code via
 // the transcription's OWN success/failure, never via history bookkeeping.
 async function safeRecordHistory(
-  recordHistory: (input: HistoryRecordInput) => Promise<void>,
+  recordHistory: (input: HistoryRecordInput) => Promise<number | undefined>,
   input: HistoryRecordInput,
   stderr: (s: string) => void,
 ): Promise<void> {

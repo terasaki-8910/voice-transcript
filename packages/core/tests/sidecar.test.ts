@@ -14,6 +14,10 @@ import {
   handleUpdateDictionaryEntry,
   handleDeleteDictionaryEntry,
   handleImportDictionary,
+  handleListNotes,
+  handleAddNote,
+  handleUpdateNote,
+  handleDeleteNote,
   parseDictionaryImport,
   main,
 } from "../src/sidecar.js";
@@ -22,6 +26,7 @@ import type { AudioBackend, AudioChunk } from "../src/audio.js";
 import type { Transcriber } from "../src/types.js";
 import type { HistoryRecord } from "../src/db/history.js";
 import type { DictionaryRecord } from "../src/db/dictionary.js";
+import type { TranscriptNoteRecord } from "../src/db/notes.js";
 
 const HELLO = { text: "hello world", segments: [{ start: 0, end: 2, text: "hello world" }] };
 
@@ -62,7 +67,7 @@ function makeAudio(): AudioBackend {
 // leak the file-level DATABASE_URL comment above already warns about.
 function makeDeps(overrides: Partial<SidecarDeps> = {}): { deps: SidecarDeps; recordHistory: ReturnType<typeof vi.fn>; transcriber: Transcriber } {
   const transcriber: Transcriber = { transcribe: vi.fn(async () => HELLO) };
-  const recordHistory = vi.fn(async () => {});
+  const recordHistory = vi.fn(async () => 1);
   const deps: SidecarDeps = {
     env: { GROQ_API_KEY: "gsk_dummy_key_for_tests" },
     audio: makeAudio(),
@@ -89,9 +94,22 @@ describe("transcribe", () => {
     );
     expect(result.text).toBe("hello world");
     expect(result.rendered).toContain("hello world");
+    // The transcriptions.id recordHistory returns -- transcript notes
+    // anchor to this, so the GUI needs it back on the response itself, not
+    // only from a later listHistory() call.
+    expect(result.id).toBe(1);
     expect(recordHistory).toHaveBeenCalledWith(
       expect.objectContaining({ sourceFileName: "input.m4a", status: "success" }),
     );
+  });
+
+  it("omits id when recordHistory records nothing (no DB configured)", async () => {
+    const { deps } = makeDeps({ recordHistory: vi.fn(async () => undefined) });
+    const result = await handleTranscribe(
+      { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" },
+      deps,
+    );
+    expect(result.id).toBeUndefined();
   });
 
   it("throws when GROQ_API_KEY is missing, without calling the transcriber", async () => {
@@ -143,6 +161,7 @@ function makeRecord(overrides: Partial<HistoryRecord> = {}): HistoryRecord {
     status: "success",
     transcriptText: "hello world",
     segments: null,
+    noteCount: 0,
     ...overrides,
   };
 }
@@ -254,6 +273,82 @@ describe("deleteDictionaryEntry", () => {
     const deleteDictionaryEntry = vi.fn(async () => {});
     await expect(handleDeleteDictionaryEntry({ id: 4 }, { deleteDictionaryEntry })).resolves.toEqual({ id: 4 });
     expect(deleteDictionaryEntry).toHaveBeenCalledWith(4);
+  });
+});
+
+function makeNoteRecord(overrides: Partial<TranscriptNoteRecord> = {}): TranscriptNoteRecord {
+  return {
+    id: 1,
+    transcriptionId: 10,
+    startOffset: 4,
+    endOffset: 11,
+    quotedText: "2GOMCP",
+    note: "正しくはTogoMCP",
+    createdAt: new Date("2026-09-25T00:00:00Z"),
+    updatedAt: new Date("2026-09-25T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+describe("listNotes", () => {
+  it("returns the injected list for the given transcription", async () => {
+    const record = makeNoteRecord();
+    const listNotes = vi.fn(async () => [record]);
+    await expect(handleListNotes({ transcriptionId: 10 }, { listNotes })).resolves.toEqual([record]);
+    expect(listNotes).toHaveBeenCalledWith(10);
+  });
+
+  it("returns [] (not an error) when there is no DB configured and no injection", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    await expect(handleListNotes({ transcriptionId: 10 }, {})).resolves.toEqual([]);
+  });
+});
+
+describe("addNote", () => {
+  it("adds and returns the new record", async () => {
+    const record = makeNoteRecord();
+    const addNote = vi.fn(async () => record);
+    const args = { transcriptionId: 10, startOffset: 4, endOffset: 11, quotedText: "2GOMCP", note: "正しくはTogoMCP" };
+    await expect(handleAddNote(args, { addNote })).resolves.toEqual(record);
+    expect(addNote).toHaveBeenCalledWith(args);
+  });
+
+  it("rejects a range where end does not come after start", async () => {
+    const addNote = vi.fn(async () => makeNoteRecord());
+    await expect(
+      handleAddNote({ transcriptionId: 10, startOffset: 5, endOffset: 5, quotedText: "x", note: "y" }, { addNote }),
+    ).rejects.toThrow(/range/i);
+    expect(addNote).not.toHaveBeenCalled();
+  });
+
+  it("rejects a negative start offset", async () => {
+    const addNote = vi.fn(async () => makeNoteRecord());
+    await expect(
+      handleAddNote({ transcriptionId: 10, startOffset: -1, endOffset: 3, quotedText: "x", note: "y" }, { addNote }),
+    ).rejects.toThrow(/range/i);
+    expect(addNote).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateNote", () => {
+  it("updates and returns the record -- the anchor (offsets/quotedText) is untouched", async () => {
+    const record = makeNoteRecord({ note: "updated note" });
+    const updateNote = vi.fn(async () => record);
+    await expect(handleUpdateNote({ id: 1, note: "updated note" }, { updateNote })).resolves.toEqual(record);
+    expect(updateNote).toHaveBeenCalledWith(1, "updated note");
+  });
+
+  it("throws when the id doesn't exist", async () => {
+    const updateNote = vi.fn(async () => undefined);
+    await expect(handleUpdateNote({ id: 99, note: "x" }, { updateNote })).rejects.toThrow(/99/);
+  });
+});
+
+describe("deleteNote", () => {
+  it("deletes and returns the id", async () => {
+    const deleteNote = vi.fn(async () => {});
+    await expect(handleDeleteNote({ id: 7 }, { deleteNote })).resolves.toEqual({ id: 7 });
+    expect(deleteNote).toHaveBeenCalledWith(7);
   });
 });
 
