@@ -178,4 +178,104 @@ describe("AnnotatedTranscript", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByText("正しくはTogoMCP")).toBeNull();
   });
+
+  // Real user report, 2026-09-25: clicking Save gave no feedback and the
+  // popover only closed "after a bit," which read as broken -- the sidecar
+  // round trip (a fresh Node subprocess per call, see commands.rs's
+  // call_sidecar) is genuinely not instant. These pin the fix: an
+  // immediate "Saving..."/disabled state, not just eventual dismissal.
+  describe("busy state while a save is in flight", () => {
+    function deferred<T>() {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it("a new note's Save button shows immediate feedback and blocks a second click mid-flight", async () => {
+      const gate = deferred<void>();
+      const onAddNote = vi.fn(() => gate.promise);
+      const { container } = renderTranscript({ onAddNote });
+      const textNode = container.querySelector("p")!.firstChild!;
+      select(textNode, 0, textNode, 6);
+      fireEvent.mouseUp(document);
+      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
+
+      const saveButton = screen.getByRole("button", { name: "Save" });
+      fireEvent.click(saveButton);
+
+      // Immediate, synchronous feedback -- no waitFor: this must be true the
+      // instant the click handler runs, before the promise ever settles.
+      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Saving..." }));
+      expect(onAddNote).toHaveBeenCalledTimes(1); // the second click did nothing
+
+      gate.resolve();
+      await waitFor(() => expect(screen.queryByText('"2GOMCP"')).toBeNull());
+    });
+
+    it("outside click and Escape are ignored while a new note is saving", async () => {
+      const gate = deferred<void>();
+      const onAddNote = vi.fn(() => gate.promise);
+      const { container } = renderTranscript({ onAddNote });
+      const textNode = container.querySelector("p")!.firstChild!;
+      select(textNode, 0, textNode, 6);
+      fireEvent.mouseUp(document);
+      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      fireEvent.mouseDown(document.body);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.getByText('"2GOMCP"')).toBeDefined(); // still open, request still in flight
+
+      gate.resolve();
+      await waitFor(() => expect(screen.queryByText('"2GOMCP"')).toBeNull());
+    });
+
+    it("a save failure re-enables the form instead of leaving it stuck disabled", async () => {
+      const gate = deferred<void>();
+      const onAddNote = vi.fn(() => gate.promise);
+      const { container } = renderTranscript({ onAddNote });
+      const textNode = container.querySelector("p")!.firstChild!;
+      select(textNode, 0, textNode, 6);
+      fireEvent.mouseUp(document);
+      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      gate.reject(new Error("db unreachable"));
+      await waitFor(() => expect(screen.getByText("db unreachable")).toBeDefined());
+      expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", false);
+    });
+
+    it("editing an existing note shows the same immediate busy feedback", async () => {
+      const gate = deferred<void>();
+      const onUpdateNote = vi.fn(() => gate.promise);
+      renderTranscript({ notes: [makeNote()], onUpdateNote });
+      fireEvent.click(screen.getByText("2GOMCP"));
+      fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
+      fireEvent.change(screen.getByDisplayValue("正しくはTogoMCP"), { target: { value: "更新後" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
+      gate.resolve();
+      await waitFor(() => expect(onUpdateNote).toHaveBeenCalledWith(1, "更新後"));
+    });
+
+    it("deleting shows immediate busy feedback after the confirm dialog", async () => {
+      confirmDialog.mockResolvedValueOnce(true);
+      const gate = deferred<void>();
+      const onDeleteNote = vi.fn(() => gate.promise);
+      renderTranscript({ notes: [makeNote()], onDeleteNote });
+      fireEvent.click(screen.getByText("2GOMCP"));
+      fireEvent.click(screen.getByRole("button", { name: "Delete note" }));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Deleting..." })).toBeDefined());
+      gate.resolve();
+      await waitFor(() => expect(screen.queryByText("正しくはTogoMCP")).toBeNull());
+    });
+  });
 });

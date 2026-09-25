@@ -10,7 +10,7 @@
 // now also available directly on the row (previously only reachable via
 // the native menu + a prior "View" click), independent of SelectionContext.
 import { useState } from "react";
-import { FiDownload, FiTrash, FiCopy, FiCheck } from "react-icons/fi";
+import { FiDownload, FiTrash } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useQueue } from "./QueueContext";
 import type { QueueItem } from "./QueueContext";
@@ -19,6 +19,7 @@ import { pickSavePath, exportTranscript, copyToClipboard, addDictionaryEntry } f
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
 import { useTranscriptNotes } from "../notes/useTranscriptNotes";
 import { AnnotatedTranscript } from "../notes/AnnotatedTranscript";
+import { CopyMenu } from "../notes/CopyMenu";
 import { formatWithNotes } from "../notes/notesFormat";
 
 const CHIP_CLASS: Record<QueueItem["status"], string> = {
@@ -38,8 +39,6 @@ export function QueueRow({ item }: { item: QueueItem }) {
   const { setSelection } = useSelection();
   const { breakAtPeriod } = useDisplayPreferences();
   const [fullText, setFullText] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copiedWithNotes, setCopiedWithNotes] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportError, setExportError] = useState<string>();
   // knownNoteCount is always 0, not just "usually" -- item.result.id (when
@@ -71,28 +70,26 @@ export function QueueRow({ item }: { item: QueueItem }) {
     }
   };
 
+  // Both rethrow after reporting (not just catch-and-report) -- CopyMenu
+  // awaits these itself to decide whether to flash its "copied" checkmark,
+  // so a failure has to actually reject, not resolve silently.
   const handleCopy = async () => {
     if (!item.result) return;
     try {
       await copyToClipboard(item.result.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch (err) {
       setExportError(errorMessage(err));
+      throw err;
     }
   };
 
-  // Separate from handleCopy/copied (not a shared flag) -- two distinct
-  // buttons, only shown together once this item actually has notes, each
-  // with its own independent "copied" checkmark.
   const handleCopyWithNotes = async () => {
     if (!item.result) return;
     try {
       await copyToClipboard(formatWithNotes(item.result.text, notes, t("notesFooterHeading")));
-      setCopiedWithNotes(true);
-      setTimeout(() => setCopiedWithNotes(false), 1500);
     } catch (err) {
       setExportError(errorMessage(err));
+      throw err;
     }
   };
 
@@ -144,23 +141,14 @@ export function QueueRow({ item }: { item: QueueItem }) {
         </button>
       )}
       {item.status === "done" && (
-        <button
-          type="button"
-          className="row-action icon-btn"
-          title={copied ? t("copied") : t("copyTranscript")}
-          aria-label={copied ? t("copied") : t("copyTranscript")}
-          onClick={() => void handleCopy()}
-        >
-          {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
-        </button>
-      )}
-      {/* Only once this item actually has notes -- see HistoryRow's
-          identical gate for why an always-visible second copy button would
-          be empty-state clutter. */}
-      {item.status === "done" && notes.length > 0 && (
-        <button type="button" className="row-action btn-link" onClick={() => void handleCopyWithNotes()}>
-          {copiedWithNotes ? t("copied") : t("copyWithNotes")}
-        </button>
+        <CopyMenu
+          hasNotes={notes.length > 0}
+          onCopy={handleCopy}
+          onCopyWithNotes={handleCopyWithNotes}
+          copyLabel={t("copyTranscript")}
+          copyWithNotesLabel={t("copyWithNotes")}
+          copiedLabel={t("copied")}
+        />
       )}
       {item.status === "done" && (
         <button

@@ -27,9 +27,9 @@
 // underlying handleTrash/handleDelete and their confirm() dialogs are
 // unchanged, only the entry point moved. The slot this frees up gets a new
 // Copy-transcript button.
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { FiTrash, FiTrash2, FiDownload, FiCopy, FiCheck } from "react-icons/fi";
+import { FiTrash, FiTrash2, FiDownload } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import { useHistoryNav } from "./HistoryNavContext";
@@ -38,8 +38,10 @@ import { pickSavePath, exportTranscript, copyToClipboard, addDictionaryEntry } f
 import { basename } from "../../lib/path";
 import { useSelection } from "../selection/SelectionContext";
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
+import { useDismissOnOutsideClick } from "../../lib/useDismiss";
 import { useTranscriptNotes } from "../notes/useTranscriptNotes";
 import { AnnotatedTranscript } from "../notes/AnnotatedTranscript";
+import { CopyMenu } from "../notes/CopyMenu";
 import { formatWithNotes } from "../notes/notesFormat";
 
 function errorMessage(err: unknown): string {
@@ -73,26 +75,14 @@ function DeleteMenu({
   const anchorRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (e: MouseEvent) => {
-      if (anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  useDismissOnOutsideClick(
+    open,
+    () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    anchorRef,
+  );
 
   return (
     <div className="row-action menu-anchor" ref={anchorRef}>
@@ -146,8 +136,6 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const { trash, remove, actionErrors, reportActionError } = useHistory();
   const { setSelection } = useSelection();
   const { currentId, view, close } = useHistoryNav();
-  const [copied, setCopied] = useState(false);
-  const [copiedWithNotes, setCopiedWithNotes] = useState(false);
   const { breakAtPeriod } = useDisplayPreferences();
   const [fullText, setFullText] = useState(false);
   const expanded = currentId === item.id;
@@ -211,28 +199,26 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
     }
   };
 
+  // Both rethrow after reporting (not just catch-and-report) -- CopyMenu
+  // awaits these itself to decide whether to flash its "copied" checkmark,
+  // so a failure has to actually reject, not resolve silently.
   const handleCopy = async () => {
     if (!item.transcriptText) return;
     try {
       await copyToClipboard(item.transcriptText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch (err) {
       reportActionError(item.id, errorMessage(err));
+      throw err;
     }
   };
 
-  // Separate from handleCopy/copied (not a shared flag) -- these are two
-  // distinct buttons, only shown together once this row actually has
-  // notes, and each needs its own independent "copied" checkmark.
   const handleCopyWithNotes = async () => {
     if (!item.transcriptText) return;
     try {
       await copyToClipboard(formatWithNotes(item.transcriptText, notes, t("notesFooterHeading")));
-      setCopiedWithNotes(true);
-      setTimeout(() => setCopiedWithNotes(false), 1500);
     } catch (err) {
       reportActionError(item.id, errorMessage(err));
+      throw err;
     }
   };
 
@@ -279,24 +265,14 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
         </button>
       )}
       {item.transcriptText && (
-        <button
-          type="button"
-          className="row-action icon-btn"
-          title={copied ? t("copied") : t("copyTranscript")}
-          aria-label={copied ? t("copied") : t("copyTranscript")}
-          onClick={() => void handleCopy()}
-        >
-          {copied ? <FiCheck aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
-        </button>
-      )}
-      {/* Only once this row actually has notes -- an always-visible second
-          copy button that behaves identically to the first whenever there
-          are no notes is exactly the empty-state clutter ui.md warns
-          against, not a helpful affordance. */}
-      {item.transcriptText && notes.length > 0 && (
-        <button type="button" className="row-action btn-link" onClick={() => void handleCopyWithNotes()}>
-          {copiedWithNotes ? t("copied") : t("copyWithNotes")}
-        </button>
+        <CopyMenu
+          hasNotes={notes.length > 0}
+          onCopy={handleCopy}
+          onCopyWithNotes={handleCopyWithNotes}
+          copyLabel={t("copyTranscript")}
+          copyWithNotesLabel={t("copyWithNotes")}
+          copiedLabel={t("copied")}
+        />
       )}
       {item.transcriptText && (
         <button type="button" className="row-action icon-btn" title={t("export")} aria-label={t("export")} onClick={() => void handleExport()}>
