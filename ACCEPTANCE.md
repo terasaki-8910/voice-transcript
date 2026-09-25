@@ -235,12 +235,13 @@ integration acceptance.
   `AnnotatedTranscript.test.tsx`'s dictionary-link test asserting the exact
   call and the shown confirmation copy).
 - **L5** — "Copy with notes" is a second, distinct action from the existing
-  "copy transcript" (unchanged) and renders only once a row actually has
-  notes — never an always-visible control that would behave identically to
-  the first when there are none (`HistoryRow.tsx`/`QueueRow.tsx`'s
-  `notes.length > 0` gate). Its output appends a footer quoting each note's
-  own snippet and text in reading order (`startOffset`), never edits or
-  marks up the body (`apps/desktop/tests/notes/notesFormat.test.ts`).
+  "copy transcript" (unchanged), reachable only once a row actually has
+  notes — with no notes, `CopyMenu` renders as the same single instant-copy
+  icon it always was, never a menu offering one meaningless choice
+  (`apps/desktop/tests/notes/CopyMenu.test.tsx`'s `hasNotes: false` cases).
+  Its output appends a footer quoting each note's own snippet and text in
+  reading order (`startOffset`), never edits or marks up the body
+  (`apps/desktop/tests/notes/notesFormat.test.ts`).
 - **L6** — Notes work from the Queue screen, not only History: a `transcribe`
   response now carries the new `transcriptions.id`
   (`recordHistory`'s `.returning()` threaded through
@@ -264,3 +265,13 @@ integration acceptance.
   exactly (thin Rust DTO → sidecar `switch` case → `db/notes.ts`), with the
   same camelCase-decode regression coverage the history/dictionary DTOs
   already have (`commands.rs`'s `#[cfg(test)]` module).
+- **L9** — Clicking Save/Delete on a note popover shows disabled/"Saving..."
+  (or "Deleting...") feedback the instant the click registers — synchronously,
+  before the underlying request resolves — and a second click, an outside
+  click, or Escape during that window is a no-op rather than a duplicate
+  submission or a yanked-away popover (`apps/desktop/tests/notes/
+  AnnotatedTranscript.test.tsx`'s "busy state while a save is in flight"
+  suite). A failed request re-enables the form instead of leaving it stuck.
+- **L10** — `CopyMenu`'s "copied" checkmark only appears once the copy has
+  actually resolved — a rejected `onCopy`/`onCopyWithNotes` never flashes
+  it (`apps/desktop/tests/notes/CopyMenu.test.tsx`).
