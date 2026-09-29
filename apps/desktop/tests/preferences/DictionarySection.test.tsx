@@ -80,6 +80,19 @@ describe("DictionarySection", () => {
     await waitFor(() => expect(screen.getByText("cloud.md")).toBeDefined());
   });
 
+  it("adding a word flashes an 'Added' confirmation on the add button (user-reported: silent otherwise)", async () => {
+    invoke.mockResolvedValueOnce([]); // list_dictionary
+    invoke.mockResolvedValueOnce(entry({ id: 5, word: "cloud.md", replacement: "CLAUDE.md" })); // add_dictionary_entry
+    renderSection();
+    await waitFor(() => expect(screen.getByText("No dictionary entries yet")).toBeDefined());
+
+    fireEvent.change(screen.getByLabelText("Word"), { target: { value: "cloud.md" } });
+    fireEvent.change(screen.getByLabelText("Replacement"), { target: { value: "CLAUDE.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add word" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Added" })).toBeDefined());
+  });
+
   it("Add word is disabled until both fields are filled", async () => {
     invoke.mockResolvedValueOnce([]);
     renderSection();
@@ -110,6 +123,20 @@ describe("DictionarySection", () => {
       }),
     );
     await waitFor(() => expect(screen.getByText("SPARQL-updated")).toBeDefined());
+  });
+
+  it("saving an edit flashes a checkmark next to the row (user-reported: silent otherwise)", async () => {
+    invoke.mockResolvedValueOnce([entry()]);
+    invoke.mockResolvedValueOnce(entry({ replacement: "SPARQL-updated" }));
+    const { container } = renderSection();
+    await waitFor(() => expect(screen.getByText("スパークル")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit entry" }));
+    const replacementInput = screen.getAllByLabelText("Replacement").find((el) => (el as HTMLInputElement).value === "SPARQL") as HTMLInputElement;
+    fireEvent.change(replacementInput, { target: { value: "SPARQL-updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(container.querySelector(".dictionary-saved-check")).not.toBeNull());
   });
 
   it("cancelling an edit discards the in-progress change", async () => {

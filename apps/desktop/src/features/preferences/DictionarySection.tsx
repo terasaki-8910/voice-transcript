@@ -6,7 +6,7 @@
 // duplicated here.
 import { useEffect, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { FiEdit2, FiTrash2, FiPlus } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiCheck } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import {
   listDictionary,
@@ -32,6 +32,15 @@ export function DictionarySection() {
   const [newWord, setNewWord] = useState("");
   const [newReplacement, setNewReplacement] = useState("");
   const [addError, setAddError] = useState<string>();
+  // Both flash a checkmark for 1500ms then revert -- same pattern as
+  // CopyMenu's "Copied" (user-reported, 2026-09-29: adding a word gave no
+  // feedback beyond the new row silently appearing at the top of a list
+  // that can be long enough to scroll it out of view). justSavedId is
+  // cleared via a functional update (not a bare setState(null)) so an
+  // earlier row's timeout firing after a later row was saved can't clear
+  // the wrong row's checkmark.
+  const [added, setAdded] = useState(false);
+  const [justSavedId, setJustSavedId] = useState<number | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editWord, setEditWord] = useState("");
@@ -65,6 +74,8 @@ export function DictionarySection() {
       setEntries((prev) => [entry, ...prev]);
       setNewWord("");
       setNewReplacement("");
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1500);
     } catch (err) {
       setAddError(errorMessage(err));
     }
@@ -88,6 +99,8 @@ export function DictionarySection() {
       const updated = await updateDictionaryEntry(id, editWord.trim(), editReplacement.trim());
       setEntries((prev) => prev.map((e) => (e.id === id ? updated : e)));
       setEditingId(null);
+      setJustSavedId(id);
+      setTimeout(() => setJustSavedId((current) => (current === id ? null : current)), 1500);
     } catch (err) {
       setEditError(errorMessage(err));
     }
@@ -146,12 +159,12 @@ export function DictionarySection() {
         <button
           type="button"
           className="icon-btn"
-          aria-label={t("dictionaryAddWord")}
-          title={t("dictionaryAddWord")}
+          aria-label={added ? t("added") : t("dictionaryAddWord")}
+          title={added ? t("added") : t("dictionaryAddWord")}
           disabled={!newWord.trim() || !newReplacement.trim()}
           onClick={() => void handleAdd()}
         >
-          <FiPlus aria-hidden="true" />
+          {added ? <FiCheck aria-hidden="true" /> : <FiPlus aria-hidden="true" />}
         </button>
       </div>
       {addError && <p className="fail-reason">{addError}</p>}
@@ -198,6 +211,7 @@ export function DictionarySection() {
                 <span className="dictionary-word">{entry.word}</span>
                 <span aria-hidden="true">→</span>
                 <span className="dictionary-replacement">{entry.replacement}</span>
+                {justSavedId === entry.id && <FiCheck aria-hidden="true" className="dictionary-saved-check" />}
                 <button
                   type="button"
                   className="icon-btn"

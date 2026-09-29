@@ -249,6 +249,11 @@
   color: var(--color-ink-muted);
 }
 
+.dictionary-saved-check {
+  flex-shrink: 0;
+  color: var(--color-success);
+}
+
 /* Selects. Previously unstyled, so every dropdown rendered as the OS's own
    raised popup button -- a glossy, shadowed control sitting on top of an
    otherwise flat token-built panel, and sized to its longest option so the
