@@ -118,6 +118,10 @@ integration acceptance.
   request (CLI or GUI) still completes and returns/writes its output; only the
   history write fails, and it fails loudly (logged), never silently and never
   blocking the transcription itself.
+- **H6** — `createDb()`'s pool allows the sidecar process to exit as soon as
+  it's genuinely idle, instead of pg-pool's default 10s idle timer holding
+  the process (and therefore every caller awaiting its exit) open past its
+  real work (`packages/core/tests/client.test.ts`).
 
 ## I. Release automation (GitHub Actions)
 - **I1** — `.github/workflows/release.yml` exists, triggers only on
@@ -265,16 +269,41 @@ integration acceptance.
   exactly (thin Rust DTO → sidecar `switch` case → `db/notes.ts`), with the
   same camelCase-decode regression coverage the history/dictionary DTOs
   already have (`commands.rs`'s `#[cfg(test)]` module).
-- **L9** — Clicking Save/Delete on a note popover shows disabled/"Saving..."
-  (or "Deleting...") feedback the instant the click registers — synchronously,
-  before the underlying request resolves — and a second click, an outside
-  click, or Escape during that window is a no-op rather than a duplicate
-  submission or a yanked-away popover (`apps/desktop/tests/notes/
-  AnnotatedTranscript.test.tsx`'s "busy state while a save is in flight"
-  suite). A failed request re-enables the form instead of leaving it stuck.
+- **L9** — Add/edit/delete apply to the visible transcript and close their
+  popover the instant the action is taken (Save, Cmd/Ctrl+Enter, or a
+  confirmed Delete) — never waiting on the sidecar round trip
+  (`apps/desktop/tests/notes/AnnotatedTranscript.test.tsx`, e.g. "Save
+  calls onAddNote... and closes the popover instantly"). Opening a
+  different selection or note while a previous action is still syncing in
+  the background is never blocked or disabled by that unrelated request
+  (no shared busy state exists to leak between popovers — each popover's
+  content is derived fresh from current state). If the background write
+  ultimately fails, the affected note is shown in a distinct "unsaved"
+  style instead of silently reverting; clicking it offers Retry (re-runs
+  the same write) or Discard (undoes an unsaved add, reverts an unsaved
+  edit, or keeps the note when a delete failed) — pinned by
+  `useTranscriptNotes.test.tsx`'s optimistic-apply/failure/retry/discard
+  cases and `AnnotatedTranscript.test.tsx`'s "a note with a background
+  sync failure" suite.
 - **L10** — `CopyMenu`'s "copied" checkmark only appears once the copy has
   actually resolved — a rejected `onCopy`/`onCopyWithNotes` never flashes
   it (`apps/desktop/tests/notes/CopyMenu.test.tsx`).
+- **L11** — Cmd+Enter (macOS) / Ctrl+Enter (Windows/Linux) saves from
+  either the new-note or edit textarea; plain Enter does not. Escape
+  matches the popover's own visible Cancel: it leaves edit mode while
+  editing, otherwise closes the popover. Neither fires during an IME
+  composition, verified both via `isComposing` and via WebKit's keyCode-229
+  case where `isComposing` is already false by the time the confirming/
+  canceling keydown arrives (`apps/desktop/tests/notes/
+  AnnotatedTranscript.test.tsx`'s keyboard and IME-guard cases).
+- **L12** — The note popover always renders fully inside the browser
+  window — below its anchor when there's room, flipped above when there
+  isn't, clamped to the viewport as a last resort — and the quoted-text
+  preview is line-clamped so an unusually long selection can't push the
+  textarea off-screen either (`apps/desktop/tests/notes/
+  popoverPlacement.test.ts`'s pure placement cases and
+  `AnnotatedTranscript.test.tsx`'s placement-wiring test). Line-clamp and
+  max-height are otherwise verified visually, same as G6.
 
 ## M. Search
 - **M1** — `searchHistory()` matches a term against title, transcript body,

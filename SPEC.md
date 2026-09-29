@@ -45,6 +45,17 @@ history of past runs.
   engine and DB layer both — spawned and supervised by the Rust shell over
   stdio/local IPC — never reachable from the webview). Rust proxies exactly
   the commands the UI needs.
+- **Sidecar lifecycle (added 2026-09-29, user-reported):** every command is a
+  fresh, short-lived process, and Rust resolves the webview's call only once
+  that process has actually **exited** — not merely once it has written its
+  JSON line. So nothing may keep the process alive after its work is done:
+  `createDb()` builds its `pg` pool with `allowExitOnIdle`, letting Node exit
+  as soon as it's genuinely idle instead of waiting on pg-pool's default 10s
+  idle timer. Before this fix, every DB-touching command (history search,
+  dictionary, notes, a transcription's history write) paid its real work
+  time plus a ~10s dead tail past it. A future non-`pg` driver must keep the
+  same property (e.g. close its own pool/connection once a command's work is
+  done).
 - **Scaffolding tools added for this:** `.claude/skills/tauri-command-scaffold/`
   (keeps a Rust command and its TS `invoke()` wrapper in sync) and
   `.claude/agents/tauri-capability-reviewer.md` (reviews capability scope and
@@ -314,16 +325,43 @@ history of past runs.
   pattern as the row's Trash/Delete control) only once notes exist. An
   icon-plus-text-link pair was tried first and read as visually
   mismatched and wider than every other row action.
-- **Every note action gives immediate "working" feedback (added
-  2026-09-25, user-reported):** add/edit/delete/link-to-dictionary all
-  round-trip through the sidecar, which is a fresh subprocess per call
-  (no persistent connection — see Architecture), easily several hundred
-  ms. Clicking Save/Delete disables the form and swaps its label
-  (e.g. "Saving...") the instant the click registers, rather than leaving
-  the popover apparently inert until it suddenly closes — which read as
-  broken — and doubles as a duplicate-submission guard (a second click,
-  or an outside click/Escape, is ignored while a request from the same
-  popover is in flight).
+- **Add/edit/delete are optimistic (revised 2026-09-29, user-reported;
+  supersedes the 2026-09-25 "immediate working feedback" version below):**
+  clicking Save/Delete (or its keyboard equivalent) applies the change to
+  the visible transcript and closes the popover **instantly** — it does not
+  wait for the sidecar round trip (still a fresh subprocess per call, no
+  persistent connection — see Architecture; the 2026-09-25 version's "easily
+  several hundred ms" was measured before the ~10s idle-pool tail described
+  there was found and fixed, and was itself the actual cause of the popover
+  reading as unresponsive). The 2026-09-25 version shared one busy flag
+  across both popovers, so a save still in flight could leave an unrelated,
+  freshly-opened popover stuck disabled until it finished — this version has
+  no shared busy state to leak: each popover's displayed note is derived
+  fresh from current state, so a background result landing after the user
+  has moved on simply has nothing left to touch. If the background write
+  ultimately fails, the note is shown in a distinct "unsaved" highlight
+  instead of silently reverting or blocking further interaction; clicking it
+  offers Retry (re-attempts the same write) or Discard (undoes the add,
+  reverts the edit, or keeps the note when a delete failed). "Add to
+  dictionary" is a secondary action and intentionally NOT optimistic — it
+  still waits and shows inline success/error, same as before.
+- **Keyboard (added 2026-09-29, user-requested):** Cmd+Enter (macOS) /
+  Ctrl+Enter (Windows/Linux) saves from either textarea; plain Enter inserts
+  a newline. Escape matches what the popover's own visible Cancel does —
+  while editing an existing note it leaves edit mode, otherwise it closes
+  the popover — rather than always closing everything. Neither key acts
+  while an IME conversion is in progress (checked via `isComposing` OR
+  keyCode 229, since WebKit — this app's webview engine on macOS/Linux —
+  fires `compositionend` before the keydown that ends a composition, so
+  `isComposing` alone misses exactly the Enter/Escape that confirm or
+  cancel a conversion).
+- **Popover placement (added 2026-09-29, user-reported):** the popover
+  always renders fully inside the window — below its anchor by default,
+  flipped above when there's no room below, clamped to the viewport as a
+  last resort — instead of a long selection being able to push it (and its
+  textarea) off-screen. The quoted-text preview is clamped to a few lines
+  so an unusually long selection can't inflate the popover past a
+  reasonable height either.
 - **Storage**: a `transcript_notes` table (Postgres, same DB/ORM as history
   and the dictionary), foreign-keyed to `transcriptions.id` with an
   `ON DELETE CASCADE` — deleting a history entry also removes its notes,
