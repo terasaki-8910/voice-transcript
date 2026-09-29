@@ -1,15 +1,24 @@
 // Transcript notes (SPEC.md > Transcript notes). Pins AnnotatedTranscript's
 // interactive layer -- drag-select -> "add note" popover -> save/cancel,
-// click a highlighted note -> view/edit/delete, and the "add to dictionary"
-// mini-form -- against plain injected callbacks (the same DI seam
-// HistoryRow/QueueRow use via useTranscriptNotes), so this suite never
-// needs to touch Tauri IPC itself. Only @tauri-apps/plugin-dialog's
+// click a highlighted note -> view/edit/delete/failed, and the "add to
+// dictionary" mini-form -- against plain injected callbacks (the same DI
+// seam HistoryRow/QueueRow use via useTranscriptNotes), so this suite
+// never needs to touch Tauri IPC itself. Only @tauri-apps/plugin-dialog's
 // confirm() is mocked, for the delete step.
+//
+// add/update/delete/retry/discard are now plain (non-Promise) callbacks --
+// AnnotatedTranscript applies them fire-and-forget and closes its popover
+// synchronously (2026-09-29, user-reported: optimistic save/cancel). The
+// actual optimistic-apply/rollback/failure-recording logic they trigger
+// lives in useTranscriptNotes and is pinned in useTranscriptNotes.test.tsx,
+// not here -- this file only checks that AnnotatedTranscript calls them
+// correctly and renders whatever notes/noteFailures it's given.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { AnnotatedTranscript } from "../../src/features/notes/AnnotatedTranscript";
 import type { TranscriptNote } from "../../src/lib/tauri";
+import type { NoteFailure } from "../../src/features/notes/useTranscriptNotes";
 
 const confirmDialog = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -40,25 +49,30 @@ function makeNote(overrides: Partial<TranscriptNote> = {}): TranscriptNote {
 }
 
 function renderTranscript(props: Partial<React.ComponentProps<typeof AnnotatedTranscript>> = {}) {
-  const onAddNote = vi.fn(async () => {});
-  const onUpdateNote = vi.fn(async () => {});
-  const onDeleteNote = vi.fn(async () => {});
+  const onAddNote = vi.fn();
+  const onUpdateNote = vi.fn();
+  const onDeleteNote = vi.fn();
+  const onRetryNote = vi.fn();
+  const onDiscardNote = vi.fn();
   const onLinkToDictionary = vi.fn(async () => {});
   const utils = render(
     <I18nProvider>
       <AnnotatedTranscript
         text="2GOMCPについて話しました"
         notes={[]}
+        noteFailures={new Map()}
         breakAtPeriod={false}
         onAddNote={onAddNote}
         onUpdateNote={onUpdateNote}
         onDeleteNote={onDeleteNote}
+        onRetryNote={onRetryNote}
+        onDiscardNote={onDiscardNote}
         onLinkToDictionary={onLinkToDictionary}
         {...props}
       />
     </I18nProvider>,
   );
-  return { ...utils, onAddNote, onUpdateNote, onDeleteNote, onLinkToDictionary };
+  return { ...utils, onAddNote, onUpdateNote, onDeleteNote, onRetryNote, onDiscardNote, onLinkToDictionary };
 }
 
 describe("AnnotatedTranscript", () => {
@@ -81,7 +95,50 @@ describe("AnnotatedTranscript", () => {
     expect(screen.getByText('"2GOMCP"')).toBeDefined();
   });
 
-  it("saving a new note calls onAddNote with the raw offsets and quoted text, then closes the popover", async () => {
+  it("keeps the popover inside the window, flipping above when a selection near the bottom-right leaves no room below", () => {
+    const rectSpy = vi.spyOn(Range.prototype, "getBoundingClientRect").mockReturnValue({
+      top: window.innerHeight - 68,
+      bottom: window.innerHeight - 48,
+      left: window.innerWidth - 124,
+      right: window.innerWidth - 74,
+      width: 50,
+      height: 20,
+      x: window.innerWidth - 124,
+      y: window.innerHeight - 68,
+      toJSON: () => ({}),
+    } as DOMRect);
+    // useClampedPopoverPosition measures the popover element itself through
+    // this -- jsdom's own default (a zero rect) would report it as
+    // zero-sized, so nothing would ever need to flip/clamp.
+    const elementSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 260,
+      bottom: 200,
+      width: 260,
+      height: 200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    try {
+      const { container } = renderTranscript();
+      const textNode = container.querySelector("p")!.firstChild!;
+      select(textNode, 0, textNode, 6);
+      fireEvent.mouseUp(document);
+
+      const popover = container.querySelector(".note-popover") as HTMLElement;
+      expect(popover.style.top).toBe(`${window.innerHeight - 274}px`); // flipped above, not below
+      expect(popover.style.left).toBe(`${window.innerWidth - 268}px`); // clamped off the right edge
+      expect(popover.style.visibility).toBe("visible");
+    } finally {
+      rectSpy.mockRestore();
+      elementSpy.mockRestore();
+    }
+  });
+
+  it("Save calls onAddNote with the raw offsets and quoted text and closes the popover instantly", () => {
     const { container, onAddNote } = renderTranscript();
     const textNode = container.querySelector("p")!.firstChild!;
     select(textNode, 0, textNode, 6);
@@ -90,12 +147,72 @@ describe("AnnotatedTranscript", () => {
     fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "正しくはTogoMCP" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(onAddNote).toHaveBeenCalledWith(0, 6, "2GOMCP", "正しくはTogoMCP"));
+    // No waitFor: onAddNote is a plain fire-and-forget callback now, and
+    // the popover must be gone the instant the click handler runs.
+    expect(onAddNote).toHaveBeenCalledWith(0, 6, "2GOMCP", "正しくはTogoMCP");
     expect(screen.queryByText('"2GOMCP"')).toBeNull();
   });
 
-  it("shows onAddNote's rejection inline and keeps the popover open", async () => {
-    const onAddNote = vi.fn(async () => {
+  it("Cmd+Enter in the new-note textarea saves", () => {
+    const { container, onAddNote } = renderTranscript();
+    const textNode = container.querySelector("p")!.firstChild!;
+    select(textNode, 0, textNode, 6);
+    fireEvent.mouseUp(document);
+
+    const textarea = screen.getByPlaceholderText(/TogoMCP/);
+    fireEvent.change(textarea, { target: { value: "note" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    expect(onAddNote).toHaveBeenCalledWith(0, 6, "2GOMCP", "note");
+    expect(screen.queryByText('"2GOMCP"')).toBeNull();
+  });
+
+  it("Ctrl+Enter in the new-note textarea saves", () => {
+    const { container, onAddNote } = renderTranscript();
+    const textNode = container.querySelector("p")!.firstChild!;
+    select(textNode, 0, textNode, 6);
+    fireEvent.mouseUp(document);
+
+    const textarea = screen.getByPlaceholderText(/TogoMCP/);
+    fireEvent.change(textarea, { target: { value: "note" } });
+    fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+
+    expect(onAddNote).toHaveBeenCalledTimes(1);
+  });
+
+  it("plain Enter in the new-note textarea does not save", () => {
+    const { container, onAddNote } = renderTranscript();
+    const textNode = container.querySelector("p")!.firstChild!;
+    select(textNode, 0, textNode, 6);
+    fireEvent.mouseUp(document);
+
+    const textarea = screen.getByPlaceholderText(/TogoMCP/);
+    fireEvent.change(textarea, { target: { value: "note" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onAddNote).not.toHaveBeenCalled();
+    expect(screen.getByText('"2GOMCP"')).toBeDefined();
+  });
+
+  it.each([
+    ["isComposing", { key: "Enter", metaKey: true, isComposing: true }],
+    ["keyCode 229 (WebKit, isComposing already false)", { key: "Enter", metaKey: true, keyCode: 229 }],
+  ])("Cmd+Enter during an IME composition (%s) does not save", (_label, eventInit) => {
+    const { container, onAddNote } = renderTranscript();
+    const textNode = container.querySelector("p")!.firstChild!;
+    select(textNode, 0, textNode, 6);
+    fireEvent.mouseUp(document);
+
+    const textarea = screen.getByPlaceholderText(/TogoMCP/);
+    fireEvent.change(textarea, { target: { value: "note" } });
+    fireEvent.keyDown(textarea, eventInit);
+
+    expect(onAddNote).not.toHaveBeenCalled();
+    expect(screen.getByText('"2GOMCP"')).toBeDefined();
+  });
+
+  it("shows onAddNote's synchronous rejection inline and keeps the popover open", () => {
+    const onAddNote = vi.fn(() => {
       throw new Error("This range overlaps an existing note.");
     });
     const { container } = renderTranscript({ onAddNote });
@@ -106,7 +223,7 @@ describe("AnnotatedTranscript", () => {
     fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(screen.getByText("This range overlaps an existing note.")).toBeDefined());
+    expect(screen.getByText("This range overlaps an existing note.")).toBeDefined();
     expect(screen.getByText('"2GOMCP"')).toBeDefined();
   });
 
@@ -121,13 +238,23 @@ describe("AnnotatedTranscript", () => {
     expect(onAddNote).not.toHaveBeenCalled();
   });
 
+  it("Escape cancels the new-note popover", () => {
+    const { container } = renderTranscript();
+    const textNode = container.querySelector("p")!.firstChild!;
+    select(textNode, 0, textNode, 6);
+    fireEvent.mouseUp(document);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText('"2GOMCP"')).toBeNull();
+  });
+
   it("clicking a highlighted note opens its view popover", () => {
     renderTranscript({ notes: [makeNote()] });
     fireEvent.click(screen.getByText("2GOMCP"));
     expect(screen.getByText("正しくはTogoMCP")).toBeDefined();
   });
 
-  it("Edit switches to a textarea and Save calls onUpdateNote", async () => {
+  it("Edit switches to a textarea and Save calls onUpdateNote and returns to view mode instantly", () => {
     const { onUpdateNote } = renderTranscript({ notes: [makeNote()] });
     fireEvent.click(screen.getByText("2GOMCP"));
     fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
@@ -136,7 +263,45 @@ describe("AnnotatedTranscript", () => {
     fireEvent.change(textarea, { target: { value: "更新後" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(onUpdateNote).toHaveBeenCalledWith(1, "更新後"));
+    expect(onUpdateNote).toHaveBeenCalledWith(1, "更新後");
+    expect(screen.queryByDisplayValue("更新後")).toBeNull(); // back to view mode, not the textarea
+  });
+
+  it("Cmd+Enter in the edit textarea saves", () => {
+    const { onUpdateNote } = renderTranscript({ notes: [makeNote()] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
+
+    const textarea = screen.getByDisplayValue("正しくはTogoMCP");
+    fireEvent.change(textarea, { target: { value: "更新後" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    expect(onUpdateNote).toHaveBeenCalledWith(1, "更新後");
+  });
+
+  it("Escape while editing returns to view mode instead of closing the popover, and a second Escape then closes it", () => {
+    renderTranscript({ notes: [makeNote()] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
+    expect(screen.getByDisplayValue("正しくはTogoMCP")).toBeDefined();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByDisplayValue("正しくはTogoMCP")).toBeNull(); // out of edit mode
+    expect(screen.getByText("正しくはTogoMCP")).toBeDefined(); // still open, in view mode
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("正しくはTogoMCP")).toBeNull(); // now fully closed
+  });
+
+  it("Escape during an IME composition does not close the open-note popover", () => {
+    renderTranscript({ notes: [makeNote()] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+
+    fireEvent.keyDown(document, { key: "Escape", isComposing: true });
+    expect(screen.getByText("正しくはTogoMCP")).toBeDefined();
+
+    fireEvent.keyDown(document, { key: "Escape", keyCode: 229 });
+    expect(screen.getByText("正しくはTogoMCP")).toBeDefined();
   });
 
   it("Delete confirms, then calls onDeleteNote and closes the popover", async () => {
@@ -159,6 +324,13 @@ describe("AnnotatedTranscript", () => {
     expect(onDeleteNote).not.toHaveBeenCalled();
   });
 
+  it("Edit and Delete are disabled for a note still awaiting its first sync (temp id, no failure yet)", () => {
+    renderTranscript({ notes: [makeNote({ id: -1 })] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+    expect(screen.getByRole("button", { name: "Edit note" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Delete note" })).toHaveProperty("disabled", true);
+  });
+
   it("linking a note to the dictionary calls onLinkToDictionary and shows a success message", async () => {
     const { onLinkToDictionary } = renderTranscript({ notes: [makeNote()] });
     fireEvent.click(screen.getByText("2GOMCP"));
@@ -170,112 +342,79 @@ describe("AnnotatedTranscript", () => {
     expect(screen.getByText(/future transcripts will auto-correct/)).toBeDefined();
   });
 
-  it("Escape closes an open note popover", () => {
-    renderTranscript({ notes: [makeNote()] });
-    fireEvent.click(screen.getByText("2GOMCP"));
-    expect(screen.getByText("正しくはTogoMCP")).toBeDefined();
+  it("a slow dictionary-link request for a note the user has since closed doesn't write into whatever's open now", async () => {
+    let resolveLink!: () => void;
+    const onLinkToDictionary = vi.fn(() => new Promise<void>((res) => (resolveLink = res)));
+    const noteA = makeNote({ id: 1, startOffset: 0, endOffset: 6, quotedText: "2GOMCP" });
+    const noteB = makeNote({ id: 2, startOffset: 6, endOffset: 10, quotedText: "について", note: "second note" });
+    renderTranscript({ notes: [noteA, noteB], onLinkToDictionary });
 
+    fireEvent.click(screen.getByText("2GOMCP"));
+    fireEvent.change(screen.getByLabelText("Correct to"), { target: { value: "TogoMCP" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to dictionary" }));
+    expect(onLinkToDictionary).toHaveBeenCalledTimes(1);
+
+    // Close A's popover (Escape) and open B's instead, THEN let A's
+    // request resolve.
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByText("正しくはTogoMCP")).toBeNull();
+    fireEvent.click(screen.getByText("について"));
+    resolveLink();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByText(/future transcripts will auto-correct/)).toBeNull();
+    expect(screen.getByText("second note")).toBeDefined();
   });
 
-  // Real user report, 2026-09-25: clicking Save gave no feedback and the
-  // popover only closed "after a bit," which read as broken -- the sidecar
-  // round trip (a fresh Node subprocess per call, see commands.rs's
-  // call_sidecar) is genuinely not instant. These pin the fix: an
-  // immediate "Saving..."/disabled state, not just eventual dismissal.
-  describe("busy state while a save is in flight", () => {
-    function deferred<T>() {
-      let resolve!: (v: T) => void;
-      let reject!: (e: unknown) => void;
-      const promise = new Promise<T>((res, rej) => {
-        resolve = res;
-        reject = rej;
-      });
-      return { promise, resolve, reject };
-    }
+  describe("a note with a background sync failure", () => {
+    const failedNote = () => makeNote({ id: 1 });
+    const failures = (action: NoteFailure["action"], error = "db unreachable") =>
+      new Map<number, NoteFailure>([
+        [
+          1,
+          action === "add"
+            ? { action, error, args: { startOffset: 0, endOffset: 6, quotedText: "2GOMCP", note: "正しくはTogoMCP" } }
+            : action === "update"
+              ? { action, error, previousNote: "元の注釈", attemptedNote: "正しくはTogoMCP" }
+              : { action, error, snapshot: failedNote() },
+        ],
+      ]);
 
-    it("a new note's Save button shows immediate feedback and blocks a second click mid-flight", async () => {
-      const gate = deferred<void>();
-      const onAddNote = vi.fn(() => gate.promise);
-      const { container } = renderTranscript({ onAddNote });
-      const textNode = container.querySelector("p")!.firstChild!;
-      select(textNode, 0, textNode, 6);
-      fireEvent.mouseUp(document);
-      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
-
-      const saveButton = screen.getByRole("button", { name: "Save" });
-      fireEvent.click(saveButton);
-
-      // Immediate, synchronous feedback -- no waitFor: this must be true the
-      // instant the click handler runs, before the promise ever settles.
-      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
-
-      fireEvent.click(screen.getByRole("button", { name: "Saving..." }));
-      expect(onAddNote).toHaveBeenCalledTimes(1); // the second click did nothing
-
-      gate.resolve();
-      await waitFor(() => expect(screen.queryByText('"2GOMCP"')).toBeNull());
+    it("renders with the failed style instead of the normal highlight", () => {
+      renderTranscript({ notes: [failedNote()], noteFailures: failures("add") });
+      expect(screen.getByText("2GOMCP")).toHaveProperty("className", "transcript-note transcript-note-failed");
     });
 
-    it("outside click and Escape are ignored while a new note is saving", async () => {
-      const gate = deferred<void>();
-      const onAddNote = vi.fn(() => gate.promise);
-      const { container } = renderTranscript({ onAddNote });
-      const textNode = container.querySelector("p")!.firstChild!;
-      select(textNode, 0, textNode, 6);
-      fireEvent.mouseUp(document);
-      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-      fireEvent.mouseDown(document.body);
-      fireEvent.keyDown(document, { key: "Escape" });
-      expect(screen.getByText('"2GOMCP"')).toBeDefined(); // still open, request still in flight
-
-      gate.resolve();
-      await waitFor(() => expect(screen.queryByText('"2GOMCP"')).toBeNull());
-    });
-
-    it("a save failure re-enables the form instead of leaving it stuck disabled", async () => {
-      const gate = deferred<void>();
-      const onAddNote = vi.fn(() => gate.promise);
-      const { container } = renderTranscript({ onAddNote });
-      const textNode = container.querySelector("p")!.firstChild!;
-      select(textNode, 0, textNode, 6);
-      fireEvent.mouseUp(document);
-      fireEvent.change(screen.getByPlaceholderText(/TogoMCP/), { target: { value: "note" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-      gate.reject(new Error("db unreachable"));
-      await waitFor(() => expect(screen.getByText("db unreachable")).toBeDefined());
-      expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", false);
-    });
-
-    it("editing an existing note shows the same immediate busy feedback", async () => {
-      const gate = deferred<void>();
-      const onUpdateNote = vi.fn(() => gate.promise);
-      renderTranscript({ notes: [makeNote()], onUpdateNote });
+    it.each([
+      ["add", "This note wasn't saved."],
+      ["update", "This edit wasn't saved."],
+      ["delete", "This note wasn't deleted."],
+    ] as const)("clicking a %s-failure shows its heading, the raw error, and Retry/Discard instead of view/edit", (action, heading) => {
+      renderTranscript({ notes: [failedNote()], noteFailures: failures(action, "db unreachable") });
       fireEvent.click(screen.getByText("2GOMCP"));
-      fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
-      fireEvent.change(screen.getByDisplayValue("正しくはTogoMCP"), { target: { value: "更新後" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
-      gate.resolve();
-      await waitFor(() => expect(onUpdateNote).toHaveBeenCalledWith(1, "更新後"));
+      expect(screen.getByText(`${heading} db unreachable`)).toBeDefined();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Discard" })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Edit note" })).toBeNull();
     });
 
-    it("deleting shows immediate busy feedback after the confirm dialog", async () => {
-      confirmDialog.mockResolvedValueOnce(true);
-      const gate = deferred<void>();
-      const onDeleteNote = vi.fn(() => gate.promise);
-      renderTranscript({ notes: [makeNote()], onDeleteNote });
+    it("Retry calls onRetryNote and closes the popover", () => {
+      const { onRetryNote } = renderTranscript({ notes: [failedNote()], noteFailures: failures("update") });
       fireEvent.click(screen.getByText("2GOMCP"));
-      fireEvent.click(screen.getByRole("button", { name: "Delete note" }));
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-      await waitFor(() => expect(screen.getByRole("button", { name: "Deleting..." })).toBeDefined());
-      gate.resolve();
-      await waitFor(() => expect(screen.queryByText("正しくはTogoMCP")).toBeNull());
+      expect(onRetryNote).toHaveBeenCalledWith(1);
+      expect(screen.queryByText("Retry")).toBeNull();
+    });
+
+    it("Discard calls onDiscardNote and closes the popover", () => {
+      const { onDiscardNote } = renderTranscript({ notes: [failedNote()], noteFailures: failures("delete") });
+      fireEvent.click(screen.getByText("2GOMCP"));
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+      expect(onDiscardNote).toHaveBeenCalledWith(1);
+      expect(screen.queryByText("Discard")).toBeNull();
     });
   });
 });

@@ -45,7 +45,15 @@ export function QueueRow({ item }: { item: QueueItem }) {
   // present) is a transcriptions.id that `transcribe` only just inserted,
   // so it provably has no notes yet from any earlier session. This also
   // means a queue item never spawns a list_notes sidecar call at all.
-  const { notes, add: addNote, update: updateNote, remove: removeNote } = useTranscriptNotes(item.result?.id, 0);
+  const {
+    notes,
+    failures: noteFailures,
+    add: addNote,
+    update: updateNote,
+    remove: removeNote,
+    retry: retryNote,
+    discard: discardNote,
+  } = useTranscriptNotes(item.result?.id, 0);
 
   const handleView = () => {
     setExpanded((v) => !v);
@@ -118,11 +126,14 @@ export function QueueRow({ item }: { item: QueueItem }) {
             <AnnotatedTranscript
               text={item.result.text}
               notes={notes}
+              noteFailures={noteFailures}
               breakAtPeriod={breakAtPeriod}
               className={`row-preview${fullText ? " row-preview-full" : ""}`}
               onAddNote={addNote}
               onUpdateNote={updateNote}
               onDeleteNote={removeNote}
+              onRetryNote={retryNote}
+              onDiscardNote={discardNote}
               onLinkToDictionary={handleLinkToDictionary}
             />
             <button

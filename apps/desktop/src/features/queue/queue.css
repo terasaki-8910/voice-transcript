@@ -319,6 +319,18 @@
   background: color-mix(in srgb, var(--color-signal) 34%, transparent);
 }
 
+/* A note whose add/edit/delete didn't sync to the backend (SPEC.md's
+   "Transcript notes" optimistic-save bullet) -- danger-tinted instead of
+   signal-tinted, same low-opacity color-mix pattern, so it reads as
+   "needs attention" at a glance without a whole extra legend. */
+.transcript-note-failed {
+  background: color-mix(in srgb, var(--color-danger) 22%, transparent);
+}
+
+.transcript-note-failed:hover {
+  background: color-mix(in srgb, var(--color-danger) 34%, transparent);
+}
+
 /* Fixed positioning (not absolute) deliberately: its anchor rect can sit
    inside .row-preview, which clips overflow while collapsed (see that
    rule's own comment) -- fixed positioning is the one placement that
@@ -328,6 +340,11 @@
   position: fixed;
   z-index: 50;
   width: 260px;
+  /* Safety net for content taller than the window even after
+     useClampedPopoverPosition's flip/clamp (e.g. a very long note body) --
+     scroll inside the popover rather than overflow the viewport. */
+  max-height: calc(100vh - 2 * var(--space-2));
+  overflow-y: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
@@ -338,11 +355,24 @@
   gap: var(--space-2);
 }
 
+.note-popover > * {
+  /* Without this, the line-clamped quote below (overflow: hidden) gets a
+     flex min-height of 0 and is the first thing to collapse once
+     max-height binds -- it should scroll away last, not first. */
+  flex-shrink: 0;
+}
+
 .note-popover-quote {
   margin: 0;
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   color: var(--color-ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .note-popover-body {

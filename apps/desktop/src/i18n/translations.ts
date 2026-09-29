@@ -112,6 +112,10 @@ export const translations = {
     addToDictionarySuccess: "Added -- future transcripts will auto-correct this (this one is unchanged).",
     copyWithNotes: "Copy with notes",
     notesFooterHeading: "Notes:",
+    discard: "Discard",
+    noteSaveFailed: "This note wasn't saved.",
+    noteUpdateFailed: "This edit wasn't saved.",
+    noteDeleteFailed: "This note wasn't deleted.",
   },
   ja: {
     queue: "キュー",
@@ -221,6 +225,10 @@ export const translations = {
     addToDictionarySuccess: "登録しました -- 次回以降の文字起こしから自動的に修正されます(この文字起こし自体は変更されません)。",
     copyWithNotes: "注釈付きでコピー",
     notesFooterHeading: "注釈:",
+    discard: "破棄",
+    noteSaveFailed: "この注釈は保存されませんでした。",
+    noteUpdateFailed: "この編集は保存されませんでした。",
+    noteDeleteFailed: "この注釈は削除されませんでした。",
   },
 } as const;
 

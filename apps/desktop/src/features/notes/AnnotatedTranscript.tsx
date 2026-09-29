@@ -5,13 +5,24 @@
 // props, so this component itself never touches Tauri IPC directly (easy
 // to test with plain mock callbacks, and the parent row's copy button can
 // read the same `notes` array without a second fetch).
+//
+// Optimistic (2026-09-29, user-reported): add/edit/delete apply to local
+// state and close their popover the instant the action is taken -- the
+// sidecar round trip happens in the background (useTranscriptNotes owns
+// that). `open` therefore stores only a noteId, not a snapshot of the
+// note itself: the note actually shown is always derived fresh from the
+// current `notes` prop, so a background success/failure that lands while
+// a DIFFERENT note is now open just naturally has nothing to clobber.
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n/I18nContext";
 import { renderAnnotatedText, getSelectionOffsets } from "./textOffsets";
 import { useDismissOnOutsideClick } from "../../lib/useDismiss";
+import { useClampedPopoverPosition } from "./useClampedPopoverPosition";
+import { isImeComposing } from "../../lib/ime";
 import type { TranscriptNote } from "../../lib/tauri";
+import type { NoteFailure } from "./useTranscriptNotes";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -25,37 +36,35 @@ interface PendingSelection {
 }
 
 interface OpenNote {
-  note: TranscriptNote;
+  noteId: number;
   rect: DOMRect;
-}
-
-// Keeps a fixed-position popover on screen regardless of where in the
-// (possibly clipped/scrolling) row-preview its anchor rect sits -- see
-// queue.css's .row-preview max-height/overflow, which a popover nested
-// inside would otherwise be clipped by.
-function popoverStyle(rect: DOMRect): React.CSSProperties {
-  return { position: "fixed", top: rect.bottom + 6, left: Math.max(8, rect.left) };
 }
 
 export interface AnnotatedTranscriptProps {
   text: string;
   notes: TranscriptNote[];
+  noteFailures: Map<number, NoteFailure>;
   breakAtPeriod: boolean;
   className?: string;
-  onAddNote: (startOffset: number, endOffset: number, quotedText: string, note: string) => Promise<void>;
-  onUpdateNote: (id: number, note: string) => Promise<void>;
-  onDeleteNote: (id: number) => Promise<void>;
+  onAddNote: (startOffset: number, endOffset: number, quotedText: string, note: string) => void;
+  onUpdateNote: (id: number, note: string) => void;
+  onDeleteNote: (id: number) => void;
+  onRetryNote: (id: number) => void;
+  onDiscardNote: (id: number) => void;
   onLinkToDictionary: (word: string, replacement: string) => Promise<void>;
 }
 
 export function AnnotatedTranscript({
   text,
   notes,
+  noteFailures,
   breakAtPeriod,
   className,
   onAddNote,
   onUpdateNote,
   onDeleteNote,
+  onRetryNote,
+  onDiscardNote,
   onLinkToDictionary,
 }: AnnotatedTranscriptProps) {
   const { t } = useI18n();
@@ -66,26 +75,31 @@ export function AnnotatedTranscript({
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const [draft, setDraft] = useState("");
   const [addError, setAddError] = useState<string>();
-  // Every one of these round-trips through the sidecar, which is a brand
-  // new Node subprocess per call (no persistent connection -- see
-  // commands.rs's call_sidecar), easily several hundred ms. Without a
-  // visible "working" state the popover just sits there after a click with
-  // no feedback until it suddenly closes, which reads as broken -- and
-  // worse, an un-disabled Save button invites a second click mid-flight
-  // that would fire a duplicate add/update/delete. `saving` disables the
-  // form and swaps the button label the instant the click registers.
-  const [saving, setSaving] = useState(false);
 
   const [open, setOpen] = useState<OpenNote | null>(null);
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
-  const [actionError, setActionError] = useState<string>();
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [linkReplacement, setLinkReplacement] = useState("");
   const [linkSaved, setLinkSaved] = useState(false);
   const [linkError, setLinkError] = useState<string>();
   const [linking, setLinking] = useState(false);
+  // "Add to dictionary" is deliberately NOT optimistic (a secondary,
+  // less-frequent action, out of scope for the note-save/cancel
+  // complaint this component's other state was rewritten for) -- it
+  // still awaits its request, so a slow request for a note the user has
+  // since navigated away from needs this ref (read live, unlike the
+  // `open` state closed over above) to avoid writing a stale success/
+  // error into whatever's open now.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  useClampedPopoverPosition(newPopoverRef, pending?.rect);
+  useClampedPopoverPosition(openPopoverRef, open?.rect);
+
+  const openNote = open ? notes.find((n) => n.id === open.noteId) : undefined;
+  const openFailure = open ? noteFailures.get(open.noteId) : undefined;
 
   // A drag-selection finishing anywhere on the page might end outside this
   // exact element (the mouseup fires on whatever's under the cursor), so
@@ -100,7 +114,7 @@ export function AnnotatedTranscript({
       const sel = window.getSelection();
       const rect = sel?.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
       if (!rect) return;
-      setOpen(null);
+      dismissOpen();
       setAddError(undefined);
       setDraft("");
       setPending({ start: range.start, end: range.end, quotedText: text.slice(range.start, range.end), rect });
@@ -116,89 +130,84 @@ export function AnnotatedTranscript({
   const dismissOpen = () => {
     setOpen(null);
     setEditing(false);
-    setActionError(undefined);
     setLinkReplacement("");
     setLinkSaved(false);
     setLinkError(undefined);
+    setLinking(false);
   };
 
-  // Disabled while a request from this SAME popover is in flight, so an
-  // accidental outside click (or Escape) mid-save can't yank the popover
-  // away from underneath its own pending request.
-  useDismissOnOutsideClick(pending !== null && !saving, dismissPending, newPopoverRef);
-  useDismissOnOutsideClick(open !== null && !savingEdit && !deleting, dismissOpen, openPopoverRef);
+  useDismissOnOutsideClick(pending !== null, dismissPending, newPopoverRef);
+  useDismissOnOutsideClick(open !== null, dismissOpen, openPopoverRef, editing ? () => setEditing(false) : undefined);
 
-  const handleSaveNew = async () => {
-    if (!pending || !draft.trim() || saving) return;
-    setSaving(true);
+  const handleSaveNew = () => {
+    if (!pending || !draft.trim()) return;
     try {
-      await onAddNote(pending.start, pending.end, pending.quotedText, draft.trim());
+      onAddNote(pending.start, pending.end, pending.quotedText, draft.trim());
       dismissPending();
     } catch (err) {
       setAddError(errorMessage(err));
-      setSaving(false);
     }
   };
 
-  const handleSaveEdit = async () => {
-    if (!open || !editDraft.trim() || savingEdit) return;
-    setSavingEdit(true);
-    try {
-      await onUpdateNote(open.note.id, editDraft.trim());
-      setOpen({ ...open, note: { ...open.note, note: editDraft.trim() } });
-      setEditing(false);
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      setSavingEdit(false);
-    }
+  const handleSaveEdit = () => {
+    if (!openNote || !editDraft.trim()) return;
+    onUpdateNote(openNote.id, editDraft.trim());
+    setEditing(false);
   };
 
   const handleDelete = async () => {
-    if (!open || deleting) return;
-    try {
-      const confirmed = await confirm(`${open.note.quotedText}\n\n${t("confirmDeleteNoteBody")}`, {
-        title: t("deleteNoteAria"),
-        kind: "warning",
-      });
-      if (!confirmed) return;
-      setDeleting(true);
-      await onDeleteNote(open.note.id);
-      dismissOpen();
-    } catch (err) {
-      setActionError(errorMessage(err));
-      setDeleting(false);
-    }
+    if (!openNote) return;
+    const confirmed = await confirm(`${openNote.quotedText}\n\n${t("confirmDeleteNoteBody")}`, {
+      title: t("deleteNoteAria"),
+      kind: "warning",
+    });
+    if (!confirmed) return;
+    onDeleteNote(openNote.id);
+    dismissOpen();
   };
 
   const handleLinkToDictionary = async () => {
-    if (!open || !linkReplacement.trim() || linking) return;
+    if (!openNote || !linkReplacement.trim() || linking) return;
+    const forNoteId = openNote.id;
     setLinking(true);
     try {
-      await onLinkToDictionary(open.note.quotedText, linkReplacement.trim());
+      await onLinkToDictionary(openNote.quotedText, linkReplacement.trim());
+      if (openRef.current?.noteId !== forNoteId) return;
       setLinkSaved(true);
       setLinkError(undefined);
     } catch (err) {
+      if (openRef.current?.noteId !== forNoteId) return;
       setLinkError(errorMessage(err));
     } finally {
-      setLinking(false);
+      if (openRef.current?.noteId === forNoteId) setLinking(false);
     }
+  };
+
+  const handleTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, onSave: () => void) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !isImeComposing(e.nativeEvent)) {
+      e.preventDefault();
+      onSave();
+    }
+  };
+
+  const failureHeading = (action: NoteFailure["action"]): string => {
+    if (action === "add") return t("noteSaveFailed");
+    if (action === "update") return t("noteUpdateFailed");
+    return t("noteDeleteFailed");
   };
 
   const renderNote = ({ key, text: pieceText, noteId }: { key: string; text: string; noteId: number }): ReactNode => (
     <mark
       key={key}
-      className="transcript-note"
+      className={noteFailures.has(noteId) ? "transcript-note transcript-note-failed" : "transcript-note"}
       onClick={(e) => {
-        const found = notes.find((n) => n.id === noteId);
-        if (!found) return;
         setPending(null);
         setEditing(false);
-        setActionError(undefined);
         setLinkReplacement("");
         setLinkSaved(false);
         setLinkError(undefined);
-        setOpen({ note: found, rect: e.currentTarget.getBoundingClientRect() });
+        setLinking(false);
+        setOpen({ noteId, rect: e.currentTarget.getBoundingClientRect() });
       }}
     >
       {pieceText}
@@ -212,83 +221,100 @@ export function AnnotatedTranscript({
       </p>
 
       {pending && (
-        <div ref={newPopoverRef} className="note-popover" style={popoverStyle(pending.rect)}>
+        <div ref={newPopoverRef} className="note-popover" style={{ visibility: "hidden" }}>
           <p className="note-popover-quote">"{pending.quotedText}"</p>
           <textarea
             autoFocus
             className="note-popover-textarea"
             placeholder={t("notePlaceholder")}
             value={draft}
-            disabled={saving}
             onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => handleTextareaKeyDown(e, handleSaveNew)}
           />
           {addError && <p className="fail-reason">{addError}</p>}
           <div className="note-popover-actions">
-            <button type="button" className="btn-link" disabled={saving} onClick={dismissPending}>
+            <button type="button" className="btn-link" onClick={dismissPending}>
               {t("cancel")}
             </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!draft.trim() || saving}
-              onClick={() => void handleSaveNew()}
-            >
-              {saving ? t("saving") : t("save")}
+            <button type="button" className="btn-primary" disabled={!draft.trim()} onClick={handleSaveNew}>
+              {t("save")}
             </button>
           </div>
         </div>
       )}
 
-      {open && (
-        <div ref={openPopoverRef} className="note-popover" style={popoverStyle(open.rect)}>
-          <p className="note-popover-quote">"{open.note.quotedText}"</p>
-          {editing ? (
+      {open && openNote && (
+        <div ref={openPopoverRef} className="note-popover" style={{ visibility: "hidden" }}>
+          <p className="note-popover-quote">"{openNote.quotedText}"</p>
+          {openFailure ? (
+            <>
+              <p className="fail-reason">
+                {failureHeading(openFailure.action)} {openFailure.error}
+              </p>
+              <div className="note-popover-actions">
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => {
+                    onDiscardNote(openNote.id);
+                    dismissOpen();
+                  }}
+                >
+                  {t("discard")}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    onRetryNote(openNote.id);
+                    dismissOpen();
+                  }}
+                >
+                  {t("retry")}
+                </button>
+              </div>
+            </>
+          ) : editing ? (
             <>
               <textarea
                 autoFocus
                 className="note-popover-textarea"
                 value={editDraft}
-                disabled={savingEdit}
                 onChange={(e) => setEditDraft(e.target.value)}
+                onKeyDown={(e) => handleTextareaKeyDown(e, handleSaveEdit)}
               />
               <div className="note-popover-actions">
-                <button type="button" className="btn-link" disabled={savingEdit} onClick={() => setEditing(false)}>
+                <button type="button" className="btn-link" onClick={() => setEditing(false)}>
                   {t("cancel")}
                 </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={!editDraft.trim() || savingEdit}
-                  onClick={() => void handleSaveEdit()}
-                >
-                  {savingEdit ? t("saving") : t("save")}
+                <button type="button" className="btn-primary" disabled={!editDraft.trim()} onClick={handleSaveEdit}>
+                  {t("save")}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <p className="note-popover-body">{open.note.note}</p>
+              <p className="note-popover-body">{openNote.note}</p>
               <div className="note-popover-actions">
                 <button
                   type="button"
                   className="btn-link"
-                  disabled={deleting}
+                  disabled={openNote.id < 0}
                   onClick={() => {
-                    setEditDraft(open.note.note);
+                    setEditDraft(openNote.note);
                     setEditing(true);
                   }}
                 >
                   {t("editNoteAria")}
                 </button>
-                <button type="button" className="btn-link" disabled={deleting} onClick={() => void handleDelete()}>
-                  {deleting ? t("deleting") : t("deleteNoteAria")}
+                <button type="button" className="btn-link" disabled={openNote.id < 0} onClick={() => void handleDelete()}>
+                  {t("deleteNoteAria")}
                 </button>
               </div>
             </>
           )}
-          {actionError && <p className="fail-reason">{actionError}</p>}
 
-          {!editing && (
+          {!editing && !openFailure && (
             <div className="note-popover-dictionary">
               {linkSaved ? (
                 <p className="settings-hint">{t("addToDictionarySuccess")}</p>

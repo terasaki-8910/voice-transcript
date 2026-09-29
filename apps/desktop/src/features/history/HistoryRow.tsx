@@ -141,10 +141,15 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const expanded = currentId === item.id;
   const actionError = actionErrors.get(item.id);
   const fileName = basename(item.sourceFileName);
-  const { notes, add: addNote, update: updateNote, remove: removeNote } = useTranscriptNotes(
-    item.id,
-    item.noteCount,
-  );
+  const {
+    notes,
+    failures: noteFailures,
+    add: addNote,
+    update: updateNote,
+    remove: removeNote,
+    retry: retryNote,
+    discard: discardNote,
+  } = useTranscriptNotes(item.id, item.noteCount);
 
   const handleView = () => {
     if (expanded) {
@@ -242,11 +247,14 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
             <AnnotatedTranscript
               text={item.transcriptText}
               notes={notes}
+              noteFailures={noteFailures}
               breakAtPeriod={breakAtPeriod}
               className={`row-preview${fullText ? " row-preview-full" : ""}`}
               onAddNote={addNote}
               onUpdateNote={updateNote}
               onDeleteNote={removeNote}
+              onRetryNote={retryNote}
+              onDiscardNote={discardNote}
               onLinkToDictionary={handleLinkToDictionary}
             />
             <button
