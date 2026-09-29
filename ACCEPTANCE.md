@@ -211,6 +211,9 @@ integration acceptance.
 - **K6** — A missing/unreachable `DATABASE_URL` never blocks or fails a
   transcription because of the dictionary fetch — it silently applies zero
   replacements, same non-blocking rule as H5.
+- **K7** — Adding a word and saving an inline row edit both flash a visible
+  checkmark confirmation, matching the confirmation **Import** already gives
+  (`apps/desktop/tests/preferences/DictionarySection.test.tsx`).
 
 ## L. Transcript notes (annotations)
 - **L1** — Turning a DOM selection into `[startOffset, endOffset)` and

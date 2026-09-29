@@ -249,6 +249,13 @@ history of past runs.
   before the result is rendered, recorded to history, or returned. Managed
   from Settings > Custom dictionary: add, edit, delete entries, and
   **Import** a JSON file of entries.
+- **Add/edit confirmation (added 2026-09-29, user-reported):** the Add
+  button flashes a checkmark for 1.5s on success (same pattern as
+  CopyMenu's "Copied"), and saving an inline row edit flashes a checkmark
+  next to that row — previously a new/updated entry only appeared silently
+  in a list that can be long enough to scroll the change out of view,
+  inconsistent with **Import**, which already summarizes its result next to
+  its own button.
 - **Storage**: a `dictionary_entries` table in the same Postgres database as
   transcription history, via the same Drizzle ORM layer (portability rule
   below applies equally). `word` is unique, making import an idempotent
