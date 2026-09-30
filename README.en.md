@@ -9,18 +9,20 @@
 Transcribe audio to text with Groq's hosted Whisper API — from a terminal CLI or a
 cross-platform desktop app — reliably handling **audio longer than one hour** via
 silence-based chunking and stitching. One shared engine, two front ends, a persisted
-history of every run, in-app microphone recording with no duration cap, and a
-user-maintained dictionary of word corrections applied to every transcript.
+history of every run, in-app microphone/system-audio recording with no duration cap, a
+user-maintained dictionary of word corrections applied to every transcript, side-note
+annotations on any transcript, and full-text search across every run.
 
 ## Requirements
 - **Node.js 24**
 - **pnpm** (this is a workspace monorepo: `packages/core`, `packages/cli`, `apps/desktop`)
 - **ffmpeg** on `PATH` (used to normalize and split audio)
 - **`GROQ_API_KEY`** — read from the environment. In the desktop app it can instead be set
-  via Preferences (see below); the environment variable always wins when both are present.
+  via Settings (see below); the environment variable always wins when both are present.
 - **PostgreSQL**, reachable via a `DATABASE_URL` connection string in the environment —
-  required only for the transcription-history features. Transcription itself works without
-  it (see Constraints). You run your own Postgres instance; the app only connects to it.
+  required only for the transcription-history, dictionary, notes, and search features.
+  Transcription itself works without it (see Constraints). You run your own Postgres
+  instance; the app only connects to it.
 - Building/running the desktop app additionally needs the Tauri toolchain (Rust); the
   app's Rust shell owns all privileged operations (ffmpeg, Groq calls, DB access).
 
@@ -68,16 +70,38 @@ pnpm --filter desktop tauri dev                        # development loop
 - **Same options as the CLI** (format, model, language) exposed as controls in
   Settings, not flags — they become the defaults every queued transcription uses.
 - **Microphone recording, no duration cap:** a Record control sits beside "Add files" in
-  the sidebar; a finished recording joins the queue exactly like a picked file. Capture is
-  native (Rust, via `cpal`), not the webview — samples stream straight to a WAV file as
-  they arrive, never buffered whole in memory, so length is bounded only by disk space,
-  not a software timer. (Chosen deliberately over the webview's own recording API: no
-  released Tauri version enables microphone capture inside the Linux webview, so a
-  browser-API recorder would silently not work on one of this app's three targets.)
+  the sidebar, with a live level meter next to it confirming audio is actually being
+  captured; a finished recording joins the queue exactly like a picked file. Source is
+  selectable — microphone, system audio ("what you hear," e.g. the other side of a call),
+  or both mixed into one track — defaulting to microphone-only, since system capture needs
+  a macOS permission grant and doesn't exist on Linux. Capture is native (Rust, via
+  `cpal`), not the webview: samples stream straight to a WAV file as they arrive, never
+  buffered whole in memory, so length is bounded only by disk space; the level meter is
+  driven by one derived loudness number per tick, never raw audio, across that same
+  native/webview boundary. (Native capture was chosen deliberately over the webview's own
+  recording API: no released Tauri version enables microphone capture inside the Linux
+  webview, so a browser-API recorder would silently not work on one of this app's three
+  targets.) A recording's own audio — never an uploaded file's — is auto-trashed (OS
+  trash, recoverable) once its transcription succeeds; on by default, toggleable in
+  Settings.
 - **Custom dictionary:** word → replacement pairs applied to every completed transcript,
   CLI and GUI alike, so both interfaces produce identical corrected text. Manage entries
-  from Settings, or import a JSON file of pairs (including Amical's vocabulary-export
-  shape) as an idempotent upsert.
+  from Settings (adding and editing flash a brief confirmation), or import a JSON file of
+  pairs (including Amical's vocabulary-export shape) as an idempotent upsert.
+- **Transcript notes:** select a run of text in an expanded Queue or History row to attach
+  a side comment — e.g. flagging a mishearing — without editing the transcript itself; a
+  saved note renders as a highlighted span, click it to view/edit/delete. Saving, editing,
+  and deleting apply instantly rather than waiting on a round trip; if the background save
+  ultimately fails, the note is shown in a distinct "unsaved" style with Retry/Discard.
+  Cmd+Enter (Ctrl+Enter on Windows/Linux) saves from the note's text box, Escape cancels. A
+  note can also link its quoted text to a new Custom dictionary entry, correcting future
+  transcriptions — never the one the note is attached to.
+- **Search:** a dedicated search icon (next to the sidebar's collapse toggle) opens a modal
+  querying title, transcript body, and note text at once, across all history — not just
+  the page already loaded client-side. Multi-word queries are ANDed, with each word free to
+  match a different field; results update as you type (debounced), matches are highlighted
+  inline, and arrow keys + Enter navigate without leaving the text field. Cmd+F/Ctrl+F
+  opens it from anywhere in the app.
 - **Interface language:** Japanese and English, switchable in-app with no restart. This is
   separate from `--language`, which is the audio's spoken language.
 - **Theme:** explicit light/dark toggle (not only OS-following).
@@ -102,9 +126,11 @@ pnpm --filter desktop tauri dev                        # development loop
 Opened via the sidebar's Settings item, the native menu's **Preferences...** item, or
 Cmd+,/Ctrl+, — all three reach the same sectioned dialog, defaulting to Voice input:
 
-- **Voice input** — Whisper model, spoken-language auto-detect + override, and the
-  recording microphone. These are the actual defaults every queued transcription
-  (including a finished recording) sends.
+- **Voice input** — Whisper model, spoken-language auto-detect + override, audio source
+  (microphone / system audio / both) with device pickers, and whether a finished
+  recording's audio is auto-trashed after a successful transcription (on by default).
+  These become the actual defaults every queued transcription (including a finished
+  recording) sends.
 - **Custom dictionary** — add, edit, delete, and import word-replacement entries (see above).
 - **General** — display preferences (currently: line breaks after each Japanese period).
 - **Connection** — sets `GROQ_API_KEY` and `DATABASE_URL` from the GUI instead of only via
@@ -114,7 +140,10 @@ Cmd+,/Ctrl+, — all three reach the same sectioned dialog, defaulting to Voice 
   The webview never touches these files directly, and neither value is ever read back to
   it — Connection only shows whether one is currently set. The sidecar uses a saved value
   only when the matching environment variable is unset; the environment always wins when
-  both are present.
+  both are present. A **Test connection** button checks whether the saved database URL can
+  actually be connected to right now and shows the real underlying error if not (e.g. a
+  timeout or an authentication failure) — it tests the saved value, not whatever may or may
+  not be typed into the field.
 
 Tradeoff, stated plainly: the API key/database URL are plaintext-on-disk, not an encrypted
 OS-keychain entry — protected only by owner-only file permissions and living outside the
@@ -127,6 +156,8 @@ to the OS keychain) before any multi-user or shared-machine use.
   (~24 MB, under Groq's 25 MB/request cap) it is **split at silence boundaries**, each
   chunk transcribed, then results **stitched** with per-chunk time offsets applied so
   merged timestamps stay monotonic. Validated against `tests/test.m4a` (~78 min / 73 MB).
+  Every temp file this normalize/split step creates is removed once the run finishes,
+  whether it succeeds or fails.
 - Transcribing the same file with the same options via CLI and GUI yields byte-identical
   text — both call the same `packages/core` engine.
 
@@ -134,12 +165,14 @@ to the OS keychain) before any multi-user or shared-machine use.
 Every completed run — CLI or GUI — writes one record: source file name, started-at
 timestamp, model, language, requested format(s), status, and the transcript text (plus
 segments when the format has them). `DATABASE_URL` is read from the environment, falling
-back to the GUI's Preferences value when unset (see above); nothing DB-related is
+back to the GUI's Settings value when unset (see above); nothing DB-related is
 hardcoded. The data-access layer goes through an ORM/query-builder (no vendor-specific raw
 SQL outside migrations) so a later move to MySQL or another host is a config change, not a
 rewrite. The app connects to your Postgres and creates its own tables there automatically
 on first connect if they don't already exist (an idempotent, tracked migration, safe to run
-every time); it does not provision the database itself, and does not back it up.
+every time); it does not provision the database itself, and does not back it up. If a
+background history refresh fails, the last-known list stays on screen along with the real
+underlying error (not just a generic message), rather than blanking the view.
 
 ## Custom dictionary (word replacement)
 Applied after transcription, before the result is rendered, recorded to history, or
@@ -158,6 +191,37 @@ Import accepts this app's own `{ word, replacement }[]` shape, and Amical's voca
 export shape directly (`{ entries: [{ word, replacement_word, is_replacement, ... }] }` —
 entries with `is_replacement` falsy are skipped). Re-importing the same file is idempotent:
 row count and replacement values don't change on a repeat import.
+
+## Transcript notes (annotations)
+A side comment anchored to a specific word or phrase in a transcript — e.g. flagging that
+something was misheard — without touching the transcript body itself: a deliberate choice
+of "leave a comment" over "correct in place." Available from any row with a saved history
+entry, in both Queue and History: select a run of text in the row's expanded preview, a
+small popover opens for the note; a saved note renders as a highlighted span, click it to
+view/edit/delete. Anchoring is a raw character-offset range into the stored transcript
+text, not a timestamp, so it stays valid indefinitely; overlapping notes are rejected.
+
+Add/edit/delete apply to the visible transcript and close the popover instantly, without
+waiting on the sidecar round trip; if the background write ultimately fails, the note
+shows in a distinct "unsaved" style with Retry/Discard instead of silently reverting.
+Cmd+Enter (Ctrl+Enter on Windows/Linux) saves; Escape matches whatever the popover's own
+visible Cancel would do. A saved note can link its quoted text to a new Custom dictionary
+entry, which corrects future transcriptions only — never the one the note is attached to,
+consistent with the transcript body never being edited. Notes live in their own table,
+foreign-keyed to the history entry with `ON DELETE CASCADE`, so they never outlive the
+transcript they're about.
+
+## Search
+A dedicated search icon sits next to the sidebar's collapse toggle (reachable even when the
+sidebar is collapsed) and opens a modal that queries title, transcript body, and note text
+at once, across all history — distinct from the sidebar's own always-visible inline filter,
+which only filters the page of history already loaded client-side. Space-separated terms
+in the query are ANDed together, but each term is free to match a different field (title,
+body, or a note) than another. A match found only in a note still surfaces, showing that
+note's own text so the result isn't an unexplained bare filename. Results update as you
+type (debounced ~250ms, since every search is its own backend round trip); matched terms
+are highlighted inline; arrow keys move a focused result and Enter opens it; Escape or a
+backdrop click closes the modal; Cmd+F/Ctrl+F opens it from anywhere in the app.
 
 ## Release automation
 A manually triggered GitHub Actions workflow (`.github/workflows/release.yml`,
@@ -184,9 +248,10 @@ SmartScreen warning (Run anyway), and Linux's `.AppImage`/`.deb` need no signatu
   The chunking strategy exists to honor the 25 MB cap.
 - **No emoji** in source, CLI output, or GUI copy; **colors only via design tokens** in the
   GUI (no hardcoded hex, design-gate enforced).
-- History needs a reachable Postgres, but transcription must still complete if the DB is
-  unset or unreachable — only the history write fails, and it fails loudly (logged), never
-  silently and never blocking or corrupting the transcript.
+- History (and the dictionary, notes, and search, which share the same database) needs a
+  reachable Postgres, but transcription must still complete if the DB is unset or
+  unreachable — only the history write fails, and it fails loudly (logged), never silently
+  and never blocking or corrupting the transcript.
 - Recording has no software-imposed duration cap, but a standard WAV file's own RIFF size
   field physically caps a single recording around 3–4 hours at typical capture rates —
   well past Groq's own hourly audio budget above, so not the practical limit on a useful
@@ -208,7 +273,9 @@ which owns every privileged operation (ffmpeg, Groq calls, DB access) and runs
 `packages/core` (engine and DB layer) as a supervised Node **sidecar** over stdio/IPC —
 Rust itself runs no SQL; the sidecar is the only process that reaches ffmpeg, Groq, and the
 database on the GUI's behalf. The webview never touches secrets, the filesystem, or the
-database directly.
+database directly. Every sidecar command is a fresh, short-lived process — Rust waits for
+it to actually exit, not just for it to answer, so the process's own database connection is
+configured to let it exit the moment it's genuinely idle rather than lingering.
 
 ```mermaid
 flowchart TD
@@ -217,17 +284,18 @@ flowchart TD
         webview["webview: React + Vite<br/>no secrets / fs / DB"]
         rust["src-tauri Rust shell<br/>owns ffmpeg, Groq, DB access"]
         webview -->|"invoke() — Tauri command"| rust
+        rust -->|"emit() — recording level"| webview
     end
-    core["packages/core<br/>engine: normalize · silence-chunk · Groq client + retry · stitch · render<br/>+ history/DB layer (Drizzle ORM over pg)"]
+    core["packages/core<br/>engine: normalize · silence-chunk · Groq client + retry · stitch · render<br/>+ history/dictionary/notes DB layer (Drizzle ORM over pg)"]
     ffmpeg(["ffmpeg on PATH"])
     groq(["Groq hosted Whisper — HTTP API"])
     db[("PostgreSQL — DATABASE_URL")]
 
     cli -->|"import (thin wrapper + DB layer)"| core
-    rust -->|"spawn, stdio/IPC — sidecar"| core
+    rust -->|"spawn, stdio/IPC — sidecar, one process per command"| core
     core -->|"normalize + split at silence"| ffmpeg
     core -->|"HTTP transcription requests"| groq
-    core -->|"history read/write/delete (Drizzle/pg)"| db
+    core -->|"history/dictionary/notes/search read/write (Drizzle/pg)"| db
 ```
 
 ## Developed via the gated pipeline
