@@ -11,18 +11,27 @@ import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext"
 
 export type QueueItemStatus = "queued" | "transcribing" | "done" | "failed";
 
+// Distinct from AudioSource/audioSource (microphone/system/both -- what
+// was captured) -- this is about where the FILE came from: the app's own
+// recording feature, vs. an upload/drag-drop. Named "origin" rather than
+// "source" specifically to avoid colliding in meaning with AudioSource.
+// Only "recording" is tagged explicitly; an upload leaves this undefined
+// rather than introducing an "upload" value nothing needs to check for.
+export type QueueItemOrigin = "recording";
+
 export interface QueueItem {
   id: string;
   filePath: string;
   fileName: string;
   status: QueueItemStatus;
+  origin?: QueueItemOrigin;
   result?: TranscribeResponse;
   error?: string;
 }
 
 interface QueueContextValue {
   items: QueueItem[];
-  addFiles: (filePaths: string[]) => void;
+  addFiles: (filePaths: string[], origin?: QueueItemOrigin) => void;
   retry: (id: string) => void;
   // Removes a "done"/"failed" item from the queue list only -- a purely
   // client-side dismissal (the source file and, for "done" items, the
@@ -61,7 +70,7 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
   // override, mirroring packages/cli's --language flag.
   const { model, autoDetectLanguage, language } = useVoiceInputSettings();
 
-  const addFiles = (filePaths: string[]) => {
+  const addFiles = (filePaths: string[], origin?: QueueItemOrigin) => {
     setItems((prev) => [
       ...prev,
       ...filePaths.map(
@@ -70,6 +79,7 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
           filePath,
           fileName: basename(filePath),
           status: "queued",
+          origin,
         }),
       ),
     ]);

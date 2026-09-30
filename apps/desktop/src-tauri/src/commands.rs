@@ -254,11 +254,32 @@ pub struct TrashResult {
 /// OS refuses to trash, is reported as `trashed: false`, not an error --
 /// the caller's own DB-level result (list refresh / entry-deleted) is still
 /// valid either way.
+///
+/// On macOS specifically, use NsFileManager rather than the crate's default
+/// Finder/AppleScript method (2026-09-30, user-reported): Finder plays the
+/// trash sound and can trigger a first-run Automation permission prompt --
+/// unremarkable for a button the user just clicked, but this same function
+/// now also fires automatically after a recording's transcription succeeds
+/// (App.tsx's auto-trash setting), where a sound and a permission prompt
+/// "out of nowhere" would be a real surprise -- and if that permission is
+/// ever denied, Finder-method deletes silently fail forever after. Trades
+/// away Finder's "Put Back" undo option on some macOS versions; still never
+/// a permanent delete either way.
 fn trash_if_exists(path: &str) -> bool {
     if !std::path::Path::new(path).exists() {
         return false;
     }
-    trash::delete(path).is_ok()
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        let mut ctx = trash::TrashContext::new();
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+        ctx.delete(path).is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        trash::delete(path).is_ok()
+    }
 }
 
 #[tauri::command]

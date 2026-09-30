@@ -49,6 +49,7 @@ function Harness() {
       <p data-testid="error">{recording.error ?? ""}</p>
       <p data-testid="silent">{(recording.silentSources ?? []).join(",")}</p>
       <p data-testid="queue-count">{items.length}</p>
+      <p data-testid="queue-origin">{items[0]?.origin ?? ""}</p>
       <button type="button" onClick={() => void recording.start()}>
         start
       </button>
@@ -202,6 +203,9 @@ describe("RecordingContext", () => {
     expect(stopRecordingFn).toHaveBeenCalled();
     expect(screen.getByTestId("queue-count").textContent).toBe("1");
     expect(screen.getByTestId("elapsed").textContent).toBe("0");
+    // 2026-09-30: tagged "recording" so App.tsx's AppShell can auto-trash
+    // this file once its transcription succeeds, unlike an uploaded file.
+    expect(screen.getByTestId("queue-origin").textContent).toBe("recording");
   });
 
   it("stop() failure surfaces an error and still returns to idle (never stuck stopping)", async () => {

@@ -7,11 +7,16 @@
 //
 // All actual capture happens in Rust (recording.rs, cpal -> hound WAV); this
 // context only calls start_recording/stop_recording and, on a successful
-// stop, hands the finished file's path to the existing queue (addFiles) --
-// a finished recording enters the pipeline exactly like a picked file, no
-// special-casing downstream. The elapsed-time display is a plain
-// client-side timer, not driven by a Rust-pushed event -- see recording.rs's
-// doc comment on why no bytes/events cross that boundary during capture.
+// stop, hands the finished file's path to the existing queue (addFiles,
+// tagged "recording" so App.tsx's AppShell can auto-trash it once its
+// transcription succeeds -- see VoiceInputSettingsContext's
+// autoTrashRecordings) -- a finished recording otherwise enters the
+// pipeline exactly like a picked file, no special-casing downstream. The
+// elapsed-time display is a plain client-side timer, not driven by a
+// Rust-pushed event -- recording.rs does now push one small derived
+// number per 50ms tick (the live level meter, RecordingWaveform.tsx), but
+// that's a one-way, throw-away-if-unlistened stream, not state this
+// context needs to hold.
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { startRecording, stopRecording } from "../../lib/tauri";
@@ -84,7 +89,7 @@ export function RecordingProvider({
     setStatus("stopping");
     try {
       const result = await stopRecordingFn();
-      addFiles([result.path]);
+      addFiles([result.path], "recording");
       setSilentSources(result.silentSources?.length ? result.silentSources : undefined);
       setStatus("idle");
       setElapsedSeconds(0);

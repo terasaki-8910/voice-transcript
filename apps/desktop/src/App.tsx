@@ -24,6 +24,7 @@ import { SelectionProvider } from "./features/selection/SelectionContext";
 import { PreferencesView } from "./features/preferences/PreferencesView";
 import { SearchModal } from "./features/search/SearchModal";
 import { useMenuEvents } from "./features/menu/useMenuEvents";
+import { useVoiceInputSettings } from "./features/preferences/VoiceInputSettingsContext";
 import { useI18n } from "./i18n/I18nContext";
 import { setMenuLanguage } from "./lib/tauri";
 
@@ -60,23 +61,41 @@ export function AppShell() {
   // Tracks each item's last-seen status so a refresh fires exactly once
   // per transition into "done"/"failed", not on every unrelated queue
   // re-render.
+  //
+  // The same per-item transition also drives auto-trash (2026-09-30,
+  // user-reported): a recording (never an upload -- the user's own
+  // pre-existing file) whose transcription just succeeded (never
+  // "failed" -- keep the file so a failed run can be retried from it) has
+  // its audio moved to the OS trash via the existing history.trash(), the
+  // same call the manual "Trash audio" button makes. Reading
+  // autoTrashRecordings here (not at record-time) means flipping the
+  // setting only affects transcriptions that finish afterward, not ones
+  // already queued. No ordering hazard with history.refresh() in the same
+  // effect -- refresh() only ever writes items/status/error/syncError,
+  // trash() only ever writes trashedIds/actionErrors, disjoint state.
   const queue = useQueue();
   const history = useHistory();
+  const { autoTrashRecordings } = useVoiceInputSettings();
   const lastStatusesRef = useRef<Map<string, QueueItemStatus>>(new Map());
   useEffect(() => {
     const lastStatuses = lastStatusesRef.current;
     const nextStatuses = new Map<string, QueueItemStatus>();
     let justCompleted = false;
+    const toTrash: number[] = [];
     for (const item of queue.items) {
       nextStatuses.set(item.id, item.status);
       const isTerminal = item.status === "done" || item.status === "failed";
       if (isTerminal && lastStatuses.get(item.id) !== item.status) {
         justCompleted = true;
+        if (autoTrashRecordings && item.status === "done" && item.origin === "recording" && item.result?.id !== undefined) {
+          toTrash.push(item.result.id);
+        }
       }
     }
     lastStatusesRef.current = nextStatuses;
     if (justCompleted) history.refresh();
-  }, [queue.items, history]);
+    for (const id of toTrash) void history.trash(id);
+  }, [queue.items, history, autoTrashRecordings]);
 
   // Keeps the native OS menu bar's labels in sync with the in-app language
   // setting (menu.rs's set_menu_language). Lives here, not in I18nContext

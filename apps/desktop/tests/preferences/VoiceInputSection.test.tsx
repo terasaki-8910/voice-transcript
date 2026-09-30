@@ -22,7 +22,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 function SettingsProbe() {
-  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId } =
+  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId, autoTrashRecordings } =
     useVoiceInputSettings();
   return (
     <div>
@@ -32,6 +32,7 @@ function SettingsProbe() {
       <p data-testid="probe-source">{audioSource}</p>
       <p data-testid="probe-mic">{micDeviceId ?? ""}</p>
       <p data-testid="probe-output">{outputDeviceId ?? ""}</p>
+      <p data-testid="probe-auto-trash">{String(autoTrashRecordings)}</p>
     </div>
   );
 }
@@ -143,5 +144,36 @@ describe("VoiceInputSection", () => {
     await waitFor(() => expect(screen.getByText("failed to enumerate input devices")).toBeDefined());
     // The rest of the section is still usable.
     expect(screen.getByLabelText("Model")).toBeDefined();
+  });
+
+  // 2026-09-30, user-reported: recordings' audio piled up unbounded.
+  describe("auto-trash recordings", () => {
+    it("defaults to on for a fresh install (nothing stored yet)", async () => {
+      renderSection();
+      await waitFor(() => expect(screen.getByLabelText("Move recordings to the trash after transcription")).toBeDefined());
+      expect(screen.getByLabelText("Move recordings to the trash after transcription")).toHaveProperty("checked", true);
+      expect(screen.getByTestId("probe-auto-trash").textContent).toBe("true");
+    });
+
+    it("still reads as on for a settings blob saved before this setting existed", async () => {
+      window.localStorage.setItem(
+        "voice-transcript-voice-input-settings",
+        JSON.stringify({ model: "whisper-large-v3", audioSource: "microphone" }),
+      );
+      renderSection();
+      await waitFor(() => expect(screen.getByTestId("probe-auto-trash").textContent).toBe("true"));
+    });
+
+    it("unchecking it updates the context and persists across a remount", async () => {
+      const { unmount } = renderSection();
+      await waitFor(() => expect(screen.getByLabelText("Move recordings to the trash after transcription")).toBeDefined());
+
+      fireEvent.click(screen.getByLabelText("Move recordings to the trash after transcription"));
+      await waitFor(() => expect(screen.getByTestId("probe-auto-trash").textContent).toBe("false"));
+
+      unmount();
+      renderSection();
+      await waitFor(() => expect(screen.getByTestId("probe-auto-trash").textContent).toBe("false"));
+    });
   });
 });

@@ -61,6 +61,14 @@ export interface VoiceInputSettings {
   audioSource: AudioSource;
   micDeviceId?: string;
   outputDeviceId?: string;
+  // Whether a finished recording's audio is auto-trashed once its
+  // transcription succeeds (AppShell in App.tsx). Read by App.tsx, not by
+  // anything recording-time -- doesn't affect capture itself, just what
+  // happens to the file afterward. Default true (2026-09-30, user-
+  // reported: keeping every recording's audio around indefinitely was
+  // "wasteful") -- only ever applies to app-recorded audio, never to an
+  // uploaded file, which is the user's own pre-existing file.
+  autoTrashRecordings: boolean;
 }
 
 const DEFAULT_SETTINGS: VoiceInputSettings = {
@@ -73,6 +81,7 @@ const DEFAULT_SETTINGS: VoiceInputSettings = {
   audioSource: "microphone",
   micDeviceId: undefined,
   outputDeviceId: undefined,
+  autoTrashRecordings: true,
 };
 
 function readStoredSettings(): VoiceInputSettings {

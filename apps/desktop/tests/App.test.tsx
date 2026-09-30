@@ -17,7 +17,7 @@
 // makes no unconditional Tauri calls on mount (pickFiles() only fires on an
 // actual "Add files" click, which none of these tests trigger), so no new
 // mock is needed for it here.
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { App, AppShell } from "../src/App";
 import { ThemeProvider } from "../src/theme/ThemeContext";
@@ -30,7 +30,7 @@ import { HistoryProvider } from "../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../src/features/history/HistoryNavContext";
 import { NavProvider } from "../src/features/nav/NavContext";
 import { SelectionProvider } from "../src/features/selection/SelectionContext";
-import type { HistoryEntry, TranscribeRequest, TranscribeResponse } from "../src/lib/tauri";
+import type { HistoryEntry, TranscribeRequest, TranscribeResponse, TrashResult } from "../src/lib/tauri";
 
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
@@ -69,18 +69,25 @@ describe("App", () => {
 function AddFilesButton() {
   const { addFiles } = useQueue();
   return (
-    <button type="button" onClick={() => addFiles(["/audio/a.m4a"])}>
-      add
-    </button>
+    <>
+      <button type="button" onClick={() => addFiles(["/audio/a.m4a"])}>
+        add
+      </button>
+      <button type="button" onClick={() => addFiles(["/recordings/r.wav"], "recording")}>
+        add-recording
+      </button>
+    </>
   );
 }
 
 function AppShellHarness({
   transcribeFn,
   listHistoryFn,
+  trashAudioFn,
 }: {
   transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse>;
   listHistoryFn: () => Promise<HistoryEntry[]>;
+  trashAudioFn?: (id: number) => Promise<TrashResult>;
 }) {
   return (
     <I18nProvider>
@@ -88,7 +95,7 @@ function AppShellHarness({
         <DisplayPreferencesProvider>
           <VoiceInputSettingsProvider>
             <QueueProvider transcribeFn={transcribeFn}>
-              <HistoryProvider listHistoryFn={listHistoryFn}>
+              <HistoryProvider listHistoryFn={listHistoryFn} trashAudioFn={trashAudioFn}>
                 <NavProvider>
                   <HistoryNavProvider>
                     <SelectionProvider>
@@ -137,5 +144,106 @@ describe("AppShell - history refreshes on queue completion", () => {
     fireEvent.click(screen.getByText("add"));
 
     await waitFor(() => expect(listHistoryFn.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+});
+
+// User-reported, 2026-09-30: audio files were never cleaned up after
+// transcription. AppShell now auto-trashes a RECORDING's (never an
+// upload's) audio once its transcription succeeds, reusing the same
+// history.trash() a manual "Trash audio" click calls.
+describe("AppShell - auto-trash a recording's audio on success", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("trashes a finished recording's history id exactly once", async () => {
+    const listHistoryFn = vi.fn(async () => []);
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <AppShellHarness
+        transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi", id: 42 })}
+        listHistoryFn={listHistoryFn}
+        trashAudioFn={trashAudioFn}
+      />,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("add-recording"));
+
+    await waitFor(() => expect(trashAudioFn).toHaveBeenCalledWith(42));
+    expect(trashAudioFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("never trashes an uploaded file's audio", async () => {
+    const listHistoryFn = vi.fn(async () => []);
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <AppShellHarness
+        transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi", id: 42 })}
+        listHistoryFn={listHistoryFn}
+        trashAudioFn={trashAudioFn}
+      />,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("add"));
+
+    await waitFor(() => expect(listHistoryFn.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(trashAudioFn).not.toHaveBeenCalled();
+  });
+
+  it("never trashes a recording whose transcription failed", async () => {
+    const listHistoryFn = vi.fn(async () => []);
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <AppShellHarness
+        transcribeFn={() => Promise.reject(new Error("network down"))}
+        listHistoryFn={listHistoryFn}
+        trashAudioFn={trashAudioFn}
+      />,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("add-recording"));
+
+    await waitFor(() => expect(listHistoryFn.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(trashAudioFn).not.toHaveBeenCalled();
+  });
+
+  it("never trashes a recording with no history id (no DB / write failed)", async () => {
+    const listHistoryFn = vi.fn(async () => []);
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <AppShellHarness
+        transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi" })}
+        listHistoryFn={listHistoryFn}
+        trashAudioFn={trashAudioFn}
+      />,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("add-recording"));
+
+    await waitFor(() => expect(listHistoryFn.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(trashAudioFn).not.toHaveBeenCalled();
+  });
+
+  it("never trashes anything when the setting is off", async () => {
+    localStorage.setItem("voice-transcript-voice-input-settings", JSON.stringify({ autoTrashRecordings: false }));
+    const listHistoryFn = vi.fn(async () => []);
+    const trashAudioFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: true }));
+    render(
+      <AppShellHarness
+        transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi", id: 42 })}
+        listHistoryFn={listHistoryFn}
+        trashAudioFn={trashAudioFn}
+      />,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("add-recording"));
+
+    await waitFor(() => expect(listHistoryFn.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(trashAudioFn).not.toHaveBeenCalled();
   });
 });

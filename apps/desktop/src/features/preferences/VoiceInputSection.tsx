@@ -22,8 +22,16 @@ const MODEL_LABEL_KEYS: Record<WhisperModel, "modelTurbo" | "modelLargeV3"> = {
 
 export function VoiceInputSection() {
   const { t } = useI18n();
-  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId, setSettings } =
-    useVoiceInputSettings();
+  const {
+    model,
+    autoDetectLanguage,
+    language,
+    audioSource,
+    micDeviceId,
+    outputDeviceId,
+    autoTrashRecordings,
+    setSettings,
+  } = useVoiceInputSettings();
   const [devices, setDevices] = useState<InputDevice[]>([]);
   const [devicesError, setDevicesError] = useState<string>();
   // Rust returns an empty list on platforms with no loopback path (Linux),
@@ -156,6 +164,18 @@ export function VoiceInputSection() {
           <p className="settings-hint">{t("voiceInputOutputDescription")}</p>
         </>
       )}
+
+      <hr className="modal-divider" />
+
+      <label className="modal-checkbox-row">
+        <input
+          type="checkbox"
+          checked={autoTrashRecordings}
+          onChange={(e) => setSettings({ autoTrashRecordings: e.target.checked })}
+        />
+        {t("voiceInputAutoTrashRecordings")}
+      </label>
+      <p className="settings-hint">{t("voiceInputAutoTrashRecordingsDescription")}</p>
     </div>
   );
 }

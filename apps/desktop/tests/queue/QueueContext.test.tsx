@@ -26,10 +26,14 @@ function QueueInspector() {
       <button type="button" onClick={() => addFiles(["/audio/a.m4a", "/audio/b.m4a"])}>
         add
       </button>
+      <button type="button" onClick={() => addFiles(["/recordings/r.wav"], "recording")}>
+        add-recording
+      </button>
       <ul>
         {items.map((item) => (
           <li key={item.id} data-testid={item.fileName}>
             {item.status}
+            {item.origin && `:${item.origin}`}
             {item.error && `:${item.error}`}
             {item.status === "failed" && (
               <button type="button" onClick={() => retry(item.id)}>
@@ -130,6 +134,36 @@ describe("QueueContext", () => {
 
     deferreds[2].resolve({ text: "hello a retried", rendered: "hello a retried" });
     await waitFor(() => expect(screen.getByTestId("a.m4a").textContent).toContain("done"));
+  });
+
+  it("tags files added with an origin, and leaves a plain add() untagged (2026-09-30, auto-trash)", async () => {
+    const transcribeFn = vi.fn(() => new Promise<TranscribeResponse>(() => {})); // never resolves; status is all we check
+    renderQueue(transcribeFn);
+
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(screen.getByTestId("a.m4a").textContent).not.toContain(":recording"));
+
+    fireEvent.click(screen.getByText("add-recording"));
+    await waitFor(() => expect(screen.getByTestId("r.wav").textContent).toContain(":recording"));
+  });
+
+  it("retry keeps a recording's origin tag", async () => {
+    const deferreds: ReturnType<typeof deferred<TranscribeResponse>>[] = [];
+    const transcribeFn = vi.fn(() => {
+      const d = deferred<TranscribeResponse>();
+      deferreds.push(d);
+      return d.promise;
+    });
+
+    renderQueue(transcribeFn);
+    fireEvent.click(screen.getByText("add-recording"));
+
+    await waitFor(() => expect(deferreds).toHaveLength(1));
+    deferreds[0].reject(new Error("boom"));
+    await waitFor(() => expect(screen.getByTestId("r.wav").textContent).toContain("failed"));
+
+    fireEvent.click(screen.getByText("retry-r.wav"));
+    await waitFor(() => expect(screen.getByTestId("r.wav").textContent).toContain(":recording"));
   });
 });
 

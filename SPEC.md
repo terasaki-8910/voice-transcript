@@ -200,12 +200,29 @@ history of past runs.
   sample counts: two devices run on two independent clocks, so a source that
   falls behind contributes silence for that stretch instead of pushing
   everything after it out of sync for the rest of an hour-long session.
+- **Auto-trash after a successful transcription (added 2026-09-30, user-
+  reported: recordings' audio otherwise accumulates indefinitely with no
+  automatic cleanup).** A Settings > Voice input toggle, on by default,
+  moves a *recording's* audio to the OS trash (recoverable, same mechanism
+  as the existing manual "Trash audio" button) once its transcription
+  succeeds. Deliberately scoped to app-recorded audio only, never to an
+  uploaded file — an upload is the user's own pre-existing file, wherever
+  they keep it, and this app never touches it regardless of the setting. A
+  failed transcription keeps its recording so it can be retried from the
+  same file. Has no effect when there's no saved history entry to trigger
+  it from (`DATABASE_URL` unset, or the history write itself failed).
+- **Live level meter while recording (added 2026-09-30, user-requested):**
+  a small scrolling waveform in the recording status bar, confirming audio
+  is actually being captured. Capture stays entirely native (see above) —
+  the meter is driven by one derived loudness number pushed from Rust to
+  the webview every mixer tick (50ms), never raw audio samples.
 
 ## Settings
 - A sectioned Settings dialog (renamed in substance from the original
   single-panel Preferences view, same entry points) — sections: **Voice
   input** (spoken-language auto-detect + override, Whisper model, audio
-  source, recording microphone, captured output device), **Custom
+  source, recording microphone, captured output device, auto-trash
+  recordings after a successful transcription), **Custom
   dictionary** (see below), **General** (display
   preferences), **Connection** (`GROQ_API_KEY` / `DATABASE_URL`, described
   next). Reachable via the sidebar's Settings item, the native menu's

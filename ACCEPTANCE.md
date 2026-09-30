@@ -194,6 +194,16 @@ integration acceptance.
 - **J10** — macOS: `NSAudioCaptureUsageDescription` is present in the built
   bundle — system capture is its own TCC category, so the microphone keys
   in J5 do not cover it. Same real-`tauri build` check as J5.
+- **J12** — Once a recording's transcription succeeds, its audio is moved to
+  the OS trash (recoverable) if the auto-trash setting is on — an uploaded
+  file's audio never is, regardless of the setting; a failed transcription's
+  recording never is, regardless of the setting; a recording with no saved
+  history id (no `DATABASE_URL`, or the history write itself failed) is
+  never trashed, since there's nothing to trigger it from
+  (`apps/desktop/tests/App.test.tsx`'s "auto-trash a recording's audio on
+  success" suite). The setting defaults on and persists across restarts,
+  including for a settings file saved before this setting existed
+  (`VoiceInputSection.test.tsx`'s "auto-trash recordings" suite).
 
 ## K. Custom dictionary (word replacement)
 - **K1** — `applyDictionary()` replaces every occurrence of a stored word
