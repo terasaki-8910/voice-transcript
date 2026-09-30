@@ -75,6 +75,12 @@ export interface HistoryEntry {
   formats: string[];
   status: "success" | "failed";
   transcriptText?: string;
+  // User-editable display name (2026-09-30, user-requested) -- undefined
+  // until set. Callers show `title ?? basename(sourceFileName)`, never
+  // sourceFileName's raw basename alone once a title exists; renaming
+  // never touches sourceFileName itself, which stays the real path
+  // trash_audio/delete_history_entry look up by.
+  title?: string;
   // How many transcript notes point at this row -- from listHistory's own
   // leftJoin+count (db/history.ts), not a separate fetch. See
   // useTranscriptNotes' knownNoteCount for why this matters: it lets a row
@@ -93,6 +99,7 @@ interface HistoryEntryDto {
   formats: string[];
   status: "success" | "failed";
   transcriptText: string | null;
+  title: string | null;
   noteCount: number;
 }
 
@@ -106,6 +113,7 @@ function fromDto(dto: HistoryEntryDto): HistoryEntry {
     formats: dto.formats,
     status: dto.status,
     transcriptText: dto.transcriptText ?? undefined,
+    title: dto.title ?? undefined,
     noteCount: dto.noteCount,
   };
 }
@@ -130,6 +138,7 @@ export interface HistorySearchResult {
   sourceFileName: string;
   startedAt: Date;
   transcriptText: string | null;
+  title: string | null;
   matchedNotes: { quotedText: string; note: string }[];
 }
 
@@ -138,6 +147,7 @@ interface HistorySearchResultDto {
   sourceFileName: string;
   startedAt: string;
   transcriptText: string | null;
+  title: string | null;
   matchedNotes: { quotedText: string; note: string }[];
 }
 
@@ -159,6 +169,21 @@ export function trashAudio(id: number): Promise<TrashResult> {
 // still there).
 export function deleteHistoryEntry(id: number): Promise<TrashResult> {
   return invoke("delete_history_entry", { id });
+}
+
+export interface HistoryTitleResult {
+  id: number;
+  title?: string;
+}
+
+// Renaming (2026-09-30, user-requested): sets a custom display title,
+// separate from sourceFileName (see HistoryEntry's own comment on why).
+// Passing "" clears a previously-set title back to the default filename
+// display -- the sidecar normalizes an empty/whitespace-only string to
+// null, not an error.
+export async function renameHistoryEntry(id: number, title: string): Promise<HistoryTitleResult> {
+  const result = await invoke<{ id: number; title: string | null }>("update_history_title", { id, title });
+  return { id: result.id, title: result.title ?? undefined };
 }
 
 // F21 (native-menu): the Export menu item. pickSavePath() is the same

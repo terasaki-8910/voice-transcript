@@ -194,6 +194,116 @@ describe("HistoryView", () => {
     expect(screen.getByRole("menuitem", { name: "Trash audio" })).toBeDefined();
   });
 
+  // 2026-09-30, user-requested: recordings get an auto-generated,
+  // non-descriptive filename ("recording-<timestamp>.wav") -- a pencil
+  // next to the status chip lets the user give any entry a real name
+  // without touching sourceFileName itself (the real path trash/delete
+  // still key off).
+  describe("renaming", () => {
+    it("clicking the pencil turns the filename into an editable input, pre-filled with the current name", async () => {
+      renderView(async () => [makeEntry()]);
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      expect(screen.getByLabelText("Rename")).toHaveProperty("value", "a.m4a");
+    });
+
+    it("saving (Enter) calls renameHistoryEntryFn and displays the new title", async () => {
+      const renameHistoryEntryFn = vi.fn(async (id: number, title: string) => ({ id, title }));
+      renderWithProviders(
+        <HistoryProvider listHistoryFn={async () => [makeEntry()]} renameHistoryEntryFn={renameHistoryEntryFn}>
+          <HistoryView />
+        </HistoryProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      const input = screen.getByLabelText("Rename");
+      fireEvent.change(input, { target: { value: "Team standup" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => expect(renameHistoryEntryFn).toHaveBeenCalledWith(1, "Team standup"));
+      await waitFor(() => expect(screen.getByText("Team standup")).toBeDefined());
+      expect(screen.queryByText("a.m4a")).toBeNull();
+      // Back to view mode -- the input (role "textbox") is gone, though the
+      // pencil button itself keeps the same "Rename" accessible name idle.
+      expect(screen.queryByRole("textbox", { name: "Rename" })).toBeNull();
+    });
+
+    it("saving via the checkmark button works the same as pressing Enter", async () => {
+      const renameHistoryEntryFn = vi.fn(async (id: number, title: string) => ({ id, title }));
+      renderWithProviders(
+        <HistoryProvider listHistoryFn={async () => [makeEntry()]} renameHistoryEntryFn={renameHistoryEntryFn}>
+          <HistoryView />
+        </HistoryProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      fireEvent.change(screen.getByLabelText("Rename"), { target: { value: "Team standup" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(renameHistoryEntryFn).toHaveBeenCalledWith(1, "Team standup"));
+    });
+
+    it("Escape cancels without saving", async () => {
+      const renameHistoryEntryFn = vi.fn(async (id: number, title: string) => ({ id, title }));
+      renderWithProviders(
+        <HistoryProvider listHistoryFn={async () => [makeEntry()]} renameHistoryEntryFn={renameHistoryEntryFn}>
+          <HistoryView />
+        </HistoryProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      fireEvent.change(screen.getByLabelText("Rename"), { target: { value: "abandoned edit" } });
+      fireEvent.keyDown(screen.getByLabelText("Rename"), { key: "Escape" });
+
+      expect(screen.queryByRole("textbox", { name: "Rename" })).toBeNull();
+      expect(screen.getByText("a.m4a")).toBeDefined();
+      expect(renameHistoryEntryFn).not.toHaveBeenCalled();
+    });
+
+    it("clearing the title reverts the row to showing the filename again", async () => {
+      const renameHistoryEntryFn = vi.fn(async () => ({ id: 1, title: undefined }));
+      renderWithProviders(
+        <HistoryProvider
+          listHistoryFn={async () => [makeEntry({ title: "Team standup" })]}
+          renameHistoryEntryFn={renameHistoryEntryFn}
+        >
+          <HistoryView />
+        </HistoryProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("Team standup")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      fireEvent.change(screen.getByLabelText("Rename"), { target: { value: "" } });
+      fireEvent.keyDown(screen.getByLabelText("Rename"), { key: "Enter" });
+
+      await waitFor(() => expect(renameHistoryEntryFn).toHaveBeenCalledWith(1, ""));
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+    });
+
+    it("a failed rename shows an inline error and stays in edit mode so the user can retry", async () => {
+      const renameHistoryEntryFn = vi.fn(async () => {
+        throw new Error("failed to write config file");
+      });
+      renderWithProviders(
+        <HistoryProvider listHistoryFn={async () => [makeEntry()]} renameHistoryEntryFn={renameHistoryEntryFn}>
+          <HistoryView />
+        </HistoryProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      fireEvent.change(screen.getByLabelText("Rename"), { target: { value: "Team standup" } });
+      fireEvent.keyDown(screen.getByLabelText("Rename"), { key: "Enter" });
+
+      await waitFor(() => expect(screen.getByText("failed to write config file")).toBeDefined());
+      expect(screen.getByLabelText("Rename")).toBeDefined(); // still editable
+    });
+  });
+
   it("Delete (via the delete menu) asks for confirmation first, then removes the entry from the list", async () => {
     const deleteHistoryEntryFn = vi.fn(async (): Promise<TrashResult> => ({ trashed: false }));
     renderWithProviders(

@@ -124,6 +124,34 @@
   white-space: nowrap;
 }
 
+/* Renaming (2026-09-30, user-requested): replaces .filename in place while
+   editing, so the input lines up exactly where the name was. min-width: 0
+   lets it shrink like .filename does, rather than forcing .row-top wider. */
+.filename-input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.filename-input:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Sits right after the status chip, before the row's remaining blank
+   space (user-specified placement) -- flex-shrink: 0 keeps it from being
+   squeezed like .filename/.filename-input are allowed to be. */
+.row-rename-btn {
+  flex-shrink: 0;
+}
+
 .row-meta {
   margin-top: 2px;
   font-size: var(--text-xs);

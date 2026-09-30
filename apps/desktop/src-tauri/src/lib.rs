@@ -90,6 +90,7 @@ pub fn run() {
             commands::search_history,
             commands::trash_audio,
             commands::delete_history_entry,
+            commands::update_history_title,
             commands::export_transcript,
             config::save_api_key,
             config::get_api_key_status,

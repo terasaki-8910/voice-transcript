@@ -19,6 +19,7 @@ const HISTORY_COLUMNS = {
   status: transcriptions.status,
   transcriptText: transcriptions.transcriptText,
   segments: transcriptions.segments,
+  title: transcriptions.title,
   noteCount: count(transcriptNotes.id),
 };
 
@@ -41,6 +42,11 @@ export interface HistoryRecord {
   status: "success" | "failed";
   transcriptText: string | null;
   segments: Segment[] | null;
+  // User-editable display name (2026-09-30, user-requested) -- null until
+  // set, in which case the GUI falls back to basename(sourceFileName). See
+  // schema.ts's own comment on why this is a separate column from
+  // sourceFileName rather than editing that in place.
+  title: string | null;
   // How many transcript notes (db/notes.ts) point at this row -- computed
   // alongside the row itself (one leftJoin+count, not a separate query per
   // row) so the GUI can decide whether a row has anything worth fetching
@@ -125,6 +131,7 @@ export interface HistorySearchResult {
   sourceFileName: string;
   startedAt: Date;
   transcriptText: string | null;
+  title: string | null;
   // Notes (if any) belonging to this transcription that themselves match
   // at least one search term -- surfaced so a note-only match (neither the
   // title nor the body contains the term at all) is still explainable in
@@ -135,13 +142,14 @@ export interface HistorySearchResult {
 // Search (SPEC.md > Search): title, transcript body, and note text all at
 // once, space-separated terms ANDed together (every term must match
 // somewhere; which field can differ per term) -- terms are ORed across the
-// three fields, note-matching via an EXISTS subquery rather than a
-// leftJoin so a transcription with several notes still produces exactly
-// one result row, not one per matching note. Case-insensitive (ilike),
-// consistent with the existing inline sidebar filter's toLowerCase()
-// substring match. Unlike that filter, this queries the whole table, not
-// just the already-loaded page -- history entries past listHistory()'s own
-// limit are otherwise unreachable by search.
+// four fields (2026-09-30: title joined the other three once a custom
+// title became something worth searching by), note-matching via an EXISTS
+// subquery rather than a leftJoin so a transcription with several notes
+// still produces exactly one result row, not one per matching note.
+// Case-insensitive (ilike), consistent with the existing inline sidebar
+// filter's toLowerCase() substring match. Unlike that filter, this queries
+// the whole table, not just the already-loaded page -- history entries
+// past listHistory()'s own limit are otherwise unreachable by search.
 export async function searchHistory(db: Db, terms: string[], limit = 50): Promise<HistorySearchResult[]> {
   const cleaned = terms.map((t) => t.trim()).filter((t) => t.length > 0);
   if (cleaned.length === 0) return [];
@@ -150,6 +158,7 @@ export async function searchHistory(db: Db, terms: string[], limit = 50): Promis
     const pattern = `%${term}%`;
     return or(
       ilike(transcriptions.sourceFileName, pattern),
+      ilike(transcriptions.title, pattern),
       ilike(transcriptions.transcriptText, pattern),
       exists(
         db
@@ -171,6 +180,7 @@ export async function searchHistory(db: Db, terms: string[], limit = 50): Promis
       sourceFileName: transcriptions.sourceFileName,
       startedAt: transcriptions.startedAt,
       transcriptText: transcriptions.transcriptText,
+      title: transcriptions.title,
     })
     .from(transcriptions)
     .where(and(...cleaned.map(matchesTerm)))
@@ -205,6 +215,25 @@ export async function searchHistory(db: Db, terms: string[], limit = 50): Promis
   }
 
   return rows.map((r) => ({ ...r, matchedNotes: notesByTranscription.get(r.id) ?? [] }));
+}
+
+// Renaming (2026-09-30, user-requested). A no-op-ish "not found" (undefined,
+// not an error) if the id no longer exists -- same convention as
+// updateDictionaryEntry. Passing null clears a previously-set title, back
+// to falling through to basename(sourceFileName) in the GUI -- not
+// treated as an error/no-op, since "give this back its default name" is a
+// legitimate, deliberate action.
+export async function updateTranscriptionTitle(
+  db: Db,
+  id: number,
+  title: string | null,
+): Promise<{ id: number; title: string | null } | undefined> {
+  const [row] = await db
+    .update(transcriptions)
+    .set({ title })
+    .where(eq(transcriptions.id, id))
+    .returning({ id: transcriptions.id, title: transcriptions.title });
+  return row;
 }
 
 // ACCEPTANCE G9: remove a history record entirely. A no-op (not an error)

@@ -434,7 +434,12 @@ history of past runs.
   another**: space-separated terms in the query box must ALL match
   somewhere in a given transcript, but each term is free to match the
   title, the transcript body, or a note — they don't all have to match
-  the same field. Matching is case-insensitive.
+  the same field. Matching is case-insensitive. "Title" here originally
+  meant the source file name (this section predates a real title concept);
+  since renaming (Transcription history, above) it means whichever of the
+  two is actually showing for that entry — a custom title, once set, is
+  searched right alongside it, not in addition to a filename that's no
+  longer what's displayed.
 - **A note-only match is still explained, not just a bare filename**: if
   neither the title nor the transcript body contains a term but one of
   the transcript's notes does, the result still surfaces (that's the
@@ -485,6 +490,19 @@ history of past runs.
   within a database you already stood up, not DB *provisioning* — it still
   never creates the database itself, installs Postgres, or manages the
   server.
+- **Renaming (added 2026-09-30, user-requested):** a history entry can be
+  given a custom display title — a pencil icon next to its status chip
+  turns the name into an editable field (Enter/a checkmark to save, Escape
+  to cancel; clearing it back to empty reverts to the default). This is a
+  separate `title` column, never an edit to the underlying source file
+  name: the file name doubles as the real on-disk path `trash_audio`/
+  `delete_history_entry` use to find the audio to trash, so it can never
+  safely be rewritten in place — a recording's auto-generated,
+  non-descriptive name (`recording-<timestamp>.wav`) was the actual
+  motivation, but this applies to any entry. Once set, the title is what's
+  shown everywhere a name appears (the row, the suggested export filename,
+  confirm dialogs, search results) and is itself searchable alongside the
+  transcript body and notes.
 
 ## Release automation
 - A manually triggered GitHub Actions workflow, `.github/workflows/release.yml`

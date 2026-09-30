@@ -27,6 +27,13 @@ export const transcriptions = pgTable("transcriptions", {
   status: transcriptionStatus("status").notNull(),
   transcriptText: text("transcript_text"),
   segments: jsonb("segments").$type<Segment[]>(),
+  // User-editable display name (2026-09-30, user-requested), separate from
+  // sourceFileName on purpose: sourceFileName is also the real filesystem
+  // path trash_audio/delete_history_entry use to find the audio to trash
+  // (commands.rs), so it can never be edited without breaking that lookup.
+  // Null means "no custom title set yet" -- the GUI falls back to
+  // basename(sourceFileName), same as before this column existed.
+  title: text("title"),
 });
 
 // Transcript notes (annotations): a side comment anchored to a character

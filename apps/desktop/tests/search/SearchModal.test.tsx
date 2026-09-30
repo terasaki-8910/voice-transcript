@@ -78,6 +78,20 @@ describe("SearchModal", () => {
     expect(invoke).toHaveBeenCalledWith("search_history", { query: "2GOMCP" });
   });
 
+  // 2026-09-30, user-requested: a custom title (History's rename pencil)
+  // is itself searchable (db/history.ts's searchHistory), so it should be
+  // what's shown here too -- not the raw filename that was actually
+  // renamed away from.
+  it("shows a custom title instead of the raw filename when one is set", async () => {
+    invoke.mockResolvedValue([makeResult({ title: "Team standup" })]);
+    const { container } = renderModal();
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "standup" } });
+    await act(async () => vi.advanceTimersByTime(250));
+
+    await waitFor(() => expect(container.querySelector(".search-result-title")?.textContent).toBe("Team standup"));
+  });
+
   it("highlights the matched term within the title and the snippet", async () => {
     invoke.mockResolvedValue([makeResult()]);
     const { container } = renderModal();

@@ -22,7 +22,7 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
 }
 
 function Inspector() {
-  const { items, status, error, syncError, trashedIds, actionErrors, trash, remove } = useHistory();
+  const { items, status, error, syncError, trashedIds, actionErrors, trash, remove, rename } = useHistory();
   if (status === "loading") return <p>loading</p>;
   if (status === "error") return <p>error: {error}</p>;
   return (
@@ -30,7 +30,7 @@ function Inspector() {
       {syncError && <li data-testid="sync-error">sync-error: {syncError}</li>}
       {items.map((item) => (
         <li key={item.id} data-testid={`item-${item.id}`}>
-          {item.sourceFileName}
+          {item.title ?? item.sourceFileName}
           {trashedIds.has(item.id) && ":trashed"}
           {actionErrors.has(item.id) && `:action-error=${actionErrors.get(item.id)}`}
           <button type="button" onClick={() => void trash(item.id)}>
@@ -38,6 +38,9 @@ function Inspector() {
           </button>
           <button type="button" onClick={() => void remove(item.id)}>
             remove-{item.id}
+          </button>
+          <button type="button" onClick={() => void rename(item.id, "Team standup")}>
+            rename-{item.id}
           </button>
         </li>
       ))}
@@ -196,5 +199,45 @@ describe("HistoryContext", () => {
     await waitFor(() =>
       expect(screen.getByTestId("item-1").textContent).toContain("action-error=history entry not found"),
     );
+  });
+
+  // 2026-09-30, user-requested.
+  it("rename() updates the item's title and persists it to the cache", async () => {
+    const listHistoryFn = vi.fn(async () => [makeEntry({ id: 1 })]);
+    const renameHistoryEntryFn = vi.fn(async (id: number, title: string) => ({ id, title }));
+    render(
+      <HistoryProvider listHistoryFn={listHistoryFn} renameHistoryEntryFn={renameHistoryEntryFn}>
+        <Inspector />
+      </HistoryProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("item-1")).toBeDefined());
+    fireEvent.click(screen.getByText("rename-1"));
+
+    await waitFor(() => expect(screen.getByTestId("item-1").textContent).toContain("Team standup"));
+    expect(renameHistoryEntryFn).toHaveBeenCalledWith(1, "Team standup");
+
+    const cached = JSON.parse(window.localStorage.getItem("voice-transcript-history-cache-v1") ?? "[]");
+    expect(cached[0].title).toBe("Team standup");
+  });
+
+  it("rename() surfaces a per-row error instead of throwing, and never renames the item", async () => {
+    const listHistoryFn = vi.fn(async () => [makeEntry({ id: 1 })]);
+    const renameHistoryEntryFn = vi.fn(async (): Promise<never> => {
+      throw new Error("failed to write config file");
+    });
+    render(
+      <HistoryProvider listHistoryFn={listHistoryFn} renameHistoryEntryFn={renameHistoryEntryFn}>
+        <Inspector />
+      </HistoryProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("item-1")).toBeDefined());
+    fireEvent.click(screen.getByText("rename-1"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("item-1").textContent).toContain("action-error=failed to write config file"),
+    );
+    expect(screen.getByTestId("item-1").textContent).toContain("/audio/a.m4a"); // unchanged
   });
 });

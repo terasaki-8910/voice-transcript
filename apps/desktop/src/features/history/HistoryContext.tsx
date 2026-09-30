@@ -20,8 +20,8 @@
 // leaving the visible list untouched.
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { listHistory, trashAudio, deleteHistoryEntry } from "../../lib/tauri";
-import type { HistoryEntry, TrashResult } from "../../lib/tauri";
+import { listHistory, trashAudio, deleteHistoryEntry, renameHistoryEntry } from "../../lib/tauri";
+import type { HistoryEntry, TrashResult, HistoryTitleResult } from "../../lib/tauri";
 
 export type HistoryStatus = "loading" | "ready" | "error";
 
@@ -40,12 +40,17 @@ interface HistoryContextValue {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   trashedIds: Set<number>;
-  // Per-row failures from trash()/remove() -- kept separate from the
-  // whole-list `error` above, which is only for a failed initial load.
+  // Per-row failures from trash()/remove()/rename() -- kept separate from
+  // the whole-list `error` above, which is only for a failed initial load.
   actionErrors: Map<number, string>;
   refresh: () => void;
   trash: (id: number) => Promise<void>;
   remove: (id: number) => Promise<void>;
+  // Renaming (2026-09-30, user-requested). Returns whether it succeeded
+  // (never rejects, matching trash/remove) -- the row itself uses this to
+  // decide whether to leave edit mode (success) or stay in it showing the
+  // now-set actionErrors message so the user can fix and retry (failure).
+  rename: (id: number, title: string) => Promise<boolean>;
   // Lets a row surface a failure that happens BEFORE trash()/remove() is
   // even called (e.g. the confirm() dialog itself throwing) through the
   // same per-row error slot, instead of that becoming an unhandled
@@ -61,6 +66,7 @@ export interface HistoryProviderProps {
   listHistoryFn?: () => Promise<HistoryEntry[]>;
   trashAudioFn?: (id: number) => Promise<TrashResult>;
   deleteHistoryEntryFn?: (id: number) => Promise<TrashResult>;
+  renameHistoryEntryFn?: (id: number, title: string) => Promise<HistoryTitleResult>;
 }
 
 function errorMessage(err: unknown): string {
@@ -96,6 +102,7 @@ export function HistoryProvider({
   listHistoryFn = listHistory,
   trashAudioFn = trashAudio,
   deleteHistoryEntryFn = deleteHistoryEntry,
+  renameHistoryEntryFn = renameHistoryEntry,
 }: HistoryProviderProps) {
   const [items, setItems] = useState<HistoryEntry[]>(() => loadCache() ?? []);
   const [status, setStatus] = useState<HistoryStatus>(() => (items.length > 0 ? "ready" : "loading"));
@@ -169,6 +176,22 @@ export function HistoryProvider({
     }
   };
 
+  const rename = async (id: number, title: string): Promise<boolean> => {
+    try {
+      const result = await renameHistoryEntryFn(id, title);
+      setItems((prev) => {
+        const next = prev.map((item) => (item.id === id ? { ...item, title: result.title } : item));
+        saveCache(next);
+        return next;
+      });
+      clearActionError(id);
+      return true;
+    } catch (err) {
+      setActionErrors((prev) => new Map(prev).set(id, errorMessage(err)));
+      return false;
+    }
+  };
+
   const reportActionError = (id: number, message: string) => {
     setActionErrors((prev) => new Map(prev).set(id, message));
   };
@@ -187,6 +210,7 @@ export function HistoryProvider({
         refresh,
         trash,
         remove,
+        rename,
         reportActionError,
       }}
     >

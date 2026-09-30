@@ -11,6 +11,7 @@ import {
   handleSearchHistory,
   handleGetHistory,
   handleDeleteHistoryEntry,
+  handleUpdateHistoryTitle,
   handleListDictionary,
   handleAddDictionaryEntry,
   handleUpdateDictionaryEntry,
@@ -192,6 +193,7 @@ function makeRecord(overrides: Partial<HistoryRecord> = {}): HistoryRecord {
     status: "success",
     transcriptText: "hello world",
     segments: null,
+    title: null,
     noteCount: 0,
     ...overrides,
   };
@@ -219,7 +221,7 @@ describe("searchHistory", () => {
   });
 
   it("returns the injected results", async () => {
-    const result = { id: 1, sourceFileName: "a.m4a", startedAt: new Date(), transcriptText: "hi", matchedNotes: [] };
+    const result = { id: 1, sourceFileName: "a.m4a", startedAt: new Date(), transcriptText: "hi", title: null, matchedNotes: [] };
     const searchHistory = vi.fn(async () => [result]);
     await expect(handleSearchHistory({ query: "hi" }, { searchHistory })).resolves.toEqual([result]);
   });
@@ -234,6 +236,41 @@ describe("searchHistory", () => {
   it("returns [] (not an error) when there is no DB configured and no injection", async () => {
     vi.stubEnv("DATABASE_URL", undefined);
     await expect(handleSearchHistory({ query: "hi" }, {})).resolves.toEqual([]);
+  });
+});
+
+// Renaming (2026-09-30, user-requested).
+describe("updateHistoryTitle", () => {
+  it("sets a custom title and returns the updated id/title pair", async () => {
+    const updateHistoryTitle = vi.fn(async (id: number, title: string | null) => ({ id, title }));
+    await expect(
+      handleUpdateHistoryTitle({ id: 1, title: "Team standup" }, { updateHistoryTitle }),
+    ).resolves.toEqual({ id: 1, title: "Team standup" });
+    expect(updateHistoryTitle).toHaveBeenCalledWith(1, "Team standup");
+  });
+
+  it("trims the title before saving", async () => {
+    const updateHistoryTitle = vi.fn(async (id: number, title: string | null) => ({ id, title }));
+    await handleUpdateHistoryTitle({ id: 1, title: "  Team standup  " }, { updateHistoryTitle });
+    expect(updateHistoryTitle).toHaveBeenCalledWith(1, "Team standup");
+  });
+
+  it("normalizes an empty or whitespace-only title to null -- clearing back to the default filename display", async () => {
+    const updateHistoryTitle = vi.fn(async (id: number, title: string | null) => ({ id, title }));
+    await handleUpdateHistoryTitle({ id: 1, title: "   " }, { updateHistoryTitle });
+    expect(updateHistoryTitle).toHaveBeenCalledWith(1, null);
+  });
+
+  it("throws a clear error when the id doesn't exist", async () => {
+    const updateHistoryTitle = vi.fn(async () => undefined);
+    await expect(
+      handleUpdateHistoryTitle({ id: 999, title: "x" }, { updateHistoryTitle }),
+    ).rejects.toThrow(/999/);
+  });
+
+  it("throws a clear error when there is no DB configured and no injection", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    await expect(handleUpdateHistoryTitle({ id: 1, title: "x" }, {})).rejects.toThrow(/DATABASE_URL/);
   });
 });
 

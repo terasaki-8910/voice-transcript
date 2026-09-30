@@ -230,6 +230,13 @@ pub struct HistoryRecordDto {
     pub status: String,
     pub transcript_text: Option<String>,
     pub segments: Option<serde_json::Value>,
+    // User-editable display name (2026-09-30, user-requested) -- null
+    // until set, in which case the GUI falls back to
+    // basename(source_file_name). Deliberately separate from
+    // source_file_name, which stays the real path trash_audio/
+    // delete_history_entry look up by (see this struct's own header
+    // comment).
+    pub title: Option<String>,
     // How many transcript notes point at this row -- a leftJoin+count done
     // alongside listHistory's own query (packages/core/src/db/history.ts),
     // not a separate call, so the webview can decide whether a row has
@@ -323,6 +330,7 @@ pub struct HistorySearchResultDto {
     pub source_file_name: String,
     pub started_at: String,
     pub transcript_text: Option<String>,
+    pub title: Option<String>,
     pub matched_notes: Vec<MatchedNoteDto>,
 }
 
@@ -354,6 +362,23 @@ pub async fn delete_history_entry(app: tauri::AppHandle, id: i64) -> Result<Tras
     let arg_json = serde_json::json!({ "id": id }).to_string();
     let record: HistoryFileRef = call_sidecar(&app, "delete-history-entry", &arg_json).await?;
     Ok(TrashResult { trashed: trash_if_exists(&record.source_file_name) })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryTitleDto {
+    pub id: i64,
+    pub title: Option<String>,
+}
+
+/// Renaming (2026-09-30, user-requested): a thin proxy like the other
+/// history commands above -- the sidecar owns the actual update
+/// (packages/core/src/db/history.ts's updateTranscriptionTitle) and
+/// normalizing an empty title to null.
+#[tauri::command]
+pub async fn update_history_title(app: tauri::AppHandle, id: i64, title: String) -> Result<HistoryTitleDto, String> {
+    let arg_json = serde_json::json!({ "id": id, "title": title }).to_string();
+    call_sidecar(&app, "update-history-title", &arg_json).await
 }
 
 // F21 (native-menu): the Export menu item. Unlike trash_audio/
@@ -604,6 +629,43 @@ mod tests {
         assert_eq!(parsed.source_file_name, "/audio/a.m4a");
         assert_eq!(parsed.transcript_text.as_deref(), Some("hello"));
         assert_eq!(parsed.note_count, 2);
+        // title is optional at the JSON level (like id elsewhere) -- absent
+        // here entirely, must decode to None, not a parse error.
+        assert_eq!(parsed.title, None);
+    }
+
+    #[test]
+    fn history_record_dto_decodes_a_custom_title_when_present() {
+        let json = r#"{
+            "id": 1,
+            "sourceFileName": "/recordings/recording-123.wav",
+            "startedAt": "2026-09-30T00:00:00.000Z",
+            "model": "whisper-large-v3-turbo",
+            "language": null,
+            "formats": ["txt"],
+            "status": "success",
+            "transcriptText": "hello",
+            "segments": null,
+            "title": "Team standup",
+            "noteCount": 0
+        }"#;
+        let parsed: HistoryRecordDto = serde_json::from_str(json).expect("must decode a custom title");
+        assert_eq!(parsed.title.as_deref(), Some("Team standup"));
+    }
+
+    #[test]
+    fn history_title_dto_decodes_camel_case_sidecar_json() {
+        let json = r#"{"id":1,"title":"Team standup"}"#;
+        let parsed: HistoryTitleDto = serde_json::from_str(json).expect("must decode a rename result");
+        assert_eq!(parsed.id, 1);
+        assert_eq!(parsed.title.as_deref(), Some("Team standup"));
+    }
+
+    #[test]
+    fn history_title_dto_decodes_a_cleared_title() {
+        let json = r#"{"id":1,"title":null}"#;
+        let parsed: HistoryTitleDto = serde_json::from_str(json).expect("must decode a cleared title");
+        assert_eq!(parsed.title, None);
     }
 
     // Same regression class as the two tests above, for the note commands
@@ -643,6 +705,7 @@ mod tests {
             serde_json::from_str(json).expect("must decode camelCase search result");
         assert_eq!(parsed[0].source_file_name, "/audio/a.m4a");
         assert_eq!(parsed[0].matched_notes[0].quoted_text, "2GOMCP");
+        assert_eq!(parsed[0].title, None); // absent JSON field -> None, not a parse error
     }
 
     #[test]

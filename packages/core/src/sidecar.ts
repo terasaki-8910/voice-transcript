@@ -18,7 +18,14 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
-import { recordHistorySafe, listHistory, getHistoryById, deleteHistoryEntry, searchHistory } from "./db/history.js";
+import {
+  recordHistorySafe,
+  listHistory,
+  getHistoryById,
+  deleteHistoryEntry,
+  searchHistory,
+  updateTranscriptionTitle,
+} from "./db/history.js";
 import {
   listDictionary,
   addDictionaryEntry,
@@ -136,6 +143,7 @@ export interface SidecarDeps {
   listHistory?: () => Promise<HistoryRecord[]>;
   getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
   deleteHistoryEntry?: (id: number) => Promise<void>;
+  updateHistoryTitle?: (id: number, title: string | null) => Promise<{ id: number; title: string | null } | undefined>;
   searchHistory?: (terms: string[]) => Promise<HistorySearchResult[]>;
   listDictionary?: () => Promise<DictionaryRecord[]>;
   addDictionaryEntry?: (entry: DictionaryEntry) => Promise<DictionaryRecord>;
@@ -319,6 +327,30 @@ export async function handleDeleteHistoryEntry(
   return { sourceFileName: record.sourceFileName };
 }
 
+// Renaming (2026-09-30, user-requested): sets a custom display title,
+// separate from sourceFileName (see schema.ts's comment on why -- that
+// column is also the real path trash_audio/delete_history_entry use).
+// args.title of "" is normalized to null here (not left for the DB layer
+// to special-case) -- an intentionally-cleared title and a never-set one
+// should be indistinguishable, both falling back to the filename in the
+// GUI.
+export async function handleUpdateHistoryTitle(
+  args: { id: number; title: string },
+  deps: SidecarDeps = {},
+): Promise<{ id: number; title: string | null }> {
+  const title = args.title.trim().length > 0 ? args.title.trim() : null;
+  const record = deps.updateHistoryTitle
+    ? await deps.updateHistoryTitle(args.id, title)
+    : await (async () => {
+        const db = createDb();
+        if (!db) throw new Error("DATABASE_URL not set; cannot rename a history entry.");
+        await ensureSchema(db, migrationsFolder(process.env));
+        return updateTranscriptionTitle(db, args.id, title);
+      })();
+  if (!record) throw new Error(`History entry ${args.id} not found.`);
+  return record;
+}
+
 // Custom dictionary CRUD + import -- same inject-first-else-createDb()
 // pattern as the history handlers above. Reads return [] with no DB (never
 // throw); writes throw a clear error when there's no DB to write to.
@@ -488,6 +520,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       case "delete-history-entry": {
         const args = JSON.parse(argJson ?? "{}") as { id: number };
         data = await handleDeleteHistoryEntry(args);
+        break;
+      }
+      case "update-history-title": {
+        const args = JSON.parse(argJson ?? "{}") as { id: number; title: string };
+        data = await handleUpdateHistoryTitle(args);
         break;
       }
       case "list-dictionary":

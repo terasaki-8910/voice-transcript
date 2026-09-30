@@ -138,6 +138,23 @@ integration acceptance.
   it's genuinely idle, instead of pg-pool's default 10s idle timer holding
   the process (and therefore every caller awaiting its exit) open past its
   real work (`packages/core/tests/client.test.ts`).
+- **H7** — A history entry's custom title (`transcriptions.title`, a
+  separate column from `source_file_name`) can be set, changed, and cleared
+  back to null via `updateTranscriptionTitle()`, without ever touching
+  `source_file_name` itself — the real path `trash_audio`/
+  `delete_history_entry` look up by. An empty/whitespace-only title
+  normalizes to null (clearing it), not an error
+  (`packages/core/tests/sidecar.test.ts`'s `updateHistoryTitle` suite,
+  `commands.rs`'s `HistoryTitleDto` camelCase-decode tests). The GUI's
+  rename pencil (next to History's status chip) shows this title everywhere
+  a name is shown once set — the row, the suggested export filename,
+  confirm dialogs, and search results — falling back to the file name's
+  basename otherwise; Enter or a checkmark button saves, Escape cancels
+  without saving, and neither fires mid IME-composition (reusing
+  `lib/ime.ts`'s guard); a failed save shows the real error inline and
+  stays in edit mode so the user can retry
+  (`apps/desktop/tests/history/HistoryView.test.tsx`'s "renaming" suite,
+  `HistoryContext.test.tsx`'s `rename()` cases).
 
 ## I. Release automation (GitHub Actions)
 - **I1** — `.github/workflows/release.yml` exists, triggers only on
@@ -387,3 +404,7 @@ integration acceptance.
   clicking it (`apps/desktop/tests/sidebar/Sidebar.test.tsx`'s search-icon
   test covers the click path; the keyboard shortcut is wired at the
   `AppShell` level in `App.tsx`).
+- **M9** — A custom title (H7) is itself searchable, ORed in alongside
+  source file name/transcript body/notes rather than replacing the file
+  name in the query, and is what's displayed for a matching result once set
+  (`apps/desktop/tests/search/SearchModal.test.tsx`'s custom-title case).

@@ -28,8 +28,9 @@
 // unchanged, only the entry point moved. The slot this frees up gets a new
 // Copy-transcript button.
 import { useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { FiTrash, FiTrash2, FiDownload } from "react-icons/fi";
+import { FiTrash, FiTrash2, FiDownload, FiEdit2, FiCheck } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import { useHistoryNav } from "./HistoryNavContext";
@@ -39,6 +40,7 @@ import { basename } from "../../lib/path";
 import { useSelection } from "../selection/SelectionContext";
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
 import { useDismissOnOutsideClick } from "../../lib/useDismiss";
+import { isImeComposing } from "../../lib/ime";
 import { useTranscriptNotes } from "../notes/useTranscriptNotes";
 import { AnnotatedTranscript } from "../notes/AnnotatedTranscript";
 import { CopyMenu } from "../notes/CopyMenu";
@@ -133,7 +135,7 @@ function DeleteMenu({
 
 export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTrashed: boolean }) {
   const { t } = useI18n();
-  const { trash, remove, actionErrors, reportActionError } = useHistory();
+  const { trash, remove, rename, actionErrors, reportActionError } = useHistory();
   const { setSelection } = useSelection();
   const { currentId, view, close } = useHistoryNav();
   const { breakAtPeriod } = useDisplayPreferences();
@@ -141,6 +143,16 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const expanded = currentId === item.id;
   const actionError = actionErrors.get(item.id);
   const fileName = basename(item.sourceFileName);
+  // A custom title (set via the rename pencil below) takes over the
+  // display everywhere a name is shown -- including as the suggested
+  // export filename and in the trash/delete confirm dialogs -- renaming
+  // never touches sourceFileName itself, which stays the real path
+  // trash_audio/delete_history_entry look up by (see HistoryEntry's own
+  // comment on why).
+  const displayName = item.title ?? fileName;
+  const [renaming, setRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
   const {
     notes,
     failures: noteFailures,
@@ -158,7 +170,7 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
     }
     view(item.id);
     if (item.transcriptText) {
-      setSelection({ fileName, text: item.transcriptText, format: "txt" });
+      setSelection({ fileName: displayName, text: item.transcriptText, format: "txt" });
     }
   };
 
@@ -169,7 +181,7 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   // silent unhandled rejection that looks like "nothing happened."
   const handleTrash = async () => {
     try {
-      const confirmed = await confirm(`${fileName}\n\n${t("confirmTrashAudioBody")}`, {
+      const confirmed = await confirm(`${displayName}\n\n${t("confirmTrashAudioBody")}`, {
         title: t("trashAudio"),
         kind: "warning",
       });
@@ -182,7 +194,7 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
 
   const handleDelete = async () => {
     try {
-      const confirmed = await confirm(`${fileName}\n\n${t("confirmDeleteEntryBody")}`, {
+      const confirmed = await confirm(`${displayName}\n\n${t("confirmDeleteEntryBody")}`, {
         title: t("deleteEntry"),
         kind: "warning",
       });
@@ -196,11 +208,35 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   const handleExport = async () => {
     if (!item.transcriptText) return;
     try {
-      const path = await pickSavePath(`${fileName}.txt`);
+      const path = await pickSavePath(`${displayName}.txt`);
       if (!path) return;
       await exportTranscript(path, item.transcriptText);
     } catch (err) {
       reportActionError(item.id, errorMessage(err));
+    }
+  };
+
+  const startRename = () => {
+    setTitleDraft(displayName);
+    setRenaming(true);
+  };
+
+  const handleSaveRename = async () => {
+    if (renameSaving) return;
+    setRenameSaving(true);
+    const ok = await rename(item.id, titleDraft);
+    setRenameSaving(false);
+    if (ok) setRenaming(false);
+  };
+
+  const handleRenameKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(e.nativeEvent)) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleSaveRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setRenaming(false);
     }
   };
 
@@ -235,10 +271,32 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
     <div className="row">
       <div className="row-main">
         <div className="row-top">
-          <span className="filename">{fileName}</span>
+          {renaming ? (
+            <input
+              className="filename-input"
+              autoFocus
+              aria-label={t("renameAria")}
+              value={titleDraft}
+              disabled={renameSaving}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={handleRenameKeyDown}
+            />
+          ) : (
+            <span className="filename">{displayName}</span>
+          )}
           <span className={`chip ${item.status === "success" ? "chip-done" : "chip-failed"}`}>
             {item.status === "success" ? t("statusDone") : t("statusFailed")}
           </span>
+          <button
+            type="button"
+            className="icon-btn row-rename-btn"
+            aria-label={renaming ? t("save") : t("renameAria")}
+            title={renaming ? t("save") : t("renameAria")}
+            disabled={renameSaving}
+            onClick={renaming ? () => void handleSaveRename() : startRename}
+          >
+            {renaming ? <FiCheck aria-hidden="true" /> : <FiEdit2 aria-hidden="true" />}
+          </button>
         </div>
         <div className="row-meta">{item.startedAt.toLocaleString()}</div>
         {actionError && <div className="row-meta fail-reason">{actionError}</div>}

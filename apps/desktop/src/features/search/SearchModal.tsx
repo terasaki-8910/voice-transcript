@@ -44,7 +44,12 @@ function SearchResultRow({
   onClick: () => void;
 }) {
   const { t } = useI18n();
-  const fileName = basename(result.sourceFileName);
+  // A custom title (set via History's rename pencil) takes over here too --
+  // renaming is searchable by design (db/history.ts's searchHistory ORs
+  // title in alongside sourceFileName/transcriptText/notes), so showing the
+  // raw filename instead of the name that was actually searched by would
+  // read as inconsistent.
+  const fileName = result.title ?? basename(result.sourceFileName);
   const snippet = result.transcriptText ? extractSnippet(result.transcriptText, terms) : null;
   const firstNote = result.matchedNotes[0];
 
