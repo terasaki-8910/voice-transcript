@@ -146,6 +146,7 @@ export interface SidecarDeps {
   addNote?: (input: NewTranscriptNote) => Promise<TranscriptNoteRecord>;
   updateNote?: (id: number, note: string) => Promise<TranscriptNoteRecord | undefined>;
   deleteNote?: (id: number) => Promise<void>;
+  testConnection?: () => Promise<{ connected: boolean; error?: string }>;
 }
 
 // Used by handleTranscribe: a dictionary fetch failure is caught and logged,
@@ -168,6 +169,33 @@ async function fetchDictionarySafe(
 
 export async function handlePing(): Promise<string> {
   return "pong";
+}
+
+// Settings > Connection's "Test connection" button (2026-09-30,
+// user-requested: a real connectivity failure -- Tailscale up, Postgres
+// port open, still couldn't connect -- had no way to self-diagnose from
+// inside the app). Deliberately a raw connectivity check, not a full
+// ensureSchema() + query: the point is "can I reach and authenticate to
+// this Postgres," a strictly smaller and faster question than "is the
+// schema also set up," which every other DB command already handles
+// gracefully on its own (auto-provisions on first real use). Never
+// throws -- a connection failure is an ordinary, expected RESULT here
+// (connected: false + the real driver error message, e.g. "connect
+// ETIMEDOUT", "password authentication failed for user ...", "getaddrinfo
+// ENOTFOUND ..."), not an exceptional one; the webview never sees
+// DATABASE_URL itself, only this result.
+export async function handleTestConnection(
+  deps: SidecarDeps = {},
+): Promise<{ connected: boolean; error?: string }> {
+  if (deps.testConnection) return deps.testConnection();
+  const db = createDb();
+  if (!db) return { connected: false, error: "DATABASE_URL is not set." };
+  try {
+    await db.$client.query("SELECT 1");
+    return { connected: true };
+  } catch (err) {
+    return { connected: false, error: errorMessage(err) };
+  }
 }
 
 export async function handleTranscribe(
@@ -505,6 +533,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         data = await handleDeleteNote(args);
         break;
       }
+      case "test-connection":
+        data = await handleTestConnection();
+        break;
       default:
         throw new Error(`Unknown sidecar command "${String(command)}"`);
     }

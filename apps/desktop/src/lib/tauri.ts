@@ -197,6 +197,21 @@ export function getDatabaseUrlStatus(): Promise<boolean> {
   return invoke("get_database_url_status");
 }
 
+export interface TestConnectionResult {
+  connected: boolean;
+  error?: string;
+}
+
+// Settings > Connection's "Test connection" button (2026-09-30,
+// user-requested). Tests whichever database URL is currently active (the
+// same value every other DB command already reads -- see
+// commands.rs's db_env) -- never the saved URL's value itself, only
+// whether Rust could connect with it, and the real driver error if not
+// (e.g. "connect ETIMEDOUT ...", "password authentication failed ...").
+export function testDatabaseConnection(): Promise<TestConnectionResult> {
+  return invoke("test_database_connection");
+}
+
 // gui-i18n: keeps the native OS menu bar's labels in sync with the
 // webview's own language setting (menu.rs's build() takes the same "en"/
 // "ja" values as I18nContext's Lang type). Called from I18nContext on every

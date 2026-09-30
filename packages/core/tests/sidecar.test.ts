@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   handlePing,
+  handleTestConnection,
   handleTranscribe,
   handleListHistory,
   handleSearchHistory,
@@ -83,6 +84,35 @@ function makeDeps(overrides: Partial<SidecarDeps> = {}): { deps: SidecarDeps; re
 describe("ping", () => {
   it("resolves to pong", async () => {
     await expect(handlePing()).resolves.toBe("pong");
+  });
+});
+
+// Settings > Connection's "Test connection" button (2026-09-30,
+// user-requested).
+describe("testConnection", () => {
+  it("resolves connected: false with a clear message when DATABASE_URL is unset", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    await expect(handleTestConnection()).resolves.toEqual({
+      connected: false,
+      error: "DATABASE_URL is not set.",
+    });
+  });
+
+  it("uses the injected dependency when provided, bypassing the real DB entirely", async () => {
+    const testConnection = vi.fn(async () => ({ connected: true }));
+    await expect(handleTestConnection({ testConnection })).resolves.toEqual({ connected: true });
+    expect(testConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a real connection failure's underlying message via the injected dependency", async () => {
+    const testConnection = vi.fn(async () => ({
+      connected: false,
+      error: "connect ETIMEDOUT 100.122.25.26:5432",
+    }));
+    await expect(handleTestConnection({ testConnection })).resolves.toEqual({
+      connected: false,
+      error: "connect ETIMEDOUT 100.122.25.26:5432",
+    });
   });
 });
 
@@ -446,6 +476,21 @@ describe("main (argv protocol)", () => {
     await main(["node", "sidecar.js", "ping"]);
     write.mockRestore();
     expect(JSON.parse(chunks.join(""))).toEqual({ ok: true, data: "pong" });
+  });
+
+  it("writes { ok: true, data: { connected: false, error } } for the test-connection command with no DB configured", async () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    const chunks: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    });
+    await main(["node", "sidecar.js", "test-connection"]);
+    write.mockRestore();
+    expect(JSON.parse(chunks.join(""))).toEqual({
+      ok: true,
+      data: { connected: false, error: "DATABASE_URL is not set." },
+    });
   });
 
   it("writes { ok: false, error } instead of throwing for an unknown command", async () => {

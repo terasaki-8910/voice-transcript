@@ -287,6 +287,24 @@ pub async fn list_history(app: tauri::AppHandle) -> Result<Vec<HistoryRecordDto>
     call_sidecar(&app, "list-history", "null").await
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestConnectionResult {
+    pub connected: bool,
+    pub error: Option<String>,
+}
+
+/// Settings > Connection's "Test connection" button (2026-09-30,
+/// user-requested). Thin proxy like list_history above -- the actual
+/// connectivity check (packages/core/src/sidecar.ts's
+/// handleTestConnection) reads DATABASE_URL exactly the same way every
+/// other DB command already does (db_env, below), so this never receives
+/// or needs the URL itself, only the pass/fail result.
+#[tauri::command]
+pub async fn test_database_connection(app: tauri::AppHandle) -> Result<TestConnectionResult, String> {
+    call_sidecar(&app, "test-connection", "null").await
+}
+
 // Search (SPEC.md > Search): title, transcript body, and note text at once,
 // space-separated terms ANDed together -- the sidecar owns tokenization and
 // the query itself (packages/core/src/db/history.ts's searchHistory), this
@@ -642,5 +660,21 @@ mod tests {
         let json = r#"{"text":"hi","rendered":"hi","language":null,"duration":null}"#;
         let parsed: TranscribeResponse = serde_json::from_str(json).expect("id must be optional");
         assert_eq!(parsed.id, None);
+    }
+
+    #[test]
+    fn test_connection_result_decodes_a_success() {
+        let json = r#"{"connected":true}"#;
+        let parsed: TestConnectionResult = serde_json::from_str(json).expect("must decode a success result");
+        assert!(parsed.connected);
+        assert_eq!(parsed.error, None);
+    }
+
+    #[test]
+    fn test_connection_result_decodes_a_failure_with_its_real_error_message() {
+        let json = r#"{"connected":false,"error":"connect ETIMEDOUT 100.122.25.26:5432"}"#;
+        let parsed: TestConnectionResult = serde_json::from_str(json).expect("must decode a failure result");
+        assert!(!parsed.connected);
+        assert_eq!(parsed.error.as_deref(), Some("connect ETIMEDOUT 100.122.25.26:5432"));
     }
 }

@@ -252,3 +252,66 @@ describe("PreferencesView - database URL", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// 2026-09-30, user-reported: Tailscale was up, the DB port was reachable,
+// and there was still no way to check DB connectivity from inside the app,
+// or to see the real reason a connection was failing.
+describe("PreferencesView - test connection", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("is clickable without typing a URL -- it tests the currently SAVED value, not the input field", async () => {
+    mockMountStatus(false, true); // no key, database URL already set
+    await renderConnectionSection();
+    await waitFor(() => expect(screen.getByText("Database URL is set.")).toBeDefined());
+
+    expect(screen.getByRole("button", { name: "Test connection" })).toHaveProperty("disabled", false);
+  });
+
+  it("calls test_database_connection and shows a success message when it connects", async () => {
+    mockMountStatus(false, true);
+    invoke.mockResolvedValueOnce({ connected: true }); // test_database_connection
+    await renderConnectionSection();
+    await waitFor(() => expect(screen.getByText("Database URL is set.")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("test_database_connection"));
+    await waitFor(() => expect(screen.getByText("Connected")).toBeDefined());
+  });
+
+  it("shows the real underlying error when the connection fails, not a generic message", async () => {
+    mockMountStatus(false, true);
+    invoke.mockResolvedValueOnce({ connected: false, error: "connect ETIMEDOUT 100.122.25.26:5432" });
+    await renderConnectionSection();
+    await waitFor(() => expect(screen.getByText("Database URL is set.")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(screen.getByText("connect ETIMEDOUT 100.122.25.26:5432")).toBeDefined());
+    expect(screen.queryByText("Connected")).toBeNull();
+  });
+
+  it("reports clearly when no database URL is configured at all", async () => {
+    mockMountStatus(false, false);
+    invoke.mockResolvedValueOnce({ connected: false, error: "DATABASE_URL is not set." });
+    await renderConnectionSection();
+    await waitFor(() => expect(screen.getByText("No database URL is set yet.")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(screen.getByText("DATABASE_URL is not set.")).toBeDefined());
+  });
+
+  it("a failed IPC call itself (not a connection result) still surfaces an error, not a crash", async () => {
+    mockMountStatus(false, true);
+    invoke.mockRejectedValueOnce(new Error("sidecar not found"));
+    await renderConnectionSection();
+    await waitFor(() => expect(screen.getByText("Database URL is set.")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(screen.getByText("sidecar not found")).toBeDefined());
+  });
+});

@@ -104,6 +104,16 @@ integration acceptance.
   standalone vitest item beyond the unit tests already covering
   QueueContext's read of the setting — the dialog's rendering is verified by
   exercising it in the built app, same as G1/G6.
+- **G13** — Connection's "Test connection" button checks the currently-ACTIVE
+  `DATABASE_URL` (not whatever's typed into the field) and shows the real
+  underlying error on failure, not a generic message — including the
+  specific "DATABASE_URL is not set" case when nothing is configured at all
+  (`packages/core/tests/sidecar.test.ts`'s `testConnection` suite,
+  `commands.rs`'s `TestConnectionResult` camelCase-decode tests,
+  `PreferencesView.test.tsx`'s "test connection" suite). A failed background
+  History refresh shows that same real error alongside the existing
+  reassurance message instead of swallowing it
+  (`HistoryView.test.tsx`'s syncError-rendering test).
 
 ## H. Transcription history (Postgres)
 - **H1** — Every completed run (CLI or GUI) writes one history record:

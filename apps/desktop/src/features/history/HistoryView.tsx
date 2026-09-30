@@ -53,8 +53,23 @@ export function HistoryView() {
     <>
       {/* A failed background refresh with a list already showing (cached or
           last-good) is a small, non-blocking notice -- never replaces the
-          list itself, which is still perfectly valid data. */}
-      {syncError && <p className="row-meta fail-reason">{t("historySyncError")}</p>}
+          list itself, which is still perfectly valid data. The real
+          underlying error (syncError itself, e.g. "connect ETIMEDOUT
+          ...", "password authentication failed ...") is shown alongside
+          the static reassurance line, not swallowed by it -- previously
+          only the generic text rendered, discarding the one piece of
+          information that could actually explain what's wrong
+          (user-reported, 2026-09-30: Tailscale was up, the DB port was
+          reachable, and there was still no way to see why the connection
+          itself was failing). See also Settings > Connection's "Test
+          connection" button (ConnectionSection.tsx) for checking this
+          proactively rather than only after a failed refresh. */}
+      {syncError && (
+        <>
+          <p className="row-meta fail-reason">{t("historySyncError")}</p>
+          <p className="row-meta fail-reason">{syncError}</p>
+        </>
+      )}
       {filteredItems.length === 0 ? (
         <p style={{ fontSize: "var(--text-sm)", color: "var(--color-ink-muted)", textAlign: "center" }}>
           {t("historyNoResults")}

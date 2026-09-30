@@ -105,6 +105,43 @@ describe("HistoryView", () => {
     await waitFor(() => expect(screen.getByText("No history yet")).toBeDefined());
   });
 
+  // 2026-09-30, user-reported: only the generic "Couldn't reach the
+  // database" text rendered on a failed background refresh, discarding
+  // the one piece of information (the real driver error, e.g. "connect
+  // ETIMEDOUT ...") that could actually explain what's wrong. The
+  // value-setting side of this (HistoryContext's syncError) is already
+  // pinned in HistoryContext.test.tsx -- this only pins that HistoryView
+  // actually renders it, not just the static message.
+  it("shows the real underlying error alongside the generic message when a background refresh fails", async () => {
+    const { rerender } = renderWithProviders(
+      <HistoryProvider listHistoryFn={async () => [makeEntry()]}>
+        <HistoryView />
+      </HistoryProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("a.m4a")).toBeDefined());
+
+    rerender(
+      <I18nProvider>
+        <DisplayPreferencesProvider>
+          <NavProvider>
+            <HistoryNavProvider>
+              <SelectionProvider>
+                <HistoryProvider listHistoryFn={() => Promise.reject(new Error("connect ETIMEDOUT 100.122.25.26:5432"))}>
+                  <HistoryView />
+                </HistoryProvider>
+              </SelectionProvider>
+            </HistoryNavProvider>
+          </NavProvider>
+        </DisplayPreferencesProvider>
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("connect ETIMEDOUT 100.122.25.26:5432")).toBeDefined());
+    expect(screen.getByText("Couldn't reach the database -- showing the last saved history.")).toBeDefined();
+    // The stale-but-valid list is still shown, not replaced by the error.
+    expect(screen.getByText("a.m4a")).toBeDefined();
+  });
+
   it("lists entries and expands a transcript via View", async () => {
     renderView(async () => [makeEntry()]);
 

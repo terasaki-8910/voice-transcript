@@ -95,6 +95,7 @@ pub fn run() {
             config::get_api_key_status,
             config::save_database_url,
             config::get_database_url_status,
+            commands::test_database_connection,
             menu::set_menu_language,
             commands::list_dictionary,
             commands::add_dictionary_entry,

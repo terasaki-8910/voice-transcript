@@ -261,6 +261,23 @@ history of past runs.
   section sends the entered key/URL to a Rust command, which alone touches
   the filesystem, same trust-boundary pattern as every other secret/fs/DB
   operation in this app (see Architecture above).
+- **"Test connection" (added 2026-09-30, user-reported):** a button next to
+  the database URL field that checks whether the currently-ACTIVE
+  `DATABASE_URL` (the same value every real DB command already reads — see
+  Architecture's sidecar section) can actually be connected to right now,
+  and shows the real underlying error if not (e.g. "connect ETIMEDOUT
+  ...", "password authentication failed for user ...", "getaddrinfo
+  ENOTFOUND ..."). Prompted by a real case where Tailscale was up and the
+  Postgres port was reachable, yet the app still couldn't connect, with no
+  way to see why from inside it. Deliberately a plain connectivity check
+  (one trivial query), not a schema check — every other DB command already
+  auto-provisions the schema on first real use, a materially different and
+  slower question. Tests the SAVED value, not whatever may or may not be
+  typed into the field — saving and testing stay separate actions, and the
+  webview never receives the URL back either way, only this pass/fail
+  result. The same real error is now also shown (not just a generic "can't
+  reach the database" message) wherever a background history refresh fails
+  (History view), for the same reason.
 
 ## Custom dictionary (word replacement)
 - A user-maintained list of word → replacement pairs, applied to every
