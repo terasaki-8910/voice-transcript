@@ -66,7 +66,12 @@ pnpm --filter desktop tauri dev                        # development loop
   stays single-file). Each file is tracked independently; one failure does not abort the rest.
 - **Progress:** per-file, and per-chunk when a long file is split — no indeterminate spinner.
 - **History:** every run (CLI and GUI) is persisted; the history view lists past runs and
-  opens one to read its stored transcript without re-calling the API.
+  opens one to read its stored transcript without re-calling the API. A pencil icon next to
+  a row's status chip turns its name into an editable title — Enter or a checkmark saves,
+  Escape cancels, and clearing it back to empty reverts to the file name. This sets a
+  separate display title without touching the underlying source file name, and once set it
+  is what's shown everywhere a name appears — the row, the suggested export filename,
+  confirm dialogs, and search results — and is itself searchable.
 - **Same options as the CLI** (format, model, language) exposed as controls in
   Settings, not flags — they become the defaults every queued transcription uses.
 - **Microphone recording, no duration cap:** a Record control sits beside "Add files" in
@@ -215,7 +220,9 @@ transcript they're about.
 A dedicated search icon sits next to the sidebar's collapse toggle (reachable even when the
 sidebar is collapsed) and opens a modal that queries title, transcript body, and note text
 at once, across all history — distinct from the sidebar's own always-visible inline filter,
-which only filters the page of history already loaded client-side. Space-separated terms
+which only filters the page of history already loaded client-side. "Title" means whichever
+name is currently showing for an entry — a custom title, once set via History's rename
+control, is what's searched, not the file name it replaced. Space-separated terms
 in the query are ANDed together, but each term is free to match a different field (title,
 body, or a note) than another. A match found only in a note still surfaces, showing that
 note's own text so the result isn't an unexplained bare filename. Results update as you
