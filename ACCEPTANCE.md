@@ -17,6 +17,12 @@ integration acceptance.
 - **B2** — When the encode exceeds 24 MB, the pipeline splits into **N > 1** chunks and makes N requests. Every chunk stays under the byte budget -- boundaries prefer **detected silence** whenever one falls within budget, falling back to a fixed offset only across a silence-free stretch that alone would otherwise exceed it (2026-07-20: a real 413 from Groq was traced to this gap -- a chunk with no fallback could exceed the cap when its stretch had no detected silence at all).
 - **B3** — When stitching M chunks, each chunk's timestamps are offset by the cumulative duration of preceding chunks; merged timestamps are monotonic non-decreasing.
 - **B4** — If ffmpeg is not on `PATH`, the CLI exits non-zero with an actionable error naming ffmpeg.
+- **B5** — Every temp directory `normalize()`/`splitAt()` creates via `mkdtemp()` is removed
+  once a run finishes, whether it succeeds or fails partway (previously never cleaned up,
+  leaking into the OS temp dir on every single transcription, CLI and GUI alike --
+  `packages/core/tests/pipeline.test.ts`'s "B5" suite plus `packages/core/tests/audio.test.ts`
+  against the real filesystem). A failing cleanup never changes the run's own reported
+  success/failure.
 
 ## C. Output format correctness (unit)
 - **C1** — `--format srt` output parses as valid SRT (sequential integer indices; `HH:MM:SS,mmm --> HH:MM:SS,mmm` timing lines).

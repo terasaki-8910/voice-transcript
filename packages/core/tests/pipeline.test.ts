@@ -146,3 +146,99 @@ describe("D2 - a chunk's text is never silently dropped", () => {
     }
   });
 });
+
+describe("B5 - temp artifacts are removed whether the run succeeds or fails", () => {
+  function makeAudioWithCleanup(opts: { durationSec: number; bytes: number; silences: number[] }) {
+    const cleanup = vi.fn(async () => {});
+    const backend = makeAudio(opts) as AudioBackend & { splitCalls: number[][] };
+    return { ...backend, cleanup };
+  }
+
+  it("calls cleanup exactly once after a successful run, once every chunk has been read", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [600, 1200] });
+    const transcriber = makeTranscriber();
+
+    await runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" });
+
+    expect(audio.cleanup).toHaveBeenCalledTimes(1);
+    const readOrder = (audio.readBytes as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const cleanupOrder = (audio.cleanup as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(cleanupOrder).toBeGreaterThan(readOrder);
+  });
+
+  it("still calls cleanup, and the real error still propagates, when a chunk transcription rejects", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const transcriber = makeTranscriber(async () => {
+      throw new Error("chunk failed");
+    });
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("chunk failed");
+    expect(audio.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("still calls cleanup when detectSilences rejects", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    audio.detectSilences = vi.fn(async () => {
+      throw new Error("detect failed");
+    });
+    const transcriber = makeTranscriber();
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("detect failed");
+    expect(audio.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("still calls cleanup when splitAt rejects", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    audio.splitAt = vi.fn(async () => {
+      throw new Error("split failed");
+    });
+    const transcriber = makeTranscriber();
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("split failed");
+    expect(audio.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call cleanup if assertAvailable itself rejects (no temp dirs exist yet)", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    audio.assertAvailable = vi.fn(async () => {
+      throw new Error("ffmpeg not found");
+    });
+    const transcriber = makeTranscriber();
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("ffmpeg not found");
+    expect(audio.cleanup).not.toHaveBeenCalled();
+  });
+
+  it("a rejecting cleanup() never changes a successful run's own result", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    audio.cleanup = vi.fn(async () => {
+      throw new Error("rm failed");
+    });
+    const transcriber = makeTranscriber();
+
+    const result = await runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" });
+    expect(result.text).toContain("seg0");
+  });
+
+  it("a rejecting cleanup() never replaces a failed run's own error", async () => {
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    audio.cleanup = vi.fn(async () => {
+      throw new Error("rm failed");
+    });
+    const transcriber = makeTranscriber(async () => {
+      throw new Error("the real error");
+    });
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("the real error");
+  });
+});

@@ -16,7 +16,10 @@ history of past runs.
 - **Long-audio strategy (hybrid):** normalize with ffmpeg to 16 kHz mono; if the
   encoded file is still larger than the free-tier limit (threshold ~24 MB, under
   the 25 MB cap), split into chunks at **silence boundaries**, transcribe each,
-  then stitch results with per-chunk time offsets applied to timestamps.
+  then stitch results with per-chunk time offsets applied to timestamps. The
+  normalized file and any chunks are written to per-run temp directories that
+  are removed once the run finishes, success or failure alike (added
+  2026-09-30, user-reported: previously never cleaned up).
 - **Auth:** `GROQ_API_KEY` read from the environment only.
 
 ## Architecture (monorepo)

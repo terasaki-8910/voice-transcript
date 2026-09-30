@@ -33,6 +33,17 @@ async function transcribeChunk(
 // transcribe each chunk (offset = cumulative duration) -> stitchChunks.
 // Promise.all rejects on the first chunk failure, so a transient failure
 // never silently drops that chunk's text (D2): the whole run fails loudly.
+//
+// Everything after assertAvailable() runs inside try/finally so
+// deps.audio.cleanup() -- removing normalize()'s/splitAt()'s temp dirs --
+// fires whether the run succeeds or fails partway (a failed run used to
+// leak its temp dir just as much as a successful one). The inner
+// try/catch around the cleanup call itself is required, not redundant
+// with cleanup()'s own internal Promise.allSettled: a `finally` block
+// that throws REPLACES whatever the `try` was about to return or throw,
+// which would mask a real transcription failure behind an unrelated
+// cleanup error -- or worse, turn a genuine success into a reported
+// failure.
 export async function runPipeline(
   inputFile: string,
   deps: PipelineDeps,
@@ -41,22 +52,30 @@ export async function runPipeline(
 
   await deps.audio.assertAvailable();
 
-  deps.onProgress?.("normalizing audio");
-  const normalized = await deps.audio.normalize(inputFile);
+  try {
+    deps.onProgress?.("normalizing audio");
+    const normalized = await deps.audio.normalize(inputFile);
 
-  deps.onProgress?.("detecting silence boundaries");
-  const silences = await deps.audio.detectSilences(normalized.path);
+    deps.onProgress?.("detecting silence boundaries");
+    const silences = await deps.audio.detectSilences(normalized.path);
 
-  const boundaries = planChunks({
-    durationSec: normalized.duration,
-    encodedBytes: normalized.bytes,
-    maxBytes,
-    silences,
-  });
+    const boundaries = planChunks({
+      durationSec: normalized.duration,
+      encodedBytes: normalized.bytes,
+      maxBytes,
+      silences,
+    });
 
-  const chunks = await deps.audio.splitAt(normalized.path, boundaries);
+    const chunks = await deps.audio.splitAt(normalized.path, boundaries);
 
-  const transcribed = await Promise.all(chunks.map((chunk) => transcribeChunk(chunk, deps)));
+    const transcribed = await Promise.all(chunks.map((chunk) => transcribeChunk(chunk, deps)));
 
-  return stitchChunks(transcribed);
+    return stitchChunks(transcribed);
+  } finally {
+    try {
+      await deps.audio.cleanup?.();
+    } catch {
+      // Best-effort: never replace the run's own outcome with a cleanup error.
+    }
+  }
 }
