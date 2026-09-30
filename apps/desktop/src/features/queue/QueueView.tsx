@@ -17,6 +17,7 @@ import { HistoryView } from "../history/HistoryView";
 import { useNav } from "../nav/NavContext";
 import { useRecording } from "../recording/RecordingContext";
 import { formatElapsed } from "../recording/formatElapsed";
+import { RecordingWaveform } from "../recording/RecordingWaveform";
 import "./queue.css";
 
 // Recording (SPEC.md > Microphone recording): visible regardless of which
@@ -35,6 +36,7 @@ function RecordingBar() {
       <span className="recording-dot" aria-hidden="true" />
       <span>{t("recording")}</span>
       <span className="recording-elapsed">{formatElapsed(recording.elapsedSeconds)}</span>
+      <RecordingWaveform />
       <button
         type="button"
         className="btn-link"

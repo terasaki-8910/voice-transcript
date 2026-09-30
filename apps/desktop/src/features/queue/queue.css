@@ -57,6 +57,26 @@
   color: var(--color-ink);
 }
 
+/* Live level meter (SPEC.md > Audio recording). Logical size must match
+   levelMeter.ts's METER_WIDTH/METER_HEIGHT -- the canvas's own backing
+   store is set to a device-pixel-ratio multiple of this same size
+   (RecordingWaveform.tsx), so this is the DISPLAYED size, not the
+   resolution. `color` (not `background`) since RecordingWaveform.tsx
+   reads getComputedStyle(canvas).color at draw time, both to respect the
+   tokens-only-colors lint (canvas fillStyle can't take a var() directly)
+   and so the meter follows a live theme toggle. Full-strength danger, not
+   a color-mix() tint like .transcript-note-failed's -- WebKit doesn't
+   reliably resolve a computed color-mix() value through fillStyle.
+*/
+.recording-waveform {
+  display: block;
+  width: 180px;
+  height: 18px;
+  min-width: 0;
+  flex-shrink: 1;
+  color: var(--color-danger);
+}
+
 .recording-bar .btn-link {
   margin-left: auto;
   color: var(--color-danger);

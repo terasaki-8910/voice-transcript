@@ -24,10 +24,16 @@
 // cpal::Stream never leaves (cpal::Stream is not Send on every backend, so
 // it cannot be stored in Tauri-managed state directly) -- samples are
 // written into an open hound::WavWriter as they arrive, never buffered
-// whole in memory, so duration is bounded only by disk space. No bytes
-// cross the webview/IPC boundary during recording, and no new
+// whole in memory, so duration is bounded only by disk space. No new
 // capabilities.json grant is needed: these are app-defined commands like
 // ping/transcribe, not a plugin ACL surface.
+//
+// No raw audio bytes cross the webview/IPC boundary during recording
+// (2026-09-30: still true after adding the live level meter below) --
+// only one small derived f32 per 50ms mixer tick, via the same
+// app.emit()/listen() event pattern menu.rs already uses for native menu
+// events. That single number is loudness, not sound: it can't reconstruct
+// anything resembling the actual audio.
 //
 // Every source runs through the same mixer, including the single-source
 // cases -- one path, no "is this the two-source build?" branching. The
@@ -47,12 +53,56 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// How often the mixer wakes to convert whatever the callbacks have handed
 /// it into output frames. Small enough that a stop lands promptly, large
 /// enough not to spin.
 const MIX_TICK: Duration = Duration::from_millis(50);
+
+/// Live level meter (SPEC.md > Audio recording, added 2026-09-30,
+/// user-requested): one event per mixer tick while a recording is active,
+/// carrying that tick's loudest sample as a bare f32. Mirrored in
+/// lib/tauri.ts as RECORDING_LEVEL_EVENT -- keep the two in sync.
+pub const EVENT_RECORDING_LEVEL: &str = "recording-level";
+
+/// This tick's loudest absolute sample in the already-mixed output buffer
+/// -- deliberately computed from `mix` itself (the same buffer about to be
+/// written to the WAV file) rather than touching Resampler::peak, which is
+/// a DIFFERENT, cumulative-for-the-whole-recording value read once at the
+/// end to build `silent_sources` below. Clamped to 1.0: summing two
+/// full-scale sources in "both" mode can exceed it (see the WAV-write
+/// loop's own clamp). f32::max ignores NaN, so one can never reach the
+/// webview.
+fn tick_level(mix: &[f32]) -> f32 {
+    mix.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs())).min(1.0)
+}
+
+#[cfg(test)]
+mod tick_level_tests {
+    use super::tick_level;
+
+    #[test]
+    fn the_loudest_sample_wins() {
+        assert_eq!(tick_level(&[0.1, -0.5, 0.3]), 0.5);
+    }
+
+    #[test]
+    fn a_summed_overshoot_clamps_to_1() {
+        assert_eq!(tick_level(&[1.5, -1.2]), 1.0);
+    }
+
+    #[test]
+    fn silence_or_empty_reads_as_zero() {
+        assert_eq!(tick_level(&[0.0, 0.0, 0.0]), 0.0);
+        assert_eq!(tick_level(&[]), 0.0);
+    }
+
+    #[test]
+    fn nan_is_ignored_rather_than_propagated() {
+        assert_eq!(tick_level(&[f32::NAN, 0.2, f32::NAN]), 0.2);
+    }
+}
 
 /// Longest run of captured-but-not-yet-mixed audio a source may hold before
 /// the oldest is dropped. A device whose clock runs fast relative to the
@@ -403,6 +453,12 @@ pub fn start_recording(
 
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    // AppHandle::emit is the cross-thread-safe handle (unlike Window/
+    // WebviewWindow, which may have main-thread affinity) -- cloned here so
+    // the mixer thread below can push level events without borrowing the
+    // outer `app` this function itself still needs (recordings_dir/
+    // manager.state above already used it before this point).
+    let level_app = app.clone();
 
     let join_handle = std::thread::spawn(move || -> Result<RecordingOutcome, String> {
         let host = cpal::default_host();
@@ -503,6 +559,19 @@ pub fn start_recording(
             for src in &mut sources {
                 src.mix_into(&mut mix);
             }
+
+            // Skipped on the final (post-stop) pump: stop_recording is a
+            // sync command that blocks the main thread in join() below,
+            // and this emit is only safe (non-blocking) as long as nothing
+            // makes eval_script wait for a reply -- true today (the
+            // `tracing` cargo feature, which would change that, is off),
+            // but skip the very last emit anyway to narrow the window a
+            // future feature flip could open, rather than rely solely on
+            // that dependency staying true forever.
+            if !stopped {
+                let _ = level_app.emit(EVENT_RECORDING_LEVEL, tick_level(&mix));
+            }
+
             for sample in &mix {
                 // Summing two full-scale sources can exceed full scale.
                 // Clamping (rather than halving both up front) keeps a quiet

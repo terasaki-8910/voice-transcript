@@ -161,4 +161,23 @@ entry points, same light-dismiss), but what renders inside it is now sectioned, 
 - No waveform/level meter -- considered and deliberately deferred (would need Rust to
   compute and throttle-emit RMS per audio callback); an elapsed-time counter + pulsing dot
   is enough for "a standard recording feature," not a stated requirement to visualize
-  input level.
+  input level. (superseded 2026-09-30 -- see "Live level meter" below)
+
+### Live level meter (2026-09-30, user-requested)
+Reverses the "Settings surface + recording" entry's deferral above: the user asked
+specifically to see live confirmation that recording is capturing audio, which an
+elapsed-time counter and a static pulsing dot don't provide -- neither changes if the
+microphone is silent.
+- **`.recording-waveform`**: a small canvas (180×18, matching the compact height of the
+  existing `.recording-elapsed`/Stop controls it sits between in `.recording-bar`) drawing
+  a scrolling bar meter -- oldest reading on the left, newest on the right, ~3s of history.
+  Full-strength `--color-danger` (matches `.recording-dot`'s tone), not a tinted
+  `color-mix()` like `.transcript-note-failed`'s: WebKit doesn't reliably resolve a computed
+  `color-mix()` value through a canvas `fillStyle`.
+- **The Rust throttling the original deferral asked for already exists**: the mixer already
+  wakes every 50ms (`MIX_TICK`) to convert captured audio into output frames -- reusing that
+  same tick to also emit one derived loudness float is a small addition to an existing loop,
+  not the "compute and throttle-emit RMS per audio callback" (i.e. per raw device callback,
+  far more often than 50ms) the original deferral was written against.
+- **Still no raw audio crossing the webview boundary** -- one small number per tick, never
+  samples. See SPEC.md > Audio recording and `recording.rs`'s own module doc comment.

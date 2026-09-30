@@ -336,7 +336,13 @@ export function deleteNote(id: number): Promise<void> {
 // Audio recording (SPEC.md > Audio recording). All capture happens in Rust
 // (recording.rs, cpal -> hound WAV) -- the webview only ever sends the
 // chosen source and device ids and receives a finished file's path/duration;
-// no audio bytes cross this boundary.
+// no raw audio bytes cross this boundary. While a recording is active, the
+// webview also LISTENS for RECORDING_LEVEL_EVENT (RecordingWaveform.tsx) --
+// one derived loudness float per 50ms mixer tick (recording.rs's
+// EVENT_RECORDING_LEVEL; keep the two names in sync), still not audio
+// itself.
+export const RECORDING_LEVEL_EVENT = "recording-level";
+
 export interface InputDevice {
   id: string;
   name: string;

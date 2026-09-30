@@ -46,13 +46,17 @@
 // new capability grant needed (dialog:allow-open already covers this).
 //
 // Microphone recording adds recording.rs (cpal capture -> hound WAV,
-// entirely in Rust -- no bytes cross the webview/IPC boundary during
-// capture) with start_recording/stop_recording/list_input_devices. Chosen
-// over webview getUserMedia because WebKitGTK (Linux) has no released Tauri
-// version that enables media-stream capture (see design/notes on this
-// decision) -- cpal is the one implementation that is uniformly correct on
-// macOS/Windows/Linux. No new capability grant: these are app-defined
-// commands, not a plugin ACL surface.
+// entirely in Rust -- no raw audio bytes cross the webview/IPC boundary
+// during capture) with start_recording/stop_recording/list_input_devices.
+// Chosen over webview getUserMedia because WebKitGTK (Linux) has no
+// released Tauri version that enables media-stream capture (see
+// design/notes on this decision) -- cpal is the one implementation that is
+// uniformly correct on macOS/Windows/Linux. No new capability grant: these
+// are app-defined commands, not a plugin ACL surface. A live level meter
+// (2026-09-30) pushes one derived loudness float per 50ms mixer tick via
+// the EVENT_RECORDING_LEVEL app.emit() -- still no raw audio, no new
+// command or capability grant either (event listen/unlisten is already
+// covered by core:default).
 // Transcript notes (annotations) adds list_notes/add_note/update_note/
 // delete_note -- same sidecar-proxy pattern as the dictionary commands
 // above, no new capability grant needed. transcribe's response also grows

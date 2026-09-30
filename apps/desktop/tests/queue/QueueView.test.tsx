@@ -23,7 +23,7 @@ import { HistoryNavProvider } from "../../src/features/history/HistoryNavContext
 import { NavProvider } from "../../src/features/nav/NavContext";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
 import { AppLayout } from "../../src/features/layout/AppLayout";
-import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
+import type { RecordingResult, StartRecordingOptions, TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
 const onDragDropEvent = vi.fn(() => Promise.resolve(() => {}));
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -35,8 +35,24 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...args: unknown[]) => open(...args),
 }));
 
-function renderView(transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> = () =>
-  Promise.resolve({ text: "", rendered: "" }),
+// RecordingWaveform.tsx's own listen(RECORDING_LEVEL_EVENT, ...) subscription
+// -- same handler-registry mock convention as useMenuEvents.test.tsx.
+type LevelHandler = (event: { payload: number }) => void;
+const levelHandlers = new Map<string, LevelHandler>();
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn((event: string, handler: LevelHandler) => {
+    levelHandlers.set(event, handler);
+    return Promise.resolve(() => levelHandlers.delete(event));
+  }),
+}));
+
+function renderView(
+  transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> = () =>
+    Promise.resolve({ text: "", rendered: "" }),
+  recordingFns: {
+    startRecordingFn?: (options: StartRecordingOptions) => Promise<void>;
+    stopRecordingFn?: () => Promise<RecordingResult>;
+  } = {},
 ) {
   return render(
     <I18nProvider>
@@ -47,7 +63,7 @@ function renderView(transcribeFn: (request: TranscribeRequest) => Promise<Transc
               <HistoryNavProvider>
                 <SelectionProvider>
                   <QueueProvider transcribeFn={transcribeFn}>
-                    <RecordingProvider>
+                    <RecordingProvider {...recordingFns}>
                       <HistoryProvider listHistoryFn={async () => []}>
                         <AppLayout preferencesOpen={false} onOpenPreferences={() => {}} onOpenSearch={() => {}} />
                       </HistoryProvider>
@@ -108,5 +124,39 @@ describe("QueueView", () => {
 
     await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
     expect(screen.getByText("No files yet")).toBeDefined();
+  });
+
+  // 2026-09-30, user-requested: the live level meter subscribes only while
+  // a recording is actually in progress. Clicks the SAME sidebar toggle
+  // button element both times (its accessible name flips between "Start
+  // recording"/"Stop recording") rather than re-querying by name the
+  // second time -- once recording starts, the recording bar's own Stop
+  // link shares that exact same accessible name, so a fresh
+  // getByRole("button", { name: "Stop recording" }) would ambiguously
+  // match two elements.
+  it("the recording bar's level meter subscribes while recording and unsubscribes on stop", async () => {
+    levelHandlers.clear();
+    renderView(undefined, {
+      startRecordingFn: vi.fn(async () => {}),
+      stopRecordingFn: vi.fn(async () => ({ path: "/recordings/r.wav", durationSeconds: 1, silentSources: [] })),
+    });
+
+    // jsdom has no real canvas; RecordingWaveform's own draw effect
+    // otherwise logs "Not implemented: HTMLCanvasElement's getContext()"
+    // noise -- this test only cares about the subscription lifecycle.
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(null);
+
+    const recordToggle = screen.getByRole("button", { name: "Start recording" });
+    expect(levelHandlers.has("recording-level")).toBe(false);
+
+    fireEvent.click(recordToggle);
+    await waitFor(() => expect(levelHandlers.has("recording-level")).toBe(true));
+
+    fireEvent.click(recordToggle);
+    await waitFor(() => expect(levelHandlers.has("recording-level")).toBe(false));
+
+    getContextSpy.mockRestore();
   });
 });

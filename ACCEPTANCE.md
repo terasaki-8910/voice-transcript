@@ -194,6 +194,16 @@ integration acceptance.
 - **J10** — macOS: `NSAudioCaptureUsageDescription` is present in the built
   bundle — system capture is its own TCC category, so the microphone keys
   in J5 do not cover it. Same real-`tauri build` check as J5.
+- **J11** — While a recording is active, the recording bar shows a live level
+  meter driven by real audio loudness, not a static indicator — the loudest
+  sample in a mixer tick maps to a visible bar height (a summed overshoot
+  across two sources clamps rather than errors; silence draws a minimum
+  sliver, not nothing) and the meter's `listen()` subscription is active
+  only while recording, torn down on stop (`recording.rs`'s `tick_level`
+  unit tests, `apps/desktop/tests/recording/levelMeter.test.ts`,
+  `RecordingWaveform.test.tsx`, and `QueueView.test.tsx`'s subscribe/
+  unsubscribe case). No raw audio sample ever leaves the Rust process —
+  only one derived float per 50ms tick.
 - **J12** — Once a recording's transcription succeeds, its audio is moved to
   the OS trash (recoverable) if the auto-trash setting is on — an uploaded
   file's audio never is, regardless of the setting; a failed transcription's
