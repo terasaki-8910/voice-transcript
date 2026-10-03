@@ -1,6 +1,8 @@
 state/
 *.log
 .DS_Store
+# Happy (remote/mobile Claude Code client) session-local artifacts
+.claude/happy-*/
 node_modules/
 __pycache__/
 dist/
