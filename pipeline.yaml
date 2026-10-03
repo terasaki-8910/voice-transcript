@@ -1,7 +1,7 @@
 # Declarative source of truth. Humans and Claude read this;
 # scripts/run.sh executes the same stages. Keep the two in sync.
 project: ""            # filled per project (also set in CLAUDE.md)
-has_ui: false          # true -> enables the design gate (touch state/has_ui to activate at runtime)
+has_ui: true           # desktop GUI (Tauri) added 2026-07-12; state/has_ui touched to activate the design gate
 models:
   intake: opus         # spec Q&A
   criteria: opus       # write failing tests + lint config
