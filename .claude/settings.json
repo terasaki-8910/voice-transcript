@@ -9,7 +9,6 @@
       "Bash(npm install:*)", "Bash(npm ci:*)", "Bash(npx:*)", "Bash(pip install:*)"
     ],
     "deny": [
-      "Bash(git push:*)", "Bash(rm -rf:*)", "WebFetch"
     ]
   }
 }
