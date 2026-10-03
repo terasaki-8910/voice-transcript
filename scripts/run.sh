@@ -278,6 +278,7 @@ stage_integration_accept() {
   echo "== 7. DONE =="
   mark_done integrate
   stage_done
+  if [ "${RECOMMEND:-1}" = "1" ]; then stage_recommend; fi   # auto propose-automation at DONE
 }
 
 stage_done() {  # print what the human still has to do: configure secrets/env, how to run,
@@ -298,6 +299,44 @@ stage_done() {  # print what the human still has to do: configure secrets/env, h
   echo "  - tests SKIPPED in integration (e.g. live E2E) run only once the above is set."
   echo "  - run them for real, then re-run: sh scripts/run.sh from integrate"
   echo "===================================================="
+}
+
+stage_recommend() {  # PROPOSE project automation (Hooks/MCP/subagents/skills) from the built code.
+  [ -f "$ROOT/SPEC.md" ] || { echo "recommend: no project yet (run the pipeline first)."; return 0; }
+  echo ""; echo "== recommend: analyze the codebase, PROPOSE automation (nothing implemented) =="
+  ( cd "$ROOT" && claude_run "$MODEL_INTAKE" "$PROMPTS/recommend.md" )
+  if [ -f "$STATE/RECOMMENDATIONS.md" ]; then
+    echo ">> proposals in state/RECOMMENDATIONS.md -- you decide what to adopt (nothing was implemented)."
+  fi
+}
+
+stage_slim() {  # PROJECT ONLY: untrack the pipeline machinery so git holds just the deliverable.
+  # GUARD: refuse on the bare template (it must keep tracking everything to distribute via
+  # "Use this template"). A real project has SPEC.md and a filled-in CLAUDE.md name.
+  if [ ! -f "$ROOT/SPEC.md" ] || grep -q '^# Project: <name>' "$ROOT/CLAUDE.md" 2>/dev/null; then
+    echo "slim: this looks like the TEMPLATE, not a project (no SPEC.md / unfilled CLAUDE.md)." >&2
+    echo "      Run slim ONLY inside a project built from the template." >&2
+    return 1
+  fi
+  # untrack the machinery (files stay on disk so the pipeline still runs)
+  for p in scripts prompts pipeline.yaml Makefile docs/ui-rules.starter.md; do
+    git -C "$ROOT" rm -r --cached --quiet "$p" 2>/dev/null || true
+  done
+  if ! grep -q '^/scripts/$' "$ROOT/.gitignore" 2>/dev/null; then
+    {
+      echo ""
+      echo "# pipeline machinery -- kept on disk to run, NOT part of the deliverable repo"
+      echo "/scripts/"
+      echo "/prompts/"
+      echo "/pipeline.yaml"
+      echo "/Makefile"
+      echo "/docs/ui-rules.starter.md"
+    } >> "$ROOT/.gitignore"
+  fi
+  git -C "$ROOT" add .gitignore >/dev/null 2>&1 || true
+  echo "slim: pipeline machinery untracked + ignored. git now holds just the project."
+  echo "  finalize with:  git commit -m 'chore: keep only the deliverable in git'"
+  echo "  (run.sh / prompts / gates.sh remain on disk and still work.)"
 }
 
 stage_survey() {  # OPTIONAL prior-art survey; NOT part of `all`. Needs WebSearch enabled.
@@ -400,10 +439,12 @@ main() {
     readme)    stage_readme ;;
     status)    stage_status ;;                # show progress + next command
     sessions)  stage_sessions ;;              # list recorded session ids (resume/inspect)
+    recommend) stage_recommend ;;             # propose automation from the built codebase
+    slim)      stage_slim ;;                  # PROJECT: untrack pipeline machinery (git = deliverable only)
     reset)     stage_reset ;;                 # clear build artifacts to recover cleanly
     from)      run_from "${2:-criteria}" ;;   # resume: run this stage -> end
     all)       run_from intake ;;
-    *) echo "usage: run.sh [status|sessions|intake|readme|criteria|design|plan|build|accept|waves|integrate|survey|reset|all|from <stage>]"; exit 2 ;;
+    *) echo "usage: run.sh [status|sessions|intake|readme|criteria|design|plan|build|accept|waves|integrate|recommend|slim|survey|reset|all|from <stage>]"; exit 2 ;;
   esac
 }
 main "$@"
