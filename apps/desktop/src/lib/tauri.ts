@@ -407,12 +407,21 @@ export interface StartRecordingOptions {
   outputDeviceId?: string;
 }
 
-export function startRecording(options: StartRecordingOptions): Promise<void> {
-  return invoke("start_recording", {
+function sourceArgs(options: StartRecordingOptions) {
+  return {
     source: options.source,
     deviceId: options.deviceId ?? null,
     outputDeviceId: options.outputDeviceId ?? null,
-  });
+  };
+}
+
+export function startRecording(options: StartRecordingOptions): Promise<void> {
+  return invoke("start_recording", sourceArgs(options));
+}
+
+// Re-points a recording already in progress; the file keeps going.
+export function setRecordingSource(options: StartRecordingOptions): Promise<void> {
+  return invoke("set_recording_source", sourceArgs(options));
 }
 
 export interface RecordingResult {

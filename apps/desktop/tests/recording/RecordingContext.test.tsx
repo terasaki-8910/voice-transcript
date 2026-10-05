@@ -29,6 +29,7 @@ afterEach(() => {
 interface HarnessProps {
   startRecordingFn: (options: StartRecordingOptions) => Promise<void>;
   stopRecordingFn: () => Promise<RecordingResult>;
+  setRecordingSourceFn?: (options: StartRecordingOptions) => Promise<void>;
 }
 
 const finished = (over: Partial<RecordingResult> = {}): RecordingResult => ({
@@ -70,7 +71,11 @@ function renderHarness(props: HarnessProps) {
   return render(
     <VoiceInputSettingsProvider>
       <QueueProvider transcribeFn={() => Promise.resolve({ text: "", rendered: "" })}>
-        <RecordingProvider startRecordingFn={props.startRecordingFn} stopRecordingFn={props.stopRecordingFn}>
+        <RecordingProvider
+          startRecordingFn={props.startRecordingFn}
+          stopRecordingFn={props.stopRecordingFn}
+          setRecordingSourceFn={props.setRecordingSourceFn}
+        >
           <Harness />
         </RecordingProvider>
       </QueueProvider>
@@ -174,6 +179,60 @@ describe("RecordingContext", () => {
       vi.advanceTimersByTime(3600_000);
     });
     expect(Number(screen.getByTestId("elapsed").textContent)).toBe(3605);
+  });
+
+  it("a source change during a recording switches the live capture without stopping it", async () => {
+    const setRecordingSourceFn = vi.fn(async () => {});
+    const stopRecordingFn = vi.fn(async () => finished());
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn, setRecordingSourceFn });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+
+    fireEvent.click(screen.getByText("use-both"));
+    await waitFor(() =>
+      expect(setRecordingSourceFn).toHaveBeenCalledWith({
+        source: "both",
+        deviceId: undefined,
+        outputDeviceId: "out-9",
+      }),
+    );
+    expect(setRecordingSourceFn).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("status").textContent).toBe("recording");
+    expect(stopRecordingFn).not.toHaveBeenCalled();
+  });
+
+  it("a source change while idle waits for the next start instead of touching a live capture", async () => {
+    const startRecordingFn = vi.fn(async () => {});
+    const setRecordingSourceFn = vi.fn(async () => {});
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()), setRecordingSourceFn });
+
+    fireEvent.click(screen.getByText("use-both"));
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+
+    expect(startRecordingFn).toHaveBeenCalledWith(expect.objectContaining({ source: "both" }));
+    expect(setRecordingSourceFn).not.toHaveBeenCalled();
+  });
+
+  it("a failed mid-recording switch surfaces an error and keeps the recording going", async () => {
+    const setRecordingSourceFn = vi.fn(async () => {
+      throw new Error("system audio device unavailable");
+    });
+    renderHarness({
+      startRecordingFn: vi.fn(async () => {}),
+      stopRecordingFn: vi.fn(async () => finished()),
+      setRecordingSourceFn,
+    });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+
+    fireEvent.click(screen.getByText("use-both"));
+    await waitFor(() =>
+      expect(screen.getByTestId("error").textContent).toBe("system audio device unavailable"),
+    );
+    expect(screen.getByTestId("status").textContent).toBe("recording");
   });
 
   it("start() failure surfaces an error and stays idle", async () => {

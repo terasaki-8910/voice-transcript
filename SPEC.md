@@ -216,6 +216,14 @@ history of past runs.
   is actually being captured. Capture stays entirely native (see above) —
   the meter is driven by one derived loudness number pushed from Rust to
   the webview every mixer tick (50ms), never raw audio samples.
+- **Change the source during a recording (added 2026-10-05, user-requested):**
+  changing the audio source, microphone, or captured output device in
+  Settings > Voice input while recording switches the live capture at once,
+  and the recording continues in the same file. The new streams open before
+  the old ones close, so a device that fails to open leaves the current
+  capture running and shows the error. Sample rate and output format are fixed
+  at the start, so the file stays one continuous track. A source that was live
+  for only part of the recording still counts toward the silent-source check.
 
 ## Settings
 - A sectioned Settings dialog (renamed in substance from the original

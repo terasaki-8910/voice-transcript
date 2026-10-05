@@ -47,7 +47,8 @@
 //
 // Microphone recording adds recording.rs (cpal capture -> hound WAV,
 // entirely in Rust -- no raw audio bytes cross the webview/IPC boundary
-// during capture) with start_recording/stop_recording/list_input_devices.
+// during capture) with start_recording/stop_recording/set_recording_source/
+// list_input_devices.
 // Chosen over webview getUserMedia because WebKitGTK (Linux) has no
 // released Tauri version that enables media-stream capture (see
 // design/notes on this decision) -- cpal is the one implementation that is
@@ -111,6 +112,7 @@ pub fn run() {
             recording::list_output_devices,
             recording::start_recording,
             recording::stop_recording,
+            recording::set_recording_source,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

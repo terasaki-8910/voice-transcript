@@ -46,6 +46,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Host, Sample, SizedSample};
 use hound::{SampleFormat as HoundSampleFormat, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -224,6 +225,89 @@ fn resolve_output_device(host: &Host, device_id: Option<&str>) -> Result<Device,
     host.default_output_device().ok_or_else(|| "No system audio (output) device available.".to_string())
 }
 
+struct ResolvedDevice {
+    device: Device,
+    config: cpal::SupportedStreamConfig,
+    label: &'static str,
+}
+
+/// The microphone (when captured) is always first, so callers can take the
+/// first entry's rate as the mixer's rate.
+fn resolve_sources(
+    host: &Host,
+    source: AudioSource,
+    device_id: Option<&str>,
+    output_device_id: Option<&str>,
+) -> Result<Vec<ResolvedDevice>, String> {
+    let mut resolved = Vec::new();
+    if source.captures_microphone() {
+        let device = resolve_device(host, device_id)?;
+        let config = device
+            .default_input_config()
+            .map_err(|e| format!("failed to read default input config: {e}"))?;
+        resolved.push(ResolvedDevice { device, config, label: "microphone" });
+    }
+    if source.captures_system() {
+        let device = resolve_output_device(host, output_device_id)?;
+        // An output device has no input config to read; what it can be
+        // captured at is what it plays at.
+        let config = device
+            .default_output_config()
+            .map_err(|e| format!("failed to read default output config: {e}"))?;
+        resolved.push(ResolvedDevice { device, config, label: "system audio" });
+    }
+    Ok(resolved)
+}
+
+fn start_sources(sources: &[Source]) -> Result<(), String> {
+    for src in sources {
+        src._stream
+            .play()
+            .map_err(|e| format!("failed to start the {} stream: {e}", src.label))?;
+    }
+    Ok(())
+}
+
+/// Replaces the live sources with the requested ones. The new streams open and
+/// start before the old ones are released, so a device that fails leaves the
+/// current capture untouched and reports its error.
+fn swap_sources(
+    host: &Host,
+    change: &SourceChange,
+    target_rate: u32,
+    sources: &mut Vec<Source>,
+    peaks: &mut PeakLog,
+) -> Result<(), String> {
+    let resolved = resolve_sources(
+        host,
+        change.source,
+        change.device_id.as_deref(),
+        change.output_device_id.as_deref(),
+    )?;
+    let mut next = resolved
+        .into_iter()
+        .map(|r| open_source(&r.device, r.config, r.label, target_rate))
+        .collect::<Result<Vec<_>, _>>()?;
+    start_sources(&next)?;
+    for old in sources.drain(..) {
+        peaks.record(old.label, old.resampler.peak);
+    }
+    sources.append(&mut next);
+    Ok(())
+}
+
+fn ensure_source_supported(source: AudioSource) -> Result<(), String> {
+    if source.captures_system() && !system_capture_supported() {
+        return Err(
+            "System audio capture is not available on Linux. Record the microphone instead, or \
+             route playback through a PulseAudio/PipeWire monitor source and select it as the \
+             microphone."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Samples handed from an audio callback to the mixer. Already downmixed to
 /// mono so the callback -- the one place that knows the device's channel
 /// count -- is the only code that has to care about it.
@@ -356,8 +440,43 @@ impl Source {
     }
 }
 
+/// Messages to a running recording's mixer thread. Streams are created and
+/// dropped on that thread (cpal::Stream is not Send), so a source change is
+/// executed there rather than by the Tauri command that requested it.
+enum Control {
+    Stop,
+    SetSource(SourceChange),
+}
+
+struct SourceChange {
+    source: AudioSource,
+    device_id: Option<String>,
+    output_device_id: Option<String>,
+    reply: mpsc::Sender<Result<(), String>>,
+}
+
+/// Highest peak each requested source reached across every stream it had,
+/// so a source switched out mid-recording still counts for the time it was live.
+#[derive(Default)]
+struct PeakLog(BTreeMap<&'static str, f32>);
+
+impl PeakLog {
+    fn record(&mut self, label: &'static str, peak: f32) {
+        let highest = self.0.entry(label).or_insert(0.0);
+        *highest = highest.max(peak);
+    }
+
+    fn silent(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .filter(|(_, &peak)| peak < SILENCE_PEAK)
+            .map(|(label, _)| label.to_string())
+            .collect()
+    }
+}
+
 struct RecordingHandle {
-    stop_tx: mpsc::Sender<()>,
+    control_tx: mpsc::Sender<Control>,
     join_handle: JoinHandle<Result<RecordingOutcome, String>>,
 }
 
@@ -429,14 +548,7 @@ pub fn start_recording(
     output_device_id: Option<String>,
 ) -> Result<(), String> {
     let source = source.unwrap_or_default();
-    if source.captures_system() && !system_capture_supported() {
-        return Err(
-            "System audio capture is not available on Linux. Record the microphone instead, or \
-             route playback through a PulseAudio/PipeWire monitor source and select it as the \
-             microphone."
-                .to_string(),
-        );
-    }
+    ensure_source_supported(source)?;
 
     let manager = app.state::<RecordingManager>();
     {
@@ -452,7 +564,7 @@ pub fn start_recording(
     let path_string = path.to_string_lossy().into_owned();
 
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (control_tx, control_rx) = mpsc::channel::<Control>();
     // AppHandle::emit is the cross-thread-safe handle (unlike Window/
     // WebviewWindow, which may have main-thread affinity) -- cloned here so
     // the mixer thread below can push level events without borrowing the
@@ -466,42 +578,19 @@ pub fn start_recording(
         let setup = (|| -> Result<Setup, String> {
             // Resolve every device and format BEFORE opening anything, so
             // the mixer's rate is known when the sources are built.
-            let mic = if source.captures_microphone() {
-                let device = resolve_device(&host, device_id.as_deref())?;
-                let config = device
-                    .default_input_config()
-                    .map_err(|e| format!("failed to read default input config: {e}"))?;
-                Some((device, config))
-            } else {
-                None
-            };
-            let system = if source.captures_system() {
-                let device = resolve_output_device(&host, output_device_id.as_deref())?;
-                // An output device has no input config to read; what it can
-                // be captured at is what it plays at.
-                let config = device
-                    .default_output_config()
-                    .map_err(|e| format!("failed to read default output config: {e}"))?;
-                Some((device, config))
-            } else {
-                None
-            };
+            let resolved = resolve_sources(&host, source, device_id.as_deref(), output_device_id.as_deref())?;
 
             // Mix at the microphone's own rate when it is in play, so the
             // signal that matters most is the one that is not resampled.
-            let target_rate = mic
-                .as_ref()
-                .map(|(_, c)| c.sample_rate())
-                .or_else(|| system.as_ref().map(|(_, c)| c.sample_rate()))
+            let target_rate = resolved
+                .first()
+                .map(|r| r.config.sample_rate())
                 .ok_or_else(|| "No audio source selected.".to_string())?;
 
-            let mut sources = Vec::new();
-            if let Some((device, config)) = mic {
-                sources.push(open_source(&device, config, "microphone", target_rate)?);
-            }
-            if let Some((device, config)) = system {
-                sources.push(open_source(&device, config, "system audio", target_rate)?);
-            }
+            let sources = resolved
+                .into_iter()
+                .map(|r| open_source(&r.device, r.config, r.label, target_rate))
+                .collect::<Result<Vec<_>, _>>()?;
 
             let spec = WavSpec {
                 channels: 1,
@@ -540,11 +629,16 @@ pub fn start_recording(
         let mut frames_written: u64 = 0;
         let mut mix: Vec<f32> = Vec::new();
         let mut stopped = false;
+        let mut peaks = PeakLog::default();
         while !stopped {
-            match stop_rx.recv_timeout(MIX_TICK) {
+            match control_rx.recv_timeout(MIX_TICK) {
                 // Stop signalled, or the sender was dropped (app shutting
                 // down) -- either way do one last pump, then finalize.
-                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => stopped = true,
+                Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => stopped = true,
+                Ok(Control::SetSource(change)) => {
+                    let result = swap_sources(&host, &change, target_rate, &mut sources, &mut peaks);
+                    let _ = change.reply.send(result);
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
 
@@ -586,20 +680,17 @@ pub fn start_recording(
             frames_written += wanted as u64;
         }
 
-        let silent_sources: Vec<String> = sources
-            .iter()
-            .filter(|s| s.resampler.peak < SILENCE_PEAK)
-            .map(|s| s.label.to_string())
-            .collect();
         // Drop the streams before finalizing so no callback can be running
         // against a buffer we are done with.
-        drop(sources);
+        for src in sources.drain(..) {
+            peaks.record(src.label, src.resampler.peak);
+        }
         writer.finalize().map_err(|e| format!("failed to finalize WAV file: {e}"))?;
 
         Ok(RecordingOutcome {
             path: path_string,
             duration_seconds: frames_written as f64 / target_rate as f64,
-            silent_sources,
+            silent_sources: peaks.silent(),
         })
     });
 
@@ -608,7 +699,7 @@ pub fn start_recording(
     match ready_rx.recv_timeout(Duration::from_secs(10)) {
         Ok(Ok(())) => {
             let mut guard = manager.0.lock().map_err(|_| "recording state lock poisoned".to_string())?;
-            *guard = Some(RecordingHandle { stop_tx, join_handle });
+            *guard = Some(RecordingHandle { control_tx, join_handle });
             Ok(())
         }
         Ok(Err(setup_err)) => Err(setup_err),
@@ -627,11 +718,45 @@ pub fn stop_recording(app: tauri::AppHandle) -> Result<RecordingOutcome, String>
         guard.take().ok_or_else(|| "No recording in progress.".to_string())?
     };
 
-    let _ = handle.stop_tx.send(());
+    let _ = handle.control_tx.send(Control::Stop);
     handle
         .join_handle
         .join()
         .map_err(|_| "recording thread panicked".to_string())?
+}
+
+/// Switches the source and devices of the recording in progress without
+/// ending it. The file keeps its sample rate, so the output stays one
+/// continuous track across the switch.
+#[tauri::command]
+pub fn set_recording_source(
+    app: tauri::AppHandle,
+    source: Option<AudioSource>,
+    device_id: Option<String>,
+    output_device_id: Option<String>,
+) -> Result<(), String> {
+    let source = source.unwrap_or_default();
+    ensure_source_supported(source)?;
+
+    let manager = app.state::<RecordingManager>();
+    let control_tx = {
+        let guard = manager.0.lock().map_err(|_| "recording state lock poisoned".to_string())?;
+        guard
+            .as_ref()
+            .ok_or_else(|| "No recording in progress.".to_string())?
+            .control_tx
+            .clone()
+    };
+
+    let (reply_tx, reply_rx) = mpsc::channel::<Result<(), String>>();
+    control_tx
+        .send(Control::SetSource(SourceChange { source, device_id, output_device_id, reply: reply_tx }))
+        .map_err(|_| "The recording has already stopped.".to_string())?;
+    match reply_rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => Err("Timed out switching the audio source.".to_string()),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err("The recording has already stopped.".to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -779,6 +904,26 @@ mod tests {
         let host = cpal::default_host();
         let expected_available = host.default_output_device().is_some();
         assert_eq!(resolve_output_device(&host, None).is_ok(), expected_available);
+    }
+
+    #[test]
+    fn a_source_switched_out_still_counts_toward_silence() {
+        // Mic was live, system capture only ever delivered zeroes (a silently
+        // denied permission) -- the switch away must not hide that.
+        let mut peaks = PeakLog::default();
+        peaks.record("microphone", 0.4);
+        peaks.record("system audio", 0.0);
+        peaks.record("microphone", 0.0);
+        assert_eq!(peaks.silent(), vec!["system audio".to_string()]);
+    }
+
+    #[test]
+    fn a_source_audible_before_a_switch_is_not_reported_silent() {
+        // Silence after a switch-out must not erase the audio captured earlier.
+        let mut peaks = PeakLog::default();
+        peaks.record("system audio", 0.3);
+        peaks.record("system audio", 0.0);
+        assert!(peaks.silent().is_empty());
     }
 
     #[test]

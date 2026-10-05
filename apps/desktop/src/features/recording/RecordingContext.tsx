@@ -6,7 +6,8 @@
 // SelectionContext elsewhere in this codebase).
 //
 // All actual capture happens in Rust (recording.rs, cpal -> hound WAV); this
-// context only calls start_recording/stop_recording and, on a successful
+// context only calls start_recording/stop_recording, pushes source changes
+// made in Settings during a recording to set_recording_source, and, on a successful
 // stop, hands the finished file's path to the existing queue (addFiles,
 // tagged "recording" so App.tsx's AppShell can auto-trash it once its
 // transcription succeeds -- see VoiceInputSettingsContext's
@@ -19,7 +20,7 @@
 // context needs to hold.
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { startRecording, stopRecording } from "../../lib/tauri";
+import { setRecordingSource, startRecording, stopRecording } from "../../lib/tauri";
 import type { RecordingResult, StartRecordingOptions } from "../../lib/tauri";
 import { useQueue } from "../queue/QueueContext";
 import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
@@ -40,17 +41,23 @@ interface RecordingContextValue {
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
 
+function sameSource(a: StartRecordingOptions, b: StartRecordingOptions): boolean {
+  return a.source === b.source && a.deviceId === b.deviceId && a.outputDeviceId === b.outputDeviceId;
+}
+
 export interface RecordingProviderProps {
   children: ReactNode;
   // Injectable for tests -- default to the real Tauri-backed functions.
   startRecordingFn?: (options: StartRecordingOptions) => Promise<void>;
   stopRecordingFn?: () => Promise<RecordingResult>;
+  setRecordingSourceFn?: (options: StartRecordingOptions) => Promise<void>;
 }
 
 export function RecordingProvider({
   children,
   startRecordingFn = startRecording,
   stopRecordingFn = stopRecording,
+  setRecordingSourceFn = setRecordingSource,
 }: RecordingProviderProps) {
   const { addFiles } = useQueue();
   const { audioSource, micDeviceId, outputDeviceId } = useVoiceInputSettings();
@@ -59,6 +66,9 @@ export function RecordingProvider({
   const [error, setError] = useState<string>();
   const [silentSources, setSilentSources] = useState<string[]>();
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // What the live capture is actually running on. Only updated once a start or
+  // switch succeeds, so a failed switch leaves the next settings change to retry.
+  const appliedSource = useRef<StartRecordingOptions | undefined>(undefined);
 
   useEffect(() => {
     return () => {
@@ -66,11 +76,26 @@ export function RecordingProvider({
     };
   }, []);
 
+  useEffect(() => {
+    if (status !== "recording") return;
+    const wanted: StartRecordingOptions = { source: audioSource, deviceId: micDeviceId, outputDeviceId };
+    if (appliedSource.current && sameSource(appliedSource.current, wanted)) return;
+    setRecordingSourceFn(wanted).then(
+      () => {
+        appliedSource.current = wanted;
+        setError(undefined);
+      },
+      (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+    );
+  }, [status, audioSource, micDeviceId, outputDeviceId, setRecordingSourceFn]);
+
   const start = async () => {
     setError(undefined);
     setSilentSources(undefined);
     try {
-      await startRecordingFn({ source: audioSource, deviceId: micDeviceId, outputDeviceId });
+      const options: StartRecordingOptions = { source: audioSource, deviceId: micDeviceId, outputDeviceId };
+      await startRecordingFn(options);
+      appliedSource.current = options;
       setElapsedSeconds(0);
       setStatus("recording");
       intervalRef.current = setInterval(() => {
@@ -87,6 +112,7 @@ export function RecordingProvider({
       intervalRef.current = undefined;
     }
     setStatus("stopping");
+    appliedSource.current = undefined;
     try {
       const result = await stopRecordingFn();
       addFiles([result.path], "recording");

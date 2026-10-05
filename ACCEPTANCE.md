@@ -241,6 +241,15 @@ integration acceptance.
   success" suite). The setting defaults on and persists across restarts,
   including for a settings file saved before this setting existed
   (`VoiceInputSection.test.tsx`'s "auto-trash recordings" suite).
+- **J13** — Changing the audio source, microphone, or output device in Settings
+  while a recording is active switches the live capture without ending the
+  recording or changing the file's sample rate; a source change made while
+  idle applies at the next start; a failed switch keeps the previous capture
+  running and surfaces the error (`RecordingContext.test.tsx`'s mid-recording
+  switch cases, and `recording.rs`'s `PeakLog` tests for silent-source tracking
+  across switches). Stream handover on real devices is manual: start on the
+  microphone, switch to "both" mid-recording, and confirm both sources are in
+  the output.
 
 ## K. Custom dictionary (word replacement)
 - **K1** — `applyDictionary()` replaces every occurrence of a stored word
