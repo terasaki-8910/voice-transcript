@@ -5,9 +5,10 @@ import { describe, it, expect, vi } from "vitest";
 import { runPipeline } from "../src/pipeline.js";
 import type { AudioBackend, AudioChunk } from "../src/audio.js";
 import type { Transcriber, TranscribeParams, TranscriptResult } from "../src/types.js";
+import { CHUNK_TARGET_BYTES, MAX_UPLOAD_BYTES } from "../src/config.js";
 
 const MB = 1024 * 1024;
-const MAX = 24 * MB;
+const MAX = CHUNK_TARGET_BYTES;
 
 // Build an audio backend whose splitAt honours the boundaries runPipeline
 // computes, so the number of chunks (and thus requests) is driven by the real
@@ -65,7 +66,7 @@ function makeTranscriber(
 
 describe("B1 - single request when the encode fits", () => {
   it("makes exactly one transcription request and no split", async () => {
-    const audio = makeAudio({ durationSec: 3600, bytes: 20 * MB, silences: [600, 1200] });
+    const audio = makeAudio({ durationSec: 3600, bytes: 15 * MB, silences: [600, 1200] });
     const transcriber = makeTranscriber();
 
     await runPipeline("in.m4a", {
@@ -103,6 +104,53 @@ describe("B2 - N>1 requests at detected silence when the encode is too big", () 
     for (const b of boundaries) {
       expect(silences).toContain(b);
     }
+  });
+});
+
+describe("B2 - a split that overshoots the upload cap is re-planned smaller", () => {
+  it("re-splits with a smaller budget until every chunk fits under the cap", async () => {
+    const silences = [480, 923, 1500, 1980, 2510, 3050, 3600, 4100];
+    const audio = makeAudio({ durationSec: 4674, bytes: 73 * MB, silences }) as AudioBackend & {
+      splitCalls: number[][];
+    };
+    const baseSplit = audio.splitAt;
+    let calls = 0;
+    audio.splitAt = vi.fn(async (file: string, boundaries: number[]) => {
+      const chunks = await baseSplit(file, boundaries);
+      calls++;
+      return calls === 1 ? chunks.map((c) => ({ ...c, bytes: c.bytes * 2 })) : chunks;
+    });
+    const transcriber = makeTranscriber();
+
+    await runPipeline("in.m4a", { audio, transcriber, model: "whisper-large-v3-turbo" });
+
+    expect(audio.splitAt).toHaveBeenCalledTimes(2);
+    const [first, second] = audio.splitCalls;
+    expect(second.length).toBeGreaterThan(first.length);
+    expect(transcriber.calls.length).toBe(second.length + 1);
+  });
+
+  it("fails without transcribing when no split can fit under the upload cap", async () => {
+    const silences = [480, 923, 1500, 1980, 2510, 3050, 3600, 4100];
+    const audio = makeAudio({ durationSec: 4674, bytes: 73 * MB, silences });
+    const baseSplit = audio.splitAt;
+    audio.splitAt = vi.fn(async (file: string, boundaries: number[]) =>
+      (await baseSplit(file, boundaries)).map((c) => ({ ...c, bytes: MAX_UPLOAD_BYTES + 1 })),
+    );
+    const transcriber = makeTranscriber();
+
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow(/upload cap/);
+    expect(audio.splitAt).toHaveBeenCalledTimes(3);
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+  });
+});
+
+describe("B2 - upload cap is Groq's documented 25 MB, with headroom for the chunk target", () => {
+  it("pins the cap at 25,000,000 bytes and keeps the chunk target below it", () => {
+    expect(MAX_UPLOAD_BYTES).toBe(25_000_000);
+    expect(CHUNK_TARGET_BYTES).toBeLessThan(MAX_UPLOAD_BYTES);
   });
 });
 
@@ -155,7 +203,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   }
 
   it("calls cleanup exactly once after a successful run, once every chunk has been read", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [600, 1200] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [600, 1200] });
     const transcriber = makeTranscriber();
 
     await runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" });
@@ -167,7 +215,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("still calls cleanup, and the real error still propagates, when a chunk transcription rejects", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     const transcriber = makeTranscriber(async () => {
       throw new Error("chunk failed");
     });
@@ -179,7 +227,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("still calls cleanup when detectSilences rejects", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     audio.detectSilences = vi.fn(async () => {
       throw new Error("detect failed");
     });
@@ -192,7 +240,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("still calls cleanup when splitAt rejects", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     audio.splitAt = vi.fn(async () => {
       throw new Error("split failed");
     });
@@ -205,7 +253,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("does not call cleanup if assertAvailable itself rejects (no temp dirs exist yet)", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     audio.assertAvailable = vi.fn(async () => {
       throw new Error("ffmpeg not found");
     });
@@ -218,7 +266,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("a rejecting cleanup() never changes a successful run's own result", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     audio.cleanup = vi.fn(async () => {
       throw new Error("rm failed");
     });
@@ -229,7 +277,7 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
   });
 
   it("a rejecting cleanup() never replaces a failed run's own error", async () => {
-    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 20 * MB, silences: [] });
+    const audio = makeAudioWithCleanup({ durationSec: 3600, bytes: 15 * MB, silences: [] });
     audio.cleanup = vi.fn(async () => {
       throw new Error("rm failed");
     });

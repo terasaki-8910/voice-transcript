@@ -1,7 +1,7 @@
 import { basename } from "node:path";
-import type { AudioBackend, AudioChunk } from "./audio.js";
+import type { AudioBackend, AudioChunk, NormalizedAudio } from "./audio.js";
 import { planChunks } from "./chunk.js";
-import { CHUNK_TARGET_BYTES } from "./config.js";
+import { CHUNK_TARGET_BYTES, MAX_UPLOAD_BYTES } from "./config.js";
 import { stitchChunks } from "./stitch.js";
 import type { Transcriber, TranscriptResult } from "./types.js";
 
@@ -27,6 +27,38 @@ async function transcribeChunk(
     language: deps.language,
   });
   return { offset: chunk.offset, result };
+}
+
+const MAX_SPLIT_ATTEMPTS = 3;
+
+// planChunks() budgets with an average bitrate, so a split can overshoot its
+// target by a few percent; measure each chunk and re-plan with a smaller budget
+// until every chunk actually fits under the upload cap.
+async function splitWithinCap(
+  normalized: NormalizedAudio,
+  silences: number[],
+  targetBytes: number,
+  audio: AudioBackend,
+): Promise<AudioChunk[]> {
+  let budget = targetBytes;
+  for (let attempt = 1; ; attempt++) {
+    const boundaries = planChunks({
+      durationSec: normalized.duration,
+      encodedBytes: normalized.bytes,
+      maxBytes: budget,
+      silences,
+    });
+    const chunks = await audio.splitAt(normalized.path, boundaries);
+    const largest = Math.max(...chunks.map((chunk) => chunk.bytes));
+    if (largest <= MAX_UPLOAD_BYTES) return chunks;
+    if (attempt >= MAX_SPLIT_ATTEMPTS) {
+      throw new Error(
+        `audio chunk is ${String(largest)} bytes, over the ${String(MAX_UPLOAD_BYTES)}-byte upload cap, after ${String(attempt)} split attempts`,
+      );
+    }
+    // 0.95: shrink slightly past the proportional estimate so the retry lands under the cap.
+    budget = Math.floor(budget * (MAX_UPLOAD_BYTES / largest) * 0.95);
+  }
 }
 
 // assertAvailable -> normalize -> detectSilences -> planChunks -> splitAt ->
@@ -59,14 +91,7 @@ export async function runPipeline(
     deps.onProgress?.("detecting silence boundaries");
     const silences = await deps.audio.detectSilences(normalized.path);
 
-    const boundaries = planChunks({
-      durationSec: normalized.duration,
-      encodedBytes: normalized.bytes,
-      maxBytes,
-      silences,
-    });
-
-    const chunks = await deps.audio.splitAt(normalized.path, boundaries);
+    const chunks = await splitWithinCap(normalized, silences, maxBytes, deps.audio);
 
     const transcribed = await Promise.all(chunks.map((chunk) => transcribeChunk(chunk, deps)));
 
