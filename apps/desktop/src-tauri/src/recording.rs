@@ -77,6 +77,51 @@ pub const EVENT_RECORDING_AUTO_STOPPED: &str = "recording-auto-stopped";
 /// capture (nothing playing) reads as zero.
 const AUDIBLE_LEVEL: f32 = 0.003_162;
 
+/// Sent when system audio goes silent mid-recording, and again with silent:false
+/// once it is audible. Mirrored in lib/tauri.ts as RECORDING_SOURCE_SILENCE_EVENT.
+pub const EVENT_SOURCE_SILENCE: &str = "recording-source-silence";
+
+const SYSTEM_LABEL: &str = "system audio";
+
+/// How often the mixer checks whether the default output device has moved.
+const DEFAULT_OUTPUT_POLL: Duration = Duration::from_secs(1);
+
+/// Silence on system audio this long, mid-recording, is worth telling the user about.
+const SOURCE_SILENCE_WARN_AFTER: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Serialize)]
+struct SourceSilenceEvent {
+    label: &'static str,
+    silent: bool,
+}
+
+/// Notices when system audio has gone quiet mid-recording (nothing is playing
+/// on the captured device) and when it comes back.
+struct SourceSilence {
+    silent: bool,
+    last_audible: Instant,
+}
+
+impl SourceSilence {
+    fn new(started: Instant) -> Self {
+        Self { silent: false, last_audible: started }
+    }
+
+    /// Some(true) once when the source goes silent, Some(false) once when it is
+    /// audible again, None otherwise.
+    fn observe(&mut self, peak: f32, now: Instant) -> Option<bool> {
+        if peak >= AUDIBLE_LEVEL {
+            self.last_audible = now;
+            return std::mem::replace(&mut self.silent, false).then_some(false);
+        }
+        if !self.silent && now.duration_since(self.last_audible) >= SOURCE_SILENCE_WARN_AFTER {
+            self.silent = true;
+            return Some(true);
+        }
+        None
+    }
+}
+
 /// This tick's loudest absolute sample in the already-mixed output buffer
 /// -- deliberately computed from `mix` itself (the same buffer about to be
 /// written to the WAV file) rather than touching Resampler::peak, which is
@@ -380,6 +425,8 @@ struct Resampler {
     pos: f64,
     step: f64,
     peak: f32,
+    /// Loudest sample produced by the most recent mix_into call alone.
+    tick_peak: f32,
     max_backlog: usize,
 }
 
@@ -390,6 +437,7 @@ impl Resampler {
             pos: 0.0,
             step: source_rate as f64 / target_rate as f64,
             peak: 0.0,
+            tick_peak: 0.0,
             max_backlog: (source_rate as f64 * MAX_BACKLOG_SECONDS) as usize,
         }
     }
@@ -409,6 +457,7 @@ impl Resampler {
     /// exactly where this one stopped -- the output stays pinned to the wall
     /// clock instead of drifting behind a slow device.
     fn mix_into(&mut self, out: &mut [f32]) {
+        self.tick_peak = 0.0;
         for slot in out.iter_mut() {
             let idx = self.pos.floor() as usize;
             if idx + 1 >= self.pending.len() {
@@ -418,6 +467,9 @@ impl Resampler {
             let sample = self.pending[idx] * (1.0 - frac) + self.pending[idx + 1] * frac;
             if sample.abs() > self.peak {
                 self.peak = sample.abs();
+            }
+            if sample.abs() > self.tick_peak {
+                self.tick_peak = sample.abs();
             }
             *slot += sample;
             self.pos += self.step;
@@ -432,8 +484,13 @@ impl Resampler {
 
 struct Source {
     label: &'static str,
+    /// The device this stream was opened on, to notice when the default moves.
+    device_id: Option<String>,
     buffer: SharedBuffer,
     resampler: Resampler,
+    /// System audio only: a microphone's room tone sits near the threshold and
+    /// would warn constantly.
+    watch: Option<SourceSilence>,
     // Held only so the stream outlives the mixer loop; cpal stops capture on
     // drop. Never read.
     _stream: cpal::Stream,
@@ -561,10 +618,51 @@ fn open_source(
     }?;
     Ok(Source {
         label,
+        device_id: device.id().ok().map(|id| id.to_string()),
         buffer,
         resampler: Resampler::new(config.sample_rate(), target_rate),
+        watch: (label == SYSTEM_LABEL).then(|| SourceSilence::new(Instant::now())),
         _stream: stream,
     })
+}
+
+/// Re-opens system audio on the current default output when that default has
+/// moved (headphones -> speakers, or the device was unplugged). The old stream
+/// is replaced only after the new one is playing.
+fn follow_default_output(
+    host: &Host,
+    target_rate: u32,
+    sources: &mut [Source],
+    peaks: &mut PeakLog,
+) -> Result<bool, String> {
+    let Some(index) = sources.iter().position(|s| s.label == SYSTEM_LABEL) else {
+        return Ok(false);
+    };
+    let Some(default) = host.default_output_device() else {
+        return Ok(false);
+    };
+    let default_id = default.id().ok().map(|id| id.to_string());
+    if default_id.is_none() || default_id == sources[index].device_id {
+        return Ok(false);
+    }
+    let config = default
+        .default_output_config()
+        .map_err(|e| format!("failed to read default output config: {e}"))?;
+    let next = open_source(&default, config, SYSTEM_LABEL, target_rate)?;
+    next._stream
+        .play()
+        .map_err(|e| format!("failed to start the {SYSTEM_LABEL} stream: {e}"))?;
+    let old = std::mem::replace(&mut sources[index], next);
+    peaks.record(old.label, old.resampler.peak);
+    Ok(true)
+}
+
+/// Clears the GUI's silence warnings. Called whenever the captured devices
+/// change, since a warning describes the device that was just replaced.
+fn announce_audible(app: &tauri::AppHandle) {
+    for label in [SYSTEM_LABEL, "microphone"] {
+        let _ = app.emit(EVENT_SOURCE_SILENCE, SourceSilenceEvent { label, silent: false });
+    }
 }
 
 /// Starts capturing the chosen source(s). Setup (device/format resolution,
@@ -666,6 +764,9 @@ pub fn start_recording(
         let mut auto_stopped = false;
         let mut silence = SilenceWatch::new(silence_limit, started);
         let mut peaks = PeakLog::default();
+        // A system source with no explicit device follows the OS default output.
+        let mut follow_output = source.captures_system() && output_device_id.is_none();
+        let mut last_default_check = started;
         while !stopped {
             match control_rx.recv_timeout(MIX_TICK) {
                 // Stop signalled, or the sender was dropped (app shutting
@@ -673,9 +774,22 @@ pub fn start_recording(
                 Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => stopped = true,
                 Ok(Control::SetSource(change)) => {
                     let result = swap_sources(&host, &change, target_rate, &mut sources, &mut peaks);
+                    if result.is_ok() {
+                        follow_output = change.source.captures_system() && change.output_device_id.is_none();
+                        announce_audible(&level_app);
+                    }
                     let _ = change.reply.send(result);
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+
+            if !stopped && follow_output && last_default_check.elapsed() >= DEFAULT_OUTPUT_POLL {
+                last_default_check = Instant::now();
+                match follow_default_output(&host, target_rate, &mut sources, &mut peaks) {
+                    Ok(true) => announce_audible(&level_app),
+                    Ok(false) => {}
+                    Err(err) => eprintln!("[recording] could not follow the default output: {err}"),
+                }
             }
 
             let due = (started.elapsed().as_secs_f64() * target_rate as f64) as u64;
@@ -686,8 +800,17 @@ pub fn start_recording(
 
             mix.clear();
             mix.resize(wanted, 0.0);
+            let now = Instant::now();
             for src in &mut sources {
                 src.mix_into(&mut mix);
+                let peak = src.resampler.tick_peak;
+                if let Some(watch) = src.watch.as_mut() {
+                    if let Some(silent) = watch.observe(peak, now) {
+                        if !stopped {
+                            let _ = level_app.emit(EVENT_SOURCE_SILENCE, SourceSilenceEvent { label: src.label, silent });
+                        }
+                    }
+                }
             }
 
             // Skipped on the final (post-stop) pump: stop_recording is a
@@ -968,6 +1091,36 @@ mod tests {
         peaks.record("system audio", 0.3);
         peaks.record("system audio", 0.0);
         assert!(peaks.silent().is_empty());
+    }
+
+    #[test]
+    fn tick_peak_reports_only_the_latest_tick() {
+        let mut r = Resampler::new(48_000, 48_000);
+        r.accept(vec![0.9, 0.0, 0.0, 0.0]);
+        drain(&mut r, 2);
+        assert!((r.tick_peak - 0.9).abs() < 1e-6);
+        r.accept(vec![0.0, 0.0, 0.0, 0.0]);
+        drain(&mut r, 2);
+        assert_eq!(r.tick_peak, 0.0, "a quiet tick must not inherit the previous tick's peak");
+        assert!((r.peak - 0.9).abs() < 1e-6, "the session peak still remembers it");
+    }
+
+    #[test]
+    fn system_audio_going_quiet_is_reported_once_after_the_warn_window() {
+        let t0 = Instant::now();
+        let mut watch = SourceSilence::new(t0);
+        assert_eq!(watch.observe(0.0, t0 + Duration::from_secs(9)), None);
+        assert_eq!(watch.observe(0.0, t0 + Duration::from_secs(10)), Some(true));
+        assert_eq!(watch.observe(0.0, t0 + Duration::from_secs(11)), None);
+    }
+
+    #[test]
+    fn audible_again_clears_the_warning_once() {
+        let t0 = Instant::now();
+        let mut watch = SourceSilence::new(t0);
+        watch.observe(0.0, t0 + Duration::from_secs(10));
+        assert_eq!(watch.observe(0.5, t0 + Duration::from_secs(12)), Some(false));
+        assert_eq!(watch.observe(0.5, t0 + Duration::from_secs(13)), None);
     }
 
     #[test]

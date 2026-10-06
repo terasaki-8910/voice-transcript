@@ -257,6 +257,13 @@ integration acceptance.
   on its own (`recording.rs`'s `SilenceWatch` tests, and
   `RecordingContext.test.tsx`'s silence-timeout cases). Real-device behavior
   (a lecture video ending mid-session with system audio) is manual.
+- **J15** — A system-audio recording on "System default" re-opens its capture on
+  the new default output when the default changes, so audio keeps being
+  recorded after a Windows output switch; system audio silent for 10 seconds
+  mid-recording is shown in the recording bar and cleared once audible again
+  (`recording.rs`'s `SourceSilence` and `tick_peak` tests, and
+  `RecordingContext.test.tsx`'s live-silence case). Device switching on real
+  Windows hardware is manual.
 
 ## K. Custom dictionary (word replacement)
 - **K1** — `applyDictionary()` replaces every occurrence of a stored word

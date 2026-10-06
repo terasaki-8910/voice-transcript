@@ -21,8 +21,19 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { RECORDING_AUTO_STOPPED_EVENT, setRecordingSource, startRecording, stopRecording } from "../../lib/tauri";
-import type { RecordingResult, RecordingSourceOptions, StartRecordingOptions } from "../../lib/tauri";
+import {
+  RECORDING_AUTO_STOPPED_EVENT,
+  RECORDING_SOURCE_SILENCE_EVENT,
+  setRecordingSource,
+  startRecording,
+  stopRecording,
+} from "../../lib/tauri";
+import type {
+  RecordingResult,
+  RecordingSourceOptions,
+  SourceSilenceEvent,
+  StartRecordingOptions,
+} from "../../lib/tauri";
 import { useQueue } from "../queue/QueueContext";
 import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
 
@@ -36,11 +47,37 @@ interface RecordingContextValue {
   // separate from `error`: the file is real and already queued, so this is a
   // "check your permissions" note, not a failure.
   silentSources?: string[];
+  // System audio that has gone quiet while this recording is still running
+  // (cleared when it is audible again). Lets the user catch a dropped capture
+  // before the recording ends.
+  liveSilentSources: string[];
   start: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
+
+// Tauri's listen() rejects outright in jsdom and other environments without
+// the native bridge -- nothing to subscribe to there, not a real failure.
+function subscribe<T = void>(event: string, handler: (payload: T) => void): () => void {
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  listen<T>(event, (e) => handler(e.payload))
+    .then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    })
+    .catch(() => {
+      /* no native bridge */
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
 
 function sameSource(a: RecordingSourceOptions, b: RecordingSourceOptions): boolean {
   return a.source === b.source && a.deviceId === b.deviceId && a.outputDeviceId === b.outputDeviceId;
@@ -66,6 +103,7 @@ export function RecordingProvider({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string>();
   const [silentSources, setSilentSources] = useState<string[]>();
+  const [liveSilentSources, setLiveSilentSources] = useState<string[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   // What the live capture is actually running on. Only updated once a start or
   // switch succeeds, so a failed switch leaves the next settings change to retry.
@@ -93,6 +131,7 @@ export function RecordingProvider({
   const start = async () => {
     setError(undefined);
     setSilentSources(undefined);
+    setLiveSilentSources([]);
     try {
       const options: StartRecordingOptions = {
         source: audioSource,
@@ -119,6 +158,7 @@ export function RecordingProvider({
     }
     setStatus("stopping");
     appliedSource.current = undefined;
+    setLiveSilentSources([]);
     try {
       const result = await stopRecordingFn();
       addFiles([result.path], "recording");
@@ -141,23 +181,16 @@ export function RecordingProvider({
 
   useEffect(() => {
     if (status !== "recording") return;
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    listen(RECORDING_AUTO_STOPPED_EVENT, () => void stopRef.current())
-      .then((fn) => {
-        if (cancelled) {
-          fn();
-        } else {
-          unlisten = fn;
-        }
-      })
-      .catch(() => {
-        // jsdom/no-Tauri-bridge environments reject listen() outright --
-        // nothing to subscribe to in that case, not a real failure.
+    const offStopped = subscribe(RECORDING_AUTO_STOPPED_EVENT, () => void stopRef.current());
+    const offSilence = subscribe<SourceSilenceEvent>(RECORDING_SOURCE_SILENCE_EVENT, ({ label, silent }) => {
+      setLiveSilentSources((prev) => {
+        if (!silent) return prev.filter((name) => name !== label);
+        return prev.includes(label) ? prev : [...prev, label];
       });
+    });
     return () => {
-      cancelled = true;
-      unlisten?.();
+      offStopped();
+      offSilence();
     };
   }, [status]);
 
@@ -167,7 +200,15 @@ export function RecordingProvider({
   // (e.g. a start() still using a mic the user just switched away from in
   // Settings). This context isn't a hot re-render path, so there's no real
   // cost to skipping memoization here.
-  const value: RecordingContextValue = { status, elapsedSeconds, error, silentSources, start, stop };
+  const value: RecordingContextValue = {
+    status,
+    elapsedSeconds,
+    error,
+    silentSources,
+    liveSilentSources,
+    start,
+    stop,
+  };
 
   return <RecordingContext.Provider value={value}>{children}</RecordingContext.Provider>;
 }

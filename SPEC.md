@@ -233,6 +233,17 @@ history of past runs.
   starts. When it fires, the mixer finalizes the file and announces it; the
   webview then finishes the recording through the same stop path as the Stop
   button, so the file is queued for transcription like any other recording.
+- **Follow the default output, and warn on silence (added 2026-10-06, user-
+  reported: switching Windows output from headphones to speakers mid-recording
+  made system audio go flat with no indication).** WASAPI loopback captures one
+  output device, so a system-audio source opened on the default output keeps
+  reading that device after the default moves, and records silence. When the
+  output is "System default", the mixer now checks the default once a second and
+  re-opens system audio on the new device; the old stream is replaced only after
+  the new one plays. Separately, system audio that stays below the audible level
+  for 10 seconds while recording is shown in the recording bar, and cleared once
+  it is audible again. Microphones are not watched, because room tone sits near
+  the threshold. Not verified on Windows hardware yet.
 
 ## Settings
 - A sectioned Settings dialog (renamed in substance from the original

@@ -62,6 +62,7 @@ function Harness() {
       <p data-testid="elapsed">{recording.elapsedSeconds}</p>
       <p data-testid="error">{recording.error ?? ""}</p>
       <p data-testid="silent">{(recording.silentSources ?? []).join(",")}</p>
+      <p data-testid="live-silent">{recording.liveSilentSources.join(",")}</p>
       <p data-testid="queue-count">{items.length}</p>
       <p data-testid="queue-origin">{items[0]?.origin ?? ""}</p>
       <button type="button" onClick={() => void recording.start()}>
@@ -223,6 +224,25 @@ describe("RecordingContext", () => {
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("idle"));
     expect(stopRecordingFn).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("queue-count").textContent).toBe("1");
+  });
+
+  it("shows system audio going quiet mid-recording, and clears it when audible again", async () => {
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn: vi.fn(async () => finished()) });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    await waitFor(() => expect(eventHandlers.has("recording-source-silence")).toBe(true));
+
+    await act(async () => {
+      eventHandlers.get("recording-source-silence")?.({ payload: { label: "system audio", silent: true } });
+    });
+    expect(screen.getByTestId("live-silent").textContent).toBe("system audio");
+    expect(screen.getByTestId("status").textContent).toBe("recording");
+
+    await act(async () => {
+      eventHandlers.get("recording-source-silence")?.({ payload: { label: "system audio", silent: false } });
+    });
+    expect(screen.getByTestId("live-silent").textContent).toBe("");
   });
 
   it("does not subscribe to the silence-timeout event while idle", () => {

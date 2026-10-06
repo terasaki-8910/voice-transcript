@@ -36,6 +36,16 @@ function RecordingBar() {
       <span className="recording-dot" aria-hidden="true" />
       <span>{t("recording")}</span>
       <span className="recording-elapsed">{formatElapsed(recording.elapsedSeconds)}</span>
+      {recording.liveSilentSources.length > 0 && (
+        <span className="recording-warning">
+          {t("recordingLiveSilent").replace(
+            "{sources}",
+            recording.liveSilentSources
+              .map((label) => (label === "microphone" ? t("audioSourceMicrophone") : t("audioSourceSystem")))
+              .join(", "),
+          )}
+        </span>
+      )}
       <RecordingWaveform />
       <button
         type="button"

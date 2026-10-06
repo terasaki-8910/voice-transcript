@@ -57,6 +57,11 @@
   color: var(--color-ink);
 }
 
+.recording-warning {
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+}
+
 /* Live level meter (SPEC.md > Audio recording). Logical size must match
    levelMeter.ts's METER_WIDTH/METER_HEIGHT -- the canvas's own backing
    store is set to a device-pixel-ratio multiple of this same size

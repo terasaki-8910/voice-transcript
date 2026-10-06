@@ -387,6 +387,16 @@ export const RECORDING_LEVEL_EVENT = "recording-level";
 // its silence timeout; the webview finishes it through stopRecording.
 export const RECORDING_AUTO_STOPPED_EVENT = "recording-auto-stopped";
 
+// recording.rs's EVENT_SOURCE_SILENCE: system audio went quiet mid-recording
+// (silent: true), or is audible again (silent: false). Label is the Rust-side
+// source name: "system audio" or "microphone".
+export const RECORDING_SOURCE_SILENCE_EVENT = "recording-source-silence";
+
+export interface SourceSilenceEvent {
+  label: string;
+  silent: boolean;
+}
+
 export interface InputDevice {
   id: string;
   name: string;
