@@ -8,10 +8,12 @@
 // `items` itself stays the full unfiltered list, since trash()/remove()
 // and the sync-error/empty checks below all need the real count, not the
 // filtered one.
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import { HistoryRow } from "./HistoryRow";
+import { HistoryBulkBar } from "./HistoryBulkBar";
+import { rangeIds } from "./bulkSelection";
 import { basename } from "../../lib/path";
 
 export function HistoryView() {
@@ -34,6 +36,55 @@ export function HistoryView() {
         item.transcriptText?.toLowerCase().includes(query),
     );
   }, [items, searchQuery]);
+
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const anchorRef = useRef<number | undefined>(undefined);
+
+  // Entries that disappear (deleted here, or gone after a refresh) leave the selection.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const alive = new Set(items.map((item) => item.id));
+      const next = new Set([...prev].filter((id) => alive.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [items]);
+
+  // A new search clears the selection, so a bulk action never reaches rows the
+  // user can no longer see.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    anchorRef.current = undefined;
+  }, [searchQuery]);
+
+  const visibleIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const selectedItems = useMemo(() => items.filter((item) => selectedIds.has(item.id)), [items, selectedIds]);
+
+  // Shift+click applies the clicked row's new state to every row between it
+  // and the last row clicked (the anchor), in the order the list shows.
+  const toggleRow = (id: number, shiftKey: boolean) => {
+    const select = !selectedIds.has(id);
+    const anchor = anchorRef.current;
+    const ids = shiftKey && anchor !== undefined ? rangeIds(visibleIds, anchor, id) : [id];
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const target of ids) {
+        if (select) next.add(target);
+        else next.delete(target);
+      }
+      return next;
+    });
+    anchorRef.current = id;
+  };
+
+  const toggleAll = () => {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleIds));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    anchorRef.current = undefined;
+  };
 
   const statusText: Record<"loading" | "error", string> = {
     loading: t("historyLoading"),
@@ -58,6 +109,15 @@ export function HistoryView() {
 
   return (
     <>
+      {items.length > 0 && (
+        <HistoryBulkBar
+          selected={selectedItems}
+          visibleCount={visibleIds.length}
+          allVisibleSelected={allVisibleSelected}
+          onToggleAll={toggleAll}
+          onClear={clearSelection}
+        />
+      )}
       {/* A failed background refresh with a list already showing (cached or
           last-good) is a small, non-blocking notice -- never replaces the
           list itself, which is still perfectly valid data. The real
@@ -83,7 +143,13 @@ export function HistoryView() {
         </p>
       ) : (
         filteredItems.map((item) => (
-          <HistoryRow key={item.id} item={item} audioTrashed={trashedIds.has(item.id)} />
+          <HistoryRow
+            key={item.id}
+            item={item}
+            audioTrashed={trashedIds.has(item.id)}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={(shiftKey) => toggleRow(item.id, shiftKey)}
+          />
         ))
       )}
     </>

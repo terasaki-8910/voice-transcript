@@ -314,6 +314,13 @@ history of past runs.
   remote database each time; queue-completion refetches are not throttled.
   This is not live sync: a change made elsewhere shows up the next time one of
   those moments happens.
+- **Bulk selection (added 2026-10-06, user-requested).** Each history row has a
+  checkbox. Shift+click selects, or deselects, every row between the last clicked
+  row and this one in the order the list shows. A toolbar above the list offers
+  select-all, copy (the selected transcripts, in list order, separated by rules),
+  export (one .txt file for the selection), a Remove menu (trash the selected
+  audio, or delete the selected entries, each behind one confirmation), and clear.
+  A new search clears the selection, and entries that disappear leave it.
 
 ## Custom dictionary (word replacement)
 - A user-maintained list of word → replacement pairs, applied to every

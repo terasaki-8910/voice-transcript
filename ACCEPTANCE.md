@@ -155,6 +155,13 @@ integration acceptance.
   stays in edit mode so the user can retry
   (`apps/desktop/tests/history/HistoryView.test.tsx`'s "renaming" suite,
   `HistoryContext.test.tsx`'s `rename()` cases).
+- **H8** — History rows can be multi-selected with checkboxes: a plain click
+  toggles one row, Shift+click applies the clicked row's new state to every row
+  between it and the last clicked row, select-all checks every visible row, and
+  a new search clears the selection. Bulk copy writes the selected transcripts
+  in list order, bulk export writes them to one file, and bulk Remove confirms
+  once before trashing audio or deleting entries (`bulkSelection.test.ts` for
+  the range and format rules, `HistoryBulkSelection.test.tsx` for the UI).
 
 ## I. Release automation (GitHub Actions)
 - **I1** — `.github/workflows/release.yml` exists, triggers only on

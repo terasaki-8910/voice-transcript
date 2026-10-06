@@ -58,7 +58,7 @@ function errorMessage(err: unknown): string {
 // reachability via the two buttons' natural tab stops covers the WCAG
 // floor -- full roving-tabindex arrow-key navigation is deliberately not
 // built for a two-item menu.
-function DeleteMenu({
+export function DeleteMenu({
   audioTrashed,
   onTrash,
   onDelete,
@@ -133,7 +133,18 @@ function DeleteMenu({
   );
 }
 
-export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTrashed: boolean }) {
+export function HistoryRow({
+  item,
+  audioTrashed,
+  selected,
+  onToggleSelect,
+}: {
+  item: HistoryEntry;
+  audioTrashed: boolean;
+  selected: boolean;
+  // Receives whether Shift was held, so HistoryView can select a range.
+  onToggleSelect: (shiftKey: boolean) => void;
+}) {
   const { t } = useI18n();
   const { trash, remove, rename, actionErrors, reportActionError } = useHistory();
   const { setSelection } = useSelection();
@@ -268,7 +279,15 @@ export function HistoryRow({ item, audioTrashed }: { item: HistoryEntry; audioTr
   };
 
   return (
-    <div className="row">
+    <div className={`row${selected ? " is-selected" : ""}`}>
+      <input
+        type="checkbox"
+        className="row-select"
+        aria-label={t("selectEntry")}
+        checked={selected}
+        readOnly
+        onClick={(e) => onToggleSelect(e.shiftKey)}
+      />
       <div className="row-main">
         <div className="row-top">
           {renaming ? (
