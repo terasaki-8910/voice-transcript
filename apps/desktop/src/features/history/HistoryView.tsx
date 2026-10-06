@@ -8,7 +8,7 @@
 // `items` itself stays the full unfiltered list, since trash()/remove()
 // and the sync-error/empty checks below all need the real count, not the
 // filtered one.
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n/I18nContext";
 import { useHistory } from "./HistoryContext";
 import { HistoryRow } from "./HistoryRow";
@@ -16,7 +16,14 @@ import { basename } from "../../lib/path";
 
 export function HistoryView() {
   const { t } = useI18n();
-  const { items, status, error, syncError, searchQuery, trashedIds } = useHistory();
+  const { items, status, error, syncError, searchQuery, trashedIds, requestRefresh } = useHistory();
+
+  // QueueView mounts this only while the History tab is active, so this is
+  // "the user opened History" -- picks up rows written elsewhere (another
+  // window, another machine, the CLI) since the last fetch.
+  useEffect(() => {
+    requestRefresh();
+  }, [requestRefresh]);
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();

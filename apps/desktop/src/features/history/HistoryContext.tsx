@@ -18,7 +18,7 @@
 // nothing cached to fall back to. A failed background refresh with cached
 // data present instead sets `syncError` (non-blocking, small indicator),
 // leaving the visible list untouched.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listHistory, trashAudio, deleteHistoryEntry, renameHistoryEntry } from "../../lib/tauri";
 import type { HistoryEntry, TrashResult, HistoryTitleResult } from "../../lib/tauri";
@@ -44,6 +44,10 @@ interface HistoryContextValue {
   // the whole-list `error` above, which is only for a failed initial load.
   actionErrors: Map<number, string>;
   refresh: () => void;
+  // refresh() unless one ran within REQUEST_REFRESH_MIN_INTERVAL_MS. Used for
+  // "the user came back to History" moments, so rapid tab/window switching
+  // doesn't re-query the remote DB each time.
+  requestRefresh: () => void;
   trash: (id: number) => Promise<void>;
   remove: (id: number) => Promise<void>;
   // Renaming (2026-09-30, user-requested). Returns whether it succeeded
@@ -74,6 +78,7 @@ function errorMessage(err: unknown): string {
 }
 
 const CACHE_KEY = "voice-transcript-history-cache-v1";
+const REQUEST_REFRESH_MIN_INTERVAL_MS = 30_000;
 
 // Never throws -- a cache read/write failure (corrupt JSON, quota exceeded,
 // localStorage unavailable) is a pure performance/resilience nicety lost,
@@ -112,7 +117,10 @@ export function HistoryProvider({
   const [trashedIds, setTrashedIds] = useState<Set<number>>(new Set());
   const [actionErrors, setActionErrors] = useState<Map<number, string>>(new Map());
 
-  const refresh = () => {
+  const lastFetchStartRef = useRef(0);
+
+  const refresh = useCallback(() => {
+    lastFetchStartRef.current = Date.now();
     // Only show the blocking loading state when there's nothing cached to
     // display meanwhile -- a background refresh (initial mount with a warm
     // cache, or triggered by a queue completion) should never blank out an
@@ -137,9 +145,21 @@ export function HistoryProvider({
           return prevItems;
         });
       });
-  };
+  }, [listHistoryFn]);
 
-  useEffect(refresh, [listHistoryFn]);
+  const requestRefresh = useCallback(() => {
+    if (Date.now() - lastFetchStartRef.current < REQUEST_REFRESH_MIN_INTERVAL_MS) return;
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    window.addEventListener("focus", requestRefresh);
+    return () => window.removeEventListener("focus", requestRefresh);
+  }, [requestRefresh]);
 
   const clearActionError = (id: number) => {
     setActionErrors((prev) => {
@@ -208,6 +228,7 @@ export function HistoryProvider({
         trashedIds,
         actionErrors,
         refresh,
+        requestRefresh,
         trash,
         remove,
         rename,

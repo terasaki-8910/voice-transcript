@@ -295,6 +295,14 @@ history of past runs.
   result. The same real error is now also shown (not just a generic "can't
   reach the database" message) wherever a background history refresh fails
   (History view), for the same reason.
+- **History refresh timing (2026-10-06, user-reported: history written from
+  another window, machine, or the CLI didn't appear until the app restarted).**
+  The list refetches on app start, when the History tab opens, when the window
+  regains focus, and when a queue item finishes. Tab-open and focus refetches
+  are throttled to one per 30 seconds so switching apps doesn't re-query the
+  remote database each time; queue-completion refetches are not throttled.
+  This is not live sync: a change made elsewhere shows up the next time one of
+  those moments happens.
 
 ## Custom dictionary (word replacement)
 - A user-maintained list of word → replacement pairs, applied to every

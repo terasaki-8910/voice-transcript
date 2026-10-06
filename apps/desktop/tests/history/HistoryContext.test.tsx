@@ -56,6 +56,27 @@ describe("HistoryContext", () => {
     window.localStorage.clear();
   });
 
+  it("refetches on window focus, but not again inside the throttle window", async () => {
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const listHistoryFn = vi.fn(async () => [makeEntry()]);
+    render(
+      <HistoryProvider listHistoryFn={listHistoryFn}>
+        <Inspector />
+      </HistoryProvider>,
+    );
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(1));
+
+    now += 5_000;
+    window.dispatchEvent(new Event("focus"));
+    expect(listHistoryFn).toHaveBeenCalledTimes(1);
+
+    now += 30_000;
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(listHistoryFn).toHaveBeenCalledTimes(2));
+    nowSpy.mockRestore();
+  });
+
   it("loads history on mount", async () => {
     const listHistoryFn = vi.fn(async () => [makeEntry({ id: 1 }), makeEntry({ id: 2, sourceFileName: "/audio/b.m4a" })]);
     render(<HistoryProvider listHistoryFn={listHistoryFn}>
