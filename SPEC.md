@@ -224,6 +224,15 @@ history of past runs.
   capture running and shows the error. Sample rate and output format are fixed
   at the start, so the file stays one continuous track. A source that was live
   for only part of the recording still counts toward the silent-source check.
+- **Auto-stop after silence (added 2026-10-06, user-requested, for transcribing
+  lecture videos):** Settings > Voice input sets how long audio may stay silent
+  before the recording ends by itself: off (default), 5, 10, 20, 30, or 60
+  minutes. "Silent" means the mixed output stays below about -50 dBFS, so
+  digital silence from system capture counts, and room noise from a microphone
+  may keep the timer from ever running out. The setting is read when a recording
+  starts. When it fires, the mixer finalizes the file and announces it; the
+  webview then finishes the recording through the same stop path as the Stop
+  button, so the file is queued for transcription like any other recording.
 
 ## Settings
 - A sectioned Settings dialog (renamed in substance from the original

@@ -67,6 +67,16 @@ const MIX_TICK: Duration = Duration::from_millis(50);
 /// lib/tauri.ts as RECORDING_LEVEL_EVENT -- keep the two in sync.
 pub const EVENT_RECORDING_LEVEL: &str = "recording-level";
 
+/// Sent once when the mixer ends a recording itself on the silence timeout.
+/// The webview then finishes it through stop_recording, same as a button press.
+/// Mirrored in lib/tauri.ts as RECORDING_AUTO_STOPPED_EVENT.
+pub const EVENT_RECORDING_AUTO_STOPPED: &str = "recording-auto-stopped";
+
+/// Tick loudness that counts as sound: about -50 dBFS, above a quiet
+/// microphone's room tone and far below speech. Digital silence from system
+/// capture (nothing playing) reads as zero.
+const AUDIBLE_LEVEL: f32 = 0.003_162;
+
 /// This tick's loudest absolute sample in the already-mixed output buffer
 /// -- deliberately computed from `mix` itself (the same buffer about to be
 /// written to the WAV file) rather than touching Resampler::peak, which is
@@ -455,6 +465,28 @@ struct SourceChange {
     reply: mpsc::Sender<Result<(), String>>,
 }
 
+/// Tracks how long the mixed output has been quiet. A lecture video that has
+/// ended or a call that has gone idle should not keep recording to the disk limit.
+struct SilenceWatch {
+    limit: Option<Duration>,
+    last_audible: Instant,
+}
+
+impl SilenceWatch {
+    fn new(limit: Option<Duration>, started: Instant) -> Self {
+        Self { limit, last_audible: started }
+    }
+
+    /// Feeds one mixer tick's loudness; true once the output has stayed below
+    /// AUDIBLE_LEVEL for the whole limit.
+    fn observe(&mut self, level: f32, now: Instant) -> bool {
+        if level >= AUDIBLE_LEVEL {
+            self.last_audible = now;
+        }
+        self.limit.is_some_and(|limit| now.duration_since(self.last_audible) >= limit)
+    }
+}
+
 /// Highest peak each requested source reached across every stream it had,
 /// so a source switched out mid-recording still counts for the time it was live.
 #[derive(Default)]
@@ -546,9 +578,11 @@ pub fn start_recording(
     source: Option<AudioSource>,
     device_id: Option<String>,
     output_device_id: Option<String>,
+    silence_timeout_secs: Option<u64>,
 ) -> Result<(), String> {
     let source = source.unwrap_or_default();
     ensure_source_supported(source)?;
+    let silence_limit = silence_timeout_secs.filter(|&secs| secs > 0).map(Duration::from_secs);
 
     let manager = app.state::<RecordingManager>();
     {
@@ -629,6 +663,8 @@ pub fn start_recording(
         let mut frames_written: u64 = 0;
         let mut mix: Vec<f32> = Vec::new();
         let mut stopped = false;
+        let mut auto_stopped = false;
+        let mut silence = SilenceWatch::new(silence_limit, started);
         let mut peaks = PeakLog::default();
         while !stopped {
             match control_rx.recv_timeout(MIX_TICK) {
@@ -663,7 +699,12 @@ pub fn start_recording(
             // future feature flip could open, rather than rely solely on
             // that dependency staying true forever.
             if !stopped {
-                let _ = level_app.emit(EVENT_RECORDING_LEVEL, tick_level(&mix));
+                let level = tick_level(&mix);
+                let _ = level_app.emit(EVENT_RECORDING_LEVEL, level);
+                if silence.observe(level, Instant::now()) {
+                    auto_stopped = true;
+                    stopped = true;
+                }
             }
 
             for sample in &mix {
@@ -680,6 +721,9 @@ pub fn start_recording(
             frames_written += wanted as u64;
         }
 
+        if auto_stopped {
+            let _ = level_app.emit(EVENT_RECORDING_AUTO_STOPPED, ());
+        }
         // Drop the streams before finalizing so no callback can be running
         // against a buffer we are done with.
         for src in sources.drain(..) {
@@ -924,6 +968,38 @@ mod tests {
         peaks.record("system audio", 0.3);
         peaks.record("system audio", 0.0);
         assert!(peaks.silent().is_empty());
+    }
+
+    #[test]
+    fn no_silence_limit_never_expires() {
+        let t0 = Instant::now();
+        let mut watch = SilenceWatch::new(None, t0);
+        assert!(!watch.observe(0.0, t0 + Duration::from_secs(3600)));
+    }
+
+    #[test]
+    fn expires_once_quiet_for_the_whole_limit() {
+        let t0 = Instant::now();
+        let mut watch = SilenceWatch::new(Some(Duration::from_secs(60)), t0);
+        assert!(!watch.observe(0.0, t0 + Duration::from_secs(59)));
+        assert!(watch.observe(0.0, t0 + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn audible_sound_restarts_the_clock() {
+        let t0 = Instant::now();
+        let mut watch = SilenceWatch::new(Some(Duration::from_secs(60)), t0);
+        watch.observe(0.5, t0 + Duration::from_secs(50));
+        assert!(!watch.observe(0.0, t0 + Duration::from_secs(100)));
+        assert!(watch.observe(0.0, t0 + Duration::from_secs(110)));
+    }
+
+    #[test]
+    fn sound_below_the_audible_level_still_counts_as_quiet() {
+        let t0 = Instant::now();
+        let mut watch = SilenceWatch::new(Some(Duration::from_secs(60)), t0);
+        watch.observe(AUDIBLE_LEVEL / 2.0, t0 + Duration::from_secs(30));
+        assert!(watch.observe(0.0, t0 + Duration::from_secs(60)));
     }
 
     #[test]

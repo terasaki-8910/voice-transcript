@@ -250,6 +250,13 @@ integration acceptance.
   across switches). Stream handover on real devices is manual: start on the
   microphone, switch to "both" mid-recording, and confirm both sources are in
   the output.
+- **J14** — With a silence timeout set in Settings > Voice input, a recording
+  whose mixed output stays below the audible level for the full timeout ends
+  itself, finalizes its file, and is queued exactly like a button stop; sound
+  within that window resets the clock; the default (off) never ends a recording
+  on its own (`recording.rs`'s `SilenceWatch` tests, and
+  `RecordingContext.test.tsx`'s silence-timeout cases). Real-device behavior
+  (a lecture video ending mid-session with system audio) is manual.
 
 ## K. Custom dictionary (word replacement)
 - **K1** — `applyDictionary()` replaces every occurrence of a stored word

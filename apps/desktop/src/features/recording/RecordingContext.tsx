@@ -20,8 +20,9 @@
 // context needs to hold.
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { setRecordingSource, startRecording, stopRecording } from "../../lib/tauri";
-import type { RecordingResult, StartRecordingOptions } from "../../lib/tauri";
+import { listen } from "@tauri-apps/api/event";
+import { RECORDING_AUTO_STOPPED_EVENT, setRecordingSource, startRecording, stopRecording } from "../../lib/tauri";
+import type { RecordingResult, RecordingSourceOptions, StartRecordingOptions } from "../../lib/tauri";
 import { useQueue } from "../queue/QueueContext";
 import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
 
@@ -41,7 +42,7 @@ interface RecordingContextValue {
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
 
-function sameSource(a: StartRecordingOptions, b: StartRecordingOptions): boolean {
+function sameSource(a: RecordingSourceOptions, b: RecordingSourceOptions): boolean {
   return a.source === b.source && a.deviceId === b.deviceId && a.outputDeviceId === b.outputDeviceId;
 }
 
@@ -50,7 +51,7 @@ export interface RecordingProviderProps {
   // Injectable for tests -- default to the real Tauri-backed functions.
   startRecordingFn?: (options: StartRecordingOptions) => Promise<void>;
   stopRecordingFn?: () => Promise<RecordingResult>;
-  setRecordingSourceFn?: (options: StartRecordingOptions) => Promise<void>;
+  setRecordingSourceFn?: (options: RecordingSourceOptions) => Promise<void>;
 }
 
 export function RecordingProvider({
@@ -60,7 +61,7 @@ export function RecordingProvider({
   setRecordingSourceFn = setRecordingSource,
 }: RecordingProviderProps) {
   const { addFiles } = useQueue();
-  const { audioSource, micDeviceId, outputDeviceId } = useVoiceInputSettings();
+  const { audioSource, micDeviceId, outputDeviceId, autoStopSilenceMinutes } = useVoiceInputSettings();
   const [status, setStatus] = useState<RecordingStatus>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string>();
@@ -68,7 +69,7 @@ export function RecordingProvider({
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   // What the live capture is actually running on. Only updated once a start or
   // switch succeeds, so a failed switch leaves the next settings change to retry.
-  const appliedSource = useRef<StartRecordingOptions | undefined>(undefined);
+  const appliedSource = useRef<RecordingSourceOptions | undefined>(undefined);
 
   useEffect(() => {
     return () => {
@@ -78,7 +79,7 @@ export function RecordingProvider({
 
   useEffect(() => {
     if (status !== "recording") return;
-    const wanted: StartRecordingOptions = { source: audioSource, deviceId: micDeviceId, outputDeviceId };
+    const wanted: RecordingSourceOptions = { source: audioSource, deviceId: micDeviceId, outputDeviceId };
     if (appliedSource.current && sameSource(appliedSource.current, wanted)) return;
     setRecordingSourceFn(wanted).then(
       () => {
@@ -93,7 +94,12 @@ export function RecordingProvider({
     setError(undefined);
     setSilentSources(undefined);
     try {
-      const options: StartRecordingOptions = { source: audioSource, deviceId: micDeviceId, outputDeviceId };
+      const options: StartRecordingOptions = {
+        source: audioSource,
+        deviceId: micDeviceId,
+        outputDeviceId,
+        silenceTimeoutSeconds: autoStopSilenceMinutes > 0 ? autoStopSilenceMinutes * 60 : undefined,
+      };
       await startRecordingFn(options);
       appliedSource.current = options;
       setElapsedSeconds(0);
@@ -124,6 +130,36 @@ export function RecordingProvider({
       setStatus("idle");
     }
   };
+
+  // The mixer can end a recording on its own (silence timeout); finishing it
+  // goes through the same stop() as the button. The ref keeps the listener
+  // calling the latest stop() without re-subscribing on every render.
+  const stopRef = useRef(stop);
+  useEffect(() => {
+    stopRef.current = stop;
+  });
+
+  useEffect(() => {
+    if (status !== "recording") return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen(RECORDING_AUTO_STOPPED_EVENT, () => void stopRef.current())
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch(() => {
+        // jsdom/no-Tauri-bridge environments reject listen() outright --
+        // nothing to subscribe to in that case, not a real failure.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [status]);
 
   // Not wrapped in useMemo: start/stop close over micDeviceId/addFiles,
   // which change independently of status/elapsedSeconds/error -- memoizing

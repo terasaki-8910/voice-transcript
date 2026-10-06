@@ -383,6 +383,10 @@ export function deleteNote(id: number): Promise<void> {
 // itself.
 export const RECORDING_LEVEL_EVENT = "recording-level";
 
+// recording.rs's EVENT_RECORDING_AUTO_STOPPED: the mixer ended the recording on
+// its silence timeout; the webview finishes it through stopRecording.
+export const RECORDING_AUTO_STOPPED_EVENT = "recording-auto-stopped";
+
 export interface InputDevice {
   id: string;
   name: string;
@@ -401,13 +405,18 @@ export function listOutputDevices(): Promise<InputDevice[]> {
   return invoke("list_output_devices");
 }
 
-export interface StartRecordingOptions {
+export interface RecordingSourceOptions {
   source: AudioSource;
   deviceId?: string;
   outputDeviceId?: string;
 }
 
-function sourceArgs(options: StartRecordingOptions) {
+export interface StartRecordingOptions extends RecordingSourceOptions {
+  // Ends the recording on its own after this long without audible sound.
+  silenceTimeoutSeconds?: number;
+}
+
+function sourceArgs(options: RecordingSourceOptions) {
   return {
     source: options.source,
     deviceId: options.deviceId ?? null,
@@ -416,11 +425,14 @@ function sourceArgs(options: StartRecordingOptions) {
 }
 
 export function startRecording(options: StartRecordingOptions): Promise<void> {
-  return invoke("start_recording", sourceArgs(options));
+  return invoke("start_recording", {
+    ...sourceArgs(options),
+    silenceTimeoutSecs: options.silenceTimeoutSeconds ?? null,
+  });
 }
 
 // Re-points a recording already in progress; the file keeps going.
-export function setRecordingSource(options: StartRecordingOptions): Promise<void> {
+export function setRecordingSource(options: RecordingSourceOptions): Promise<void> {
   return invoke("set_recording_source", sourceArgs(options));
 }
 

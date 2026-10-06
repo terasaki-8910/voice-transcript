@@ -69,6 +69,9 @@ export interface VoiceInputSettings {
   // "wasteful") -- only ever applies to app-recorded audio, never to an
   // uploaded file, which is the user's own pre-existing file.
   autoTrashRecordings: boolean;
+  // Minutes of silence after which a recording stops itself; 0 is off. Read
+  // when a recording starts, so a change mid-recording applies to the next one.
+  autoStopSilenceMinutes: number;
 }
 
 const DEFAULT_SETTINGS: VoiceInputSettings = {
@@ -82,6 +85,7 @@ const DEFAULT_SETTINGS: VoiceInputSettings = {
   micDeviceId: undefined,
   outputDeviceId: undefined,
   autoTrashRecordings: true,
+  autoStopSilenceMinutes: 0,
 };
 
 function readStoredSettings(): VoiceInputSettings {

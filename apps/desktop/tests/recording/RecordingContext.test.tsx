@@ -11,7 +11,20 @@ import { VoiceInputSettingsProvider, useVoiceInputSettings } from "../../src/fea
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import type { RecordingResult, StartRecordingOptions } from "../../src/lib/tauri";
 
+type EventHandler = (event: { payload: unknown }) => void;
+const eventHandlers = new Map<string, EventHandler>();
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn((event: string, handler: EventHandler) => {
+    eventHandlers.set(event, handler);
+    return Promise.resolve(() => {
+      eventHandlers.delete(event);
+    });
+  }),
+}));
+
 beforeEach(() => {
+  eventHandlers.clear();
   // shouldAdvanceTime: real wall-clock time still passes in the background
   // (needed for @testing-library's own waitFor polling, which otherwise
   // hangs forever under fully-faked timers), while vi.advanceTimersByTime
@@ -62,6 +75,9 @@ function Harness() {
       </button>
       <button type="button" onClick={() => setSettings({ audioSource: "both", outputDeviceId: "out-9" })}>
         use-both
+      </button>
+      <button type="button" onClick={() => setSettings({ autoStopSilenceMinutes: 10 })}>
+        use-auto-stop-10
       </button>
     </div>
   );
@@ -179,6 +195,39 @@ describe("RecordingContext", () => {
       vi.advanceTimersByTime(3600_000);
     });
     expect(Number(screen.getByTestId("elapsed").textContent)).toBe(3605);
+  });
+
+  it("start() passes the silence timeout in seconds when auto-stop is set", async () => {
+    const startRecordingFn = vi.fn(async () => {});
+    renderHarness({ startRecordingFn, stopRecordingFn: vi.fn(async () => finished()) });
+
+    fireEvent.click(screen.getByText("use-auto-stop-10"));
+    fireEvent.click(screen.getByText("start"));
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    expect(startRecordingFn).toHaveBeenCalledWith(expect.objectContaining({ silenceTimeoutSeconds: 600 }));
+  });
+
+  it("stops itself when the mixer reports the silence timeout, and queues the file like a button stop", async () => {
+    const stopRecordingFn = vi.fn(async () => finished({ path: "/recordings/r3.wav", durationSeconds: 1800 }));
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn });
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("recording"));
+    await waitFor(() => expect(eventHandlers.has("recording-auto-stopped")).toBe(true));
+
+    await act(async () => {
+      eventHandlers.get("recording-auto-stopped")?.({ payload: undefined });
+    });
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("idle"));
+    expect(stopRecordingFn).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("queue-count").textContent).toBe("1");
+  });
+
+  it("does not subscribe to the silence-timeout event while idle", () => {
+    renderHarness({ startRecordingFn: vi.fn(async () => {}), stopRecordingFn: vi.fn(async () => finished()) });
+    expect(eventHandlers.has("recording-auto-stopped")).toBe(false);
   });
 
   it("a source change during a recording switches the live capture without stopping it", async () => {

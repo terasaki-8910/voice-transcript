@@ -20,6 +20,8 @@ const MODEL_LABEL_KEYS: Record<WhisperModel, "modelTurbo" | "modelLargeV3"> = {
   "whisper-large-v3": "modelLargeV3",
 };
 
+const AUTO_STOP_MINUTE_OPTIONS = [0, 5, 10, 20, 30, 60];
+
 export function VoiceInputSection() {
   const { t } = useI18n();
   const {
@@ -30,6 +32,7 @@ export function VoiceInputSection() {
     micDeviceId,
     outputDeviceId,
     autoTrashRecordings,
+    autoStopSilenceMinutes,
     setSettings,
   } = useVoiceInputSettings();
   const [devices, setDevices] = useState<InputDevice[]>([]);
@@ -166,6 +169,24 @@ export function VoiceInputSection() {
       )}
 
       <hr className="modal-divider" />
+
+      <label htmlFor="voice-input-auto-stop">
+        {t("voiceInputAutoStopLabel")}
+        <span className="select-wrap">
+          <select
+            id="voice-input-auto-stop"
+            value={autoStopSilenceMinutes}
+            onChange={(e) => setSettings({ autoStopSilenceMinutes: Number(e.target.value) })}
+          >
+            {AUTO_STOP_MINUTE_OPTIONS.map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes === 0 ? t("voiceInputAutoStopOff") : t("voiceInputAutoStopMinutes").replace("{minutes}", String(minutes))}
+              </option>
+            ))}
+          </select>
+        </span>
+      </label>
+      <p className="settings-hint">{t("voiceInputAutoStopDescription")}</p>
 
       <label className="modal-checkbox-row">
         <input
