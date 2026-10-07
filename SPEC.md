@@ -397,7 +397,13 @@ history of past runs.
   to; it only affects transcriptions made afterward. This is the intended
   behavior (matches "the body is never edited," above), not a limitation
   to paper over — the GUI says so in the confirmation message rather than
-  leaving it to be discovered.
+  leaving it to be discovered. (2026-10-07, user-requested; re-confirmed
+  that registering must not rewrite the transcript.) The "Correct to" field
+  shows the note's first line as its placeholder, and registering with the
+  field left empty uses that line as the replacement, so a note that is the
+  correction itself registers in one click. Only the first line is used
+  because a replacement containing a newline would break every later
+  transcript at that word. Typing in the field overrides it.
 - **Copy, two modes**: the existing "copy transcript" action is unchanged
   (transcript text only, exactly as before — most transcripts have no
   notes at all, so nothing about the common case should change). A second

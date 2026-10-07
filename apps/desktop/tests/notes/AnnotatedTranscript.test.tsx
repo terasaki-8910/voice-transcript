@@ -335,12 +335,41 @@ describe("AnnotatedTranscript", () => {
     const { onLinkToDictionary } = renderTranscript({ notes: [makeNote()] });
     fireEvent.click(screen.getByText("2GOMCP"));
 
-    expect(screen.getByLabelText("Correct to").getAttribute("placeholder")).toBe("e.g. Advancing");
     fireEvent.change(screen.getByLabelText("Correct to"), { target: { value: "TogoMCP" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to dictionary" }));
 
     await waitFor(() => expect(onLinkToDictionary).toHaveBeenCalledWith("2GOMCP", "TogoMCP"));
     expect(screen.getByText(/future transcripts will auto-correct/)).toBeDefined();
+  });
+
+  it("shows the note itself as the correction field's placeholder", () => {
+    renderTranscript({ notes: [makeNote({ note: "Advancing" })] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+
+    const field = screen.getByLabelText("Correct to") as HTMLInputElement;
+    expect(field.getAttribute("placeholder")).toBe("Advancing");
+    expect(field.value).toBe("");
+  });
+
+  it("registers the note as the replacement when the field is left empty", async () => {
+    const { onLinkToDictionary } = renderTranscript({ notes: [makeNote({ note: "Advancing" })] });
+    fireEvent.click(screen.getByText("2GOMCP"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to dictionary" }));
+
+    await waitFor(() => expect(onLinkToDictionary).toHaveBeenCalledWith("2GOMCP", "Advancing"));
+  });
+
+  it("uses only the first line of a multi-line note", async () => {
+    const { onLinkToDictionary } = renderTranscript({
+      notes: [makeNote({ note: "Advancing\n固有名詞なので英字で表記する" })],
+    });
+    fireEvent.click(screen.getByText("2GOMCP"));
+
+    expect(screen.getByLabelText("Correct to").getAttribute("placeholder")).toBe("Advancing");
+    fireEvent.click(screen.getByRole("button", { name: "Add to dictionary" }));
+
+    await waitFor(() => expect(onLinkToDictionary).toHaveBeenCalledWith("2GOMCP", "Advancing"));
   });
 
   it("a slow dictionary-link request for a note the user has since closed doesn't write into whatever's open now", async () => {

@@ -100,6 +100,11 @@ export function AnnotatedTranscript({
 
   const openNote = open ? notes.find((n) => n.id === open.noteId) : undefined;
   const openFailure = open ? noteFailures.get(open.noteId) : undefined;
+  // The note usually is the correction itself, so it doubles as the dictionary
+  // replacement when the field is left empty. First line only: a replacement
+  // containing a newline would break every later transcript at that word.
+  const suggestedReplacement = openNote ? openNote.note.split("\n")[0].trim() : "";
+  const replacementToLink = linkReplacement.trim() || suggestedReplacement;
 
   // A drag-selection finishing anywhere on the page might end outside this
   // exact element (the mouseup fires on whatever's under the cursor), so
@@ -167,11 +172,11 @@ export function AnnotatedTranscript({
   };
 
   const handleLinkToDictionary = async () => {
-    if (!openNote || !linkReplacement.trim() || linking) return;
+    if (!openNote || !replacementToLink || linking) return;
     const forNoteId = openNote.id;
     setLinking(true);
     try {
-      await onLinkToDictionary(openNote.quotedText, linkReplacement.trim());
+      await onLinkToDictionary(openNote.quotedText, replacementToLink);
       if (openRef.current?.noteId !== forNoteId) return;
       setLinkSaved(true);
       setLinkError(undefined);
@@ -325,7 +330,7 @@ export function AnnotatedTranscript({
                     <input
                       id="note-link-replacement"
                       type="text"
-                      placeholder={t("addToDictionaryReplacementPlaceholder")}
+                      placeholder={suggestedReplacement}
                       value={linkReplacement}
                       disabled={linking}
                       onChange={(e) => setLinkReplacement(e.target.value)}
@@ -333,7 +338,7 @@ export function AnnotatedTranscript({
                     <button
                       type="button"
                       className="btn-link"
-                      disabled={!linkReplacement.trim() || linking}
+                      disabled={!replacementToLink || linking}
                       onClick={() => void handleLinkToDictionary()}
                     >
                       {linking ? t("saving") : t("addToDictionary")}
