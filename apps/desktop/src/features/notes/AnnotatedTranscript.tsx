@@ -325,6 +325,7 @@ export function AnnotatedTranscript({
                     <input
                       id="note-link-replacement"
                       type="text"
+                      placeholder={t("addToDictionaryReplacementPlaceholder")}
                       value={linkReplacement}
                       disabled={linking}
                       onChange={(e) => setLinkReplacement(e.target.value)}

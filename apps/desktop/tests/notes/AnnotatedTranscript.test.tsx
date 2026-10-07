@@ -335,6 +335,7 @@ describe("AnnotatedTranscript", () => {
     const { onLinkToDictionary } = renderTranscript({ notes: [makeNote()] });
     fireEvent.click(screen.getByText("2GOMCP"));
 
+    expect(screen.getByLabelText("Correct to").getAttribute("placeholder")).toBe("e.g. Advancing");
     fireEvent.change(screen.getByLabelText("Correct to"), { target: { value: "TogoMCP" } });
     fireEvent.click(screen.getByRole("button", { name: "Add to dictionary" }));
 
