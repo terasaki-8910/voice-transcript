@@ -1,0 +1,14 @@
+{
+  "name": "voice-transcript-diagrams",
+  "private": true,
+  "description": "Generates the README diagrams in docs/diagrams/*.png. Not part of the pnpm workspace: run `npm install && npm run build` here.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs .."
+  },
+  "dependencies": {
+    "feather-icons": "^4.29.2",
+    "playwright": "1.58.2",
+    "simple-icons": "^16.35.0"
+  }
+}

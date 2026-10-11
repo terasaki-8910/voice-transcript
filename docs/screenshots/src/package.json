@@ -1,0 +1,13 @@
+{
+  "name": "voice-transcript-screenshots",
+  "private": true,
+  "description": "Captures the README screenshots and demo GIFs from the real desktop frontend with Tauri IPC mocked by mock-tauri.js (demo data only). Not part of the pnpm workspace. Start `pnpm --filter desktop dev` first, then `npm install && npm run capture && npm run flow` here; results land in ./out and are copied to docs/screenshots by hand (framed/*.png, and flow-<lang>.gif converted with ffmpeg -- see flow.mjs).",
+  "type": "module",
+  "scripts": {
+    "capture": "node capture.mjs && node frame.mjs",
+    "flow": "node flow.mjs ja && node flow.mjs en"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

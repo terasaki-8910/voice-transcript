@@ -14,8 +14,10 @@ history of past runs.
 - **Runtime:** TypeScript, run on Node 24. Package management: **pnpm**
   (workspace/monorepo — see Architecture below).
 - **Long-audio strategy (hybrid):** normalize with ffmpeg to 16 kHz mono; if the
-  encoded file is still larger than the free-tier limit (threshold ~24 MB, under
-  the 25 MB cap), split into chunks at **silence boundaries**, transcribe each,
+  encoded file is still larger than the chunk budget (20 MB, headroom under the
+  25,000,000-byte cap; each split chunk is measured and the audio re-split with a
+  smaller budget if one is still over the cap, up to 3 attempts -- changed
+  2026-10-05 after a real 413), split into chunks at **silence boundaries**, transcribe each,
   then stitch results with per-chunk time offsets applied to timestamps. The
   normalized file and any chunks are written to per-run temp directories that
   are removed once the run finishes, success or failure alike (added
