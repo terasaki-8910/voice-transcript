@@ -37,5 +37,6 @@ match SPEC. Section order:
    workflow, and one line that the project was built with Claude Code against SPEC.md /
    ACCEPTANCE.md.
 8. Limits and non-goals, short.
+9. License: one line linking `./LICENSE` (MIT).
 
 Write plainly: no emoji, no marketing adjectives, no heavy bold. Accurate to SPEC, concise.

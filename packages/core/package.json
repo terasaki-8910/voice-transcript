@@ -2,6 +2,7 @@
   "name": "@voice-transcript/core",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Shared transcription engine (ffmpeg normalize, silence-based chunking, Groq client, stitching, format renderers) -- no UI, no DB. Used by @voice-transcript/cli and the apps/desktop Tauri sidecar.",
   "type": "module",
   "main": "./src/index.ts",
