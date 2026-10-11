@@ -212,3 +212,7 @@ the scripts in `docs/diagrams/src/`.
 - No speaker diarization, translation, summarization, real-time transcription, URL input or
   multiple users. Several computers simply point at the same database, with no conflict
   resolution (last write wins).
+
+## License
+
+[MIT](./LICENSE)

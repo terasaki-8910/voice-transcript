@@ -2,6 +2,7 @@
   "name": "@voice-transcript/cli",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Terminal CLI that transcribes an audio file to text via the Groq hosted Whisper API, handling files longer than one hour.",
   "type": "module",
   "engines": {
