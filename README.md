@@ -6,301 +6,154 @@
 
 # Voice Transcript
 
-Groq のホスト型 Whisper API で音声を文字起こしする。ターミナル CLI とクロスプラットフォームの
-デスクトップアプリの 2 つの入口から使え、無音位置での分割とスティッチで **1 時間超の長時間
-音声**も確実に扱える。エンジンは共有の 1 つ、フロントは 2 つ、全実行の履歴を保存し、時間制限
-なしのマイク／システム音声録音、全文字起こしに適用されるユーザー管理の単語修正辞書、任意の
-文字起こしへのサイドノート注釈、全実行を横断する全文検索を備える。
+1 時間を超える講義やゼミの録音を、無音の位置で分割して Groq の Whisper API で文字起こしし、つなぎ直すツール。ターミナルの CLI と macOS / Windows / Linux のデスクトップアプリが同じエンジンを共有し、履歴・カスタム辞書・注釈は自宅サーバの PostgreSQL に保存して複数の PC から同じデータを使う。
 
-## 必要環境
-- **Node.js 24**
-- **pnpm**（本リポジトリは workspace モノレポ: `packages/core` / `packages/cli` / `apps/desktop`）
-- **ffmpeg**（`PATH` 上に必要。音声の正規化・分割に使用）
-- **`GROQ_API_KEY`** — 環境変数から読み込む。デスクトップアプリでは Settings から設定
-  することもできる（後述）。両方ある場合は常に環境変数が優先される。
-- **PostgreSQL** — 環境変数の `DATABASE_URL` 接続文字列で到達可能なもの。文字起こし
-  **履歴**・辞書・注釈・検索機能でのみ必要。文字起こし自体は DB 無しでも動く（「制約」参照）。
-  DB サーバーは自分で用意し、アプリは接続するだけ。
-- デスクトップアプリのビルド／実行には別途 Tauri ツールチェーン（Rust）が必要。特権操作
-  （ffmpeg・Groq 呼び出し・DB アクセス）はすべて Rust シェルが担う。
+<p align="center">
+  <img src="docs/screenshots/demo-ja.gif" alt="履歴を開き、選択した語に注釈を付けて Cmd+Enter で保存し、タイトル・本文・注釈を横断検索する様子" width="88%">
+</p>
 
-## セットアップ
+[最新リリース](https://github.com/terasaki-8910/voice-transcript/releases/latest)（.dmg / .exe / .msi / .AppImage / .deb）・[仕様 SPEC.md](./SPEC.md)・[受け入れ基準 ACCEPTANCE.md](./ACCEPTANCE.md)
+
+## 背景
+
+- 無料の文字起こしアプリ Amical を使っていたが、録音の時間制限があり、辞書と履歴を PC 間で同期できなかった。
+- Word のトランスクリプト機能は、まったく別の言葉に変換されることが多かった。精度の高い Whisper large-v3 系モデルに切り替えたかった。
+- 研究室のゼミを録音しておけば、聞き逃しなくタスクを整理できる。授業動画の文字起こしにも使いたかった。
+
+## 主な機能
+
+画面写真は実際のフロントエンドを、バックエンドをモックしたデモデータで描画したもの。CLI の画像は実際の実行結果（`say` で合成した 17 秒の音声）。
+
+### 長時間音声の文字起こし
+
+複数ファイルをキューに積むと、1 件ずつ順に処理し、ファイルごとに状態（待機・文字起こし中・完了・失敗）を表示する。1 件が失敗してもほかは止まらず、失敗したものは再試行できる。CLI は 1 ファイルずつ、同じエンジンで同じテキストを出す。
+
+<p>
+  <img src="docs/screenshots/queue-ja.png" alt="キュー：完了・失敗・文字起こし中・待機の各状態" width="49%">
+  <img src="docs/screenshots/cli-demo.png" alt="CLI の実行結果（SRT 出力）" width="49%">
+</p>
+
+### 録音（マイク / システム音声 / 両方）
+
+時間の上限はない。録音中もレベルメーターで音が入っているか確認でき、音源やデバイスを止めずに切り替えられる。授業動画の終わりを想定して、無音が続いたら自動で停止できる。文字起こしが成功した録音ファイルは自動で OS のゴミ箱へ移す。
+
+<p>
+  <img src="docs/screenshots/recording-ja.png" alt="録音中のレベルメーター" width="49%">
+  <img src="docs/screenshots/settings-voice-ja.png" alt="音声入力の設定" width="49%">
+</p>
+
+### 注釈とカスタム辞書
+
+文字起こしの本文は書き換えずに、選択した箇所へ注釈を付ける（例:「2GOMCP」に「TogoMCP の聞き間違い」）。注釈はそのまま辞書に登録でき、次の文字起こしから自動で置換される。上の CLI の出力で「スパークル」となっている SPARQL も、辞書に入れておけば直る。
+
+<p>
+  <img src="docs/screenshots/note-popover-ja.png" alt="テキストを選択して注釈を付ける" width="49%">
+  <img src="docs/screenshots/settings-dictionary-ja.png" alt="カスタム辞書" width="49%">
+</p>
+
+### 履歴と横断検索
+
+CLI とアプリのすべての実行を PostgreSQL に保存する。Cmd+F / Ctrl+F の検索は、タイトル・本文・注釈を全履歴から AND 検索する。履歴は名前の変更、Shift+クリックでの範囲選択と一括操作、本文のみ／注釈付きのコピー、txt / srt / vtt / json への書き出しに対応する。
+
+<p>
+  <img src="docs/screenshots/search-ja.png" alt="タイトル・本文・注釈の横断検索" width="49%">
+  <img src="docs/screenshots/history-notes-ja.png" alt="履歴と注釈のハイライト" width="49%">
+</p>
+
+### 設定と接続テスト
+
+API キーとデータベース URL は GUI から設定でき、保存した接続先に今つながるかを試せる。失敗したときは定型文ではなく実際のエラー（タイムアウト、認証失敗など）を表示する。ライト／ダーク、日本語／英語を再起動なしで切り替えられる。
+
+<p>
+  <img src="docs/screenshots/settings-connection-ja.png" alt="接続テスト" width="49%">
+  <img src="docs/screenshots/bulk-select-ja.png" alt="履歴の一括選択" width="49%">
+</p>
+
+## アーキテクチャ
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
+  <img src="docs/diagrams/architecture-light.png" alt="アーキテクチャ図">
+</picture>
+
+- **1 つのエンジン、2 つの入口。** 文字起こしの処理はすべて `packages/core`（TypeScript）にあり、CLI はこれを直接呼び、デスクトップアプリは同じコードを 1 つの実行ファイルにまとめたサイドカーとして呼ぶ。同じファイルを同じ設定で処理すれば、どちらからでも同じテキストになる。
+- **特権のある処理は Rust 側だけ。** 画面（webview）は API キー、ファイルシステム、DB に触れない。ffmpeg、Groq API、DB へのアクセスは Rust のコマンドを経由し、Rust は自分では SQL を書かずにサイドカーを起動する。API キーと DB の URL は Rust が OS の設定フォルダに所有者のみ読める権限で保存し、画面からは「設定済みかどうか」しか読めない。
+- **サイドカーはコマンドごとに起動して終わる。** 状態を持たないので、1 回の失敗が次に残らない。代わりに起動の遅れ（数百 ms）があるため、注釈は楽観的に即反映して裏で保存し、検索は 250 ms のデバウンスをかけ、履歴一覧は注釈の件数を JOIN でまとめて取る。
+- **データは自宅サーバに置く。** Ubuntu の Docker で動かす PostgreSQL に Tailscale 経由で接続する。アプリ専用の最小権限ロールを使い、スキーマは接続時に自動でマイグレーションする。DB に届かなくても文字起こしは止めない（履歴の記録だけ失敗をログに出す）。
+
+## 長時間音声の処理
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/pipeline-dark.png">
+  <img src="docs/diagrams/pipeline-light.png" alt="文字起こしのフロー">
+</picture>
+
+Groq の無料枠は 1 リクエスト 25 MB まで。ffmpeg で 16 kHz モノラルに正規化してもこれを超える音声は、20 MB を目安に無音の位置で区切る。分割後は実際のファイルサイズを測り、25,000,000 バイトを超えるチャンクがあれば目安を縮めて分割し直す（最大 3 回）。平均ビットレートからの見積もりだけでは上限を数 % 超えることがあり、実運用で 413 エラーが出たためこの方式にした。チャンクは並列に送り、各チャンクの開始位置だけタイムスタンプをずらしてつなぐ。
+
+## 録音の仕組み
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/recording-dark.png">
+  <img src="docs/diagrams/recording-light.png" alt="録音のデータフロー">
+</picture>
+
+録音はブラウザの API ではなく Rust の `cpal` で行う。リリース済みの Tauri では Linux の webview からマイクを取れず、3 つの OS で同じ動きにするためにネイティブにした。ミキサーは実時間に合わせて書き出し、遅れたデバイスの分は無音で埋めるので、2 つの音源が長時間の録音でずれない。画面に送るのは 1 tick あたり 1 つの音量値だけで、音声そのものは送らない。
+
+## 技術スタック
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/stack-dark.png">
+  <img src="docs/diagrams/stack-light.png" alt="技術スタック">
+</picture>
+
+## 使い方
+
+### デスクトップアプリ
+
+[Releases](https://github.com/terasaki-8910/voice-transcript/releases/latest) から OS に合ったインストーラを入れ、設定 > 接続 で Groq の API キーを入れる。履歴・辞書・注釈・検索を使う場合は PostgreSQL の接続文字列も入れる（DB 自体は自分で用意する）。ffmpeg が `PATH` 上に必要。
+
+macOS で「壊れているため開けません」と出る場合: リリースは Apple の署名と公証をしていないため、ダウンロード時の quarantine 属性で Gatekeeper に止められる。`/Applications` に移したあと、次のコマンドで解除できる。
+
 ```sh
-pnpm install                       # workspace 全パッケージを導入
+xattr -cr "/Applications/Voice Transcript.app"
 ```
 
-## CLI の使い方
-`transcribe` コマンドは単一ファイル専用で、デスクトップ追加後も挙動は不変。workspace の
-ソースから実行する（公開・同梱はしない）:
+### CLI
+
+Node.js 24、pnpm、ffmpeg が必要。CLI はリリースに含めず、ソースから使う。
 
 ```sh
-transcribe <audio-file> [options]
+pnpm install
+export GROQ_API_KEY=...
+export DATABASE_URL=postgresql://...   # 任意。履歴と辞書を使う場合
+# pnpm はパッケージのディレクトリで実行するので、パスは絶対パスで渡す
+pnpm --filter @voice-transcript/cli transcribe "$PWD/lecture.m4a" --format srt -o "$PWD/lecture.srt"
 ```
 
 | オプション | 説明 | 既定 |
 |---|---|---|
-| `-o, --output <file>` | 文字起こしをファイルに出力 | 標準出力 |
+| `-o, --output <file>` | ファイルに書き出す（ログは stderr のみ） | 標準出力 |
 | `--format <txt\|srt\|vtt\|json>` | 出力形式 | `txt` |
-| `--model <name>` | Whisper モデル（`whisper-large-v3-turbo` / `whisper-large-v3`） | `whisper-large-v3-turbo` |
-| `--language <code>` | 話し言語を固定 | 自動判定 |
+| `--model <name>` | `whisper-large-v3-turbo` / `whisper-large-v3` | `whisper-large-v3-turbo` |
+| `--language <code>` | 話す言語を固定する | 自動判定 |
+
+## 開発
 
 ```sh
-export GROQ_API_KEY=...                                # 必須
-transcribe meeting.m4a                                 # txt を標準出力へ
-transcribe meeting.m4a --format srt -o out.srt
-transcribe long.m4a --model whisper-large-v3 --language ja
+pnpm install
+pnpm --filter desktop tauri dev   # デスクトップアプリの開発
+pnpm -r test                      # core 95 / cli 18 / desktop 316 件
+pnpm -r lint && pnpm -r typecheck
+cd apps/desktop/src-tauri && cargo test && cargo clippy   # Rust 45 件
 ```
 
-成功時は終了コード `0`。エラー時は非ゼロで stderr にメッセージ（キー未設定・ファイル不在／
-不正・ffmpeg 未導入・API 失敗）。`-o` 指定時は文字起こしをファイルに書き、stderr にはログのみ
-——標準出力はクリーンなまま。
+ESLint には絵文字とハードコードした色（hex）を禁止する独自ルールを入れ、色はデザイントークンだけで指定する。リリースは GitHub Actions の `release.yml` を手動で実行し、3 つの OS のインストーラを GitHub Release に上げる。
 
-## デスクトップアプリ（Windows / Linux / macOS）
-```sh
-pnpm --filter desktop tauri dev                        # 開発ループ
-```
+Claude Code を使って開発した。仕様は `SPEC.md`、合否の基準は `ACCEPTANCE.md` に書き、完了の判定はテスト・lint・型チェックで機械的に行った。図は `docs/diagrams/src/` のスクリプトから生成している。
 
-- **ファイルキュー:** 複数ファイルを一度に文字起こしできる（CLI は単一ファイルのままで、
-  これは GUI 固有の差分）。各ファイルは独立に追跡され、1 件の失敗が他を止めない。
-- **進捗:** ファイル単位、長時間ファイルの分割時はチャンク単位でも表示——不定スピナーは使わない。
-- **履歴:** 全実行（CLI・GUI とも）を保存。履歴ビューで過去の実行を一覧し、開くと API を
-  再呼び出しせずに保存済み文字起こしを表示する。行のステータスチップの隣にある鉛筆
-  アイコンから、名前を編集可能なタイトルに変えられる——Enter またはチェックマークで保存、
-  Esc でキャンセル、空にするとファイル名表示に戻る。これは元のソースファイル名には触れない
-  別のタイトルであり、一度設定すると名前が表示されるすべての場所——行、書き出し時の
-  提案ファイル名、確認ダイアログ、検索結果——に反映され、検索対象にもなる。
-- **CLI と同じ設定**（形式・モデル・言語）を、フラグではなく Settings のコントロールとして
-  提供——これがキューされる全文字起こしの実際の既定値になる。
-- **マイク録音（時間制限なし）:** サイドバーの「Add files」の隣に録音ボタンを配置し、その横に
-  実際に音を拾えているか確認できるライブレベルメーターを表示する。録音が完了すると
-  ピックしたファイルと全く同様にキューへ加わる。音源はマイク・システム音声
-  （「聞こえている音」——通話の相手側や動画など）・両方をミックスした 1 トラックから選べ、
-  既定はマイクのみ（システム音声キャプチャは macOS の権限許可が必要で、Linux では
-  存在しない）。キャプチャはネイティブ実装（Rust の `cpal` 経由）で webview 側では
-  行わない——サンプルは届いた端から直接 WAV ファイルへストリーム書き込みされ、メモリ上に
-  全体を保持することはなく、長さの上限はディスク容量のみ。レベルメーターはこの
-  ネイティブ／webview 境界を越えて、1 tick ごとに導出した音量値 1 つだけを送る（生の
-  音声データは送らない）。（ネイティブキャプチャは意図的な選択: リリース済みのどの Tauri
-  バージョンも Linux の webview 内でのマイクキャプチャを有効化しておらず、ブラウザ API
-  での録音は本アプリの 3 つの対象プラットフォームの 1 つで黙って動作しなくなるため。）
-  録音の音声——アップロードしたファイルは対象外——は、文字起こしが成功すると自動的に
-  ゴミ箱へ移動する（OS のゴミ箱、復元可能）。既定で有効、Settings でオフにできる。
-- **カスタム辞書:** 完了した全文字起こし（CLI・GUI とも）に適用される単語→置換のペア。
-  両インターフェースが同一の修正済みテキストを生成する。Settings からエントリーを管理でき
-  （追加・編集時は簡単な確認表示が一瞬出る）、JSON ファイル（Amical の語彙エクスポート
-  形式を含む）を冪等なアップサートとしてインポートできる。
-- **文字起こし注釈（Transcript notes）:** Queue または History の展開したプレビュー内で
-  テキストを選択すると、文字起こし本文自体を書き換えずにサイドコメント（聞き間違いの
-  指摘など）を付けられる。保存済みの注釈はハイライト表示され、クリックで閲覧・編集・
-  削除できる。保存・編集・削除はサイドカーとの往復を待たず即座に反映される。バック
-  グラウンドでの保存が最終的に失敗した場合は「未保存」表示になり、再試行・破棄を選べる
-  （黙って元に戻ることはない）。Cmd+Enter（Windows/Linux は Ctrl+Enter）で保存、Esc で
-  キャンセル。保存済みの注釈は、引用テキストを新しいカスタム辞書エントリーへリンクでき、
-  以降の文字起こしのみを修正する（その注釈が付いている文字起こし自体は変更しない）。
-- **検索:** サイドバーの折りたたみトグルの隣にある検索アイコンから、タイトル・文字起こし
-  本文・注釈テキストを一度に、全履歴を横断してクエリするモーダルを開ける——クライアント
-  側に既に読み込まれているページのみを対象とするサイドバーの常時表示フィルターとは別物。
-  スペース区切りの複数語は AND 条件だが、各語は別々のフィールドに一致してもよい。入力に
-  応じて（デバウンスしつつ）結果が更新され、一致箇所はインラインでハイライトされ、矢印
-  キーとEnterでテキストフィールドを離れずに操作できる。
-- **表示言語:** 日本語と英語をアプリ内で切り替え可能（再起動不要）。これは音声の話し言語で
-  ある `--language` とは別物。
-- **テーマ:** ライト／ダークの明示トグル（OS 追従だけではない）。
-- **履歴項目の削除——2 つの別アクション:** *ソース音声をゴミ箱へ* はソースファイルのみを OS
-  のゴミ箱へ移し（復元可能）、履歴レコードと文字起こしは保持する。*履歴エントリを削除* は
-  レコード自体を削除し、ソースファイルが残っていればそれも OS ゴミ箱へ送る。いずれも
-  完全な復元不能削除ではない。
-- **ネイティブ OS メニュー:** webview 内コントロールだけでなく本物の OS メニューを提供し、
-  **Add files** / **Open history** / **Export**（現在の文字起こしを既存形式 txt/srt/vtt/json
-  で書き出し）/ **View on GitHub** / **Preferences...** を公開。Preferences はプラット
-  フォーム標準ショートカット（macOS: Cmd+, / Windows・Linux: Ctrl+,）に割り当て。
+## 制約と対象外
 
-<p>
-  <img src="docs/screenshots/queue-dark.png" alt="Queue ビュー（ダークテーマ）" width="49%">
-  <img src="docs/screenshots/history-light.png" alt="History ビュー、行ごとの操作アイコン（ライトテーマ）" width="49%">
-</p>
-<p>
-  <img src="docs/screenshots/preferences-dark.png" alt="Preferences ビュー" width="49%">
-</p>
-
-### Settings
-サイドバーの Settings 項目、ネイティブメニューの **Preferences...**、または
-Cmd+,/Ctrl+, のいずれからでも同じセクション分けされたダイアログを開く（既定は音声入力）:
-
-- **音声入力（Voice input）** — Whisper モデル、話し言語の自動検出＋上書き、音源
-  （マイク／システム音声／両方）とそのデバイス選択、録音成功後に音声を自動でゴミ箱へ
-  移動するかどうか（既定でオン）。これらがキューされる全文字起こし（録音完了分を含む）
-  の実際の既定値になる。
-- **カスタム辞書（Custom dictionary）** — 単語置換エントリーの追加・編集・削除・
-  インポート（前述）。
-- **一般（General）** — 表示設定（現状は句点ごとの改行のみ）。
-- **接続（Connection）** — 環境変数ではなく GUI から `GROQ_API_KEY` と `DATABASE_URL` を
-  設定できる。どちらも Rust シェルが OS のユーザーごとの設定ディレクトリ内の**ローカル
-  設定ファイル**（macOS: `~/Library/Application Support/…`、Windows: `%APPDATA%\…`、
-  Linux: `~/.config/…`）に書き込み、リポジトリ外に置きコミットしない。webview はこれらの
-  ファイルに直接触れず、値を読み返すこともできない——Connection は設定済みかどうかのみ
-  表示する。サイドカーは対応する環境変数が未設定のときにのみ保存済みの値を使う。環境変数が
-  両方とも設定されていれば、常に環境変数が優先される。**接続テスト**ボタンで、保存済みの
-  データベース URL に今すぐ実際に接続できるかを確認でき、失敗時は本当のエラー内容
-  （タイムアウトや認証失敗など）を表示する——入力欄に何か打つ必要はなく、保存済みの値を
-  テストする。
-
-トレードオフ（明言）: API キー・データベース URL は暗号化された OS キーチェーンではなく、
-平文のオンディスク保存である。守りは所有者のみのファイル権限とリポジトリ外配置だけ。
-単一ユーザーの個人ツールとして許容範囲だが、複数ユーザーや共有マシンでの利用前には
-見直し（例: OS キーチェーンへの移行）が必要。
-
-## 出力と長時間音声の挙動
-- 形式: `txt`（既定・タイムスタンプ無し）／`srt`／`vtt`／`json`（区間・語のタイムスタンプ）。
-- 長時間音声: ffmpeg で 16 kHz モノラルに正規化 → エンコード後が閾値（約 24 MB、Groq の
-  25 MB/リクエスト上限の下）を超える場合は**無音位置で分割** → 各チャンクを文字起こし →
-  各チャンクの時間オフセットを適用して**スティッチ**（マージ後のタイムスタンプは単調
-  非減少）。約 78 分の `tests/test.m4a`（73 MB）で検証。この正規化・分割で生成される
-  一時ファイルは、実行が成功しても失敗しても終了時にすべて削除される。
-- 同じファイルを同じ設定で CLI と GUI で処理するとバイト単位で同一のテキストになる——
-  どちらも同じ `packages/core` エンジンを呼ぶため。
-
-## 文字起こし履歴（Postgres）
-完了した全実行（CLI・GUI とも）が 1 レコードを書き込む: ソースファイル名、開始時刻、モデル、
-言語、要求形式、ステータス、文字起こしテキスト（形式に応じて区間も）。`DATABASE_URL` は
-環境変数から読み、未設定なら GUI の Settings の値にフォールバックする（前述）。DB 関連は
-ハードコードしない。データアクセス層は ORM／クエリビルダー経由（マイグレーション以外に
-ベンダー固有の生 SQL を置かない）とし、将来の MySQL や別ホストへの移行を書き換えではなく
-設定変更で済むようにする。アプリは Postgres に接続すると、テーブルが無ければ自動的に
-作成する（冪等な追跡付きマイグレーション、毎回実行しても安全）——ただしデータベース自体の
-構築はせず、バックアップもしない。バックグラウンドでの履歴更新が失敗した場合、直前まで
-表示していた一覧はそのまま残り、そこに本当のエラー内容（定型文だけでなく）も併記される。
-
-## カスタム辞書（単語置換）
-文字起こし後、結果がレンダリング・履歴記録・返却される前に適用される——CLI と GUI の両方の
-経路で同一。マッチングは大文字小文字を区別する文字列一致: ASCII 文字のみからなる単語は
-単語単位でのみ一致し（より大きなトークン内では発火しない）、非 ASCII 文字を含む単語
-（日本語のエントリーすべて）は単純な部分文字列として一致する（日本語には空白による単語
-境界が存在しないため）。置換は単語が長い順に並べた 1 回のパスとして行う——これにより、
-短い単語を含む長いエントリーが優先され、辞書が増えてもカスケードしない結果が保たれる。
-エントリーは履歴と同じ Postgres データベース（`word` にユニーク制約を持つ
-`dictionary_entries` テーブル）に保存される。そのため履歴と同様、`DATABASE_URL` が
-未設定／到達不能な場合は辞書も利用できない——これによって文字起こし自体が止まったり
-失敗したりすることはなく、単に置換が適用されないだけである。
-
-インポートは本アプリ独自の `{ word, replacement }[]` 形式に加え、Amical の語彙エクスポート
-形式（`{ entries: [{ word, replacement_word, is_replacement, ... }] }`——`is_replacement`
-が偽のエントリーはスキップ）にも直接対応する。同じファイルの再インポートは冪等: 行数も
-置換内容も変化しない。
-
-## 文字起こし注釈（Transcript notes）
-文字起こし本文は書き換えず、特定の単語やフレーズにサイドコメントを付ける機能——例えば
-聞き間違いを指摘する。「その場で修正する」ではなく「コメントを残す」を意図的に選択した。
-保存済み履歴エントリーを持つどの行からでも、Queue・History どちらからも使える: 行の
-展開されたプレビュー内でテキストを選択すると小さなポップオーバーが開き、注釈を付けられる。
-保存済みの注釈はハイライトされたスパンとして表示され、クリックで閲覧・編集・削除できる。
-アンカリングは保存済み文字起こしテキストへの生の文字オフセット範囲であり、タイムスタンプ
-ではないため、無期限に有効なまま残る。重なる範囲の注釈は拒否される。
-
-追加・編集・削除は表示中の文字起こしに即座に反映されポップオーバーも即座に閉じる——サイド
-カーとの往復を待たない。バックグラウンドでの書き込みが最終的に失敗した場合、注釈は
-「未保存」の見た目で表示され、黙って元に戻る代わりに再試行・破棄を選べる。Cmd+Enter
-（Windows/Linux は Ctrl+Enter）で保存、Esc はそのときポップオーバーに表示されている
-Cancel と同じ動作をする。保存済みの注釈は、引用テキストを新しいカスタム辞書エントリーへ
-リンクでき、以降の文字起こしのみを修正する——文字起こし本文が編集されないという原則通り、
-その注釈が付いている文字起こし自体は変更しない。注釈は独自のテーブルに保存され、
-`ON DELETE CASCADE` で履歴エントリーに外部キー結合されているため、対象の文字起こしより
-長く残ることはない。
-
-## 検索
-サイドバーの折りたたみトグルの隣にある検索アイコン（サイドバーを折りたたんでいても押せる）
-から、タイトル・文字起こし本文・注釈テキストを一度に、全履歴を横断してクエリするモーダルを
-開ける——クライアント側に既に読み込まれているページのみを対象とする、サイドバー自体の
-常時表示インラインフィルターとは別物。ここでの「タイトル」はその項目に現在表示されている
-名前を指す——History のリネーム機能でカスタムタイトルを設定していれば、置き換えられた
-ファイル名ではなくそのタイトルが検索対象になる。クエリ内のスペース区切りの語は AND 条件で
-結合されるが、各語はタイトル・本文・注釈のうち別々のフィールドに一致してもよい。注釈にしか一致しない
-場合でも結果に表示され、理由が分かるようにその注釈自体のテキストを示す（一致理由の
-分からない裸のファイル名だけにはしない）。入力に応じて結果が更新され（検索ごとに
-バックエンドへの往復が発生するため約 250ms デバウンス）、一致した語はインラインで
-ハイライトされ、矢印キーでフォーカス中の結果を移動しEnterで開ける。Esc またはモーダル
-背景のクリックで閉じ、Cmd+F/Ctrl+F でアプリ内のどこからでも開ける。
-
-## リリース自動化
-手動トリガーの GitHub Actions ワークフロー（`.github/workflows/release.yml`、
-`workflow_dispatch` のみ——push/tag では発火しない）。入力は **title** と **version/tag** の
-2 つだけ。`windows-latest` / `ubuntu-latest` / `macos-latest` で **`apps/desktop` のみ**を
-ビルドし、各プラットフォームのネイティブインストーラ（macOS `.dmg`、Windows `.exe`、Linux
-`.AppImage`/`.deb`）を GitHub Release にアップロードする。`packages/cli` はリリースでは
-ビルド・公開されず、ソースから使う。
-
-### macOS:「壊れているため開けません」と表示される場合
-このリリースビルドは Apple Developer ID によるコード署名も公証(notarization)もされて
-いない（有料の Apple Developer Program 登録が必要で、本プロジェクトのスコープ外）。ブラウザ
-経由でダウンロードすると `com.apple.quarantine` フラグが付き、Gatekeeper がアドホック署名を
-拒否してこの紛らわしいメッセージを表示する——アプリ自体が壊れているわけではない。
-`/Applications` に移動した後、以下で解消する:
-```sh
-xattr -cr "/Applications/Voice Transcript.app"
-```
-Windows・Linux ではこの問題は起きない——Windows は「発行元不明」の SmartScreen 警告が出る
-場合があるが「実行」で続行でき、Linux の `.AppImage`/`.deb` はそもそも署名を要求しない。
-
-## 制約
-- **Groq 無料枠のみ:** 25 MB/リクエスト、7,200 音声秒/時、2,000 リクエスト/日。分割戦略は
-  25 MB 上限を守るために存在する。
-- ソース・CLI 出力・GUI コピーに**絵文字禁止**。GUI の**色は必ず design token 経由**
-  （hex ハードコード禁止、design gate で強制）。
-- 履歴（および同じデータベースを共有する辞書・注釈・検索）には到達可能な Postgres が
-  必要だが、DB が未設定／到達不能でも文字起こしは完了すること——失敗するのは履歴書き込み
-  のみで、それは明示的にログされ（黙って失敗しない）、文字起こし自体を止めたり壊したり
-  しない。
-- 録音にソフトウェアによる時間上限はないが、標準的な WAV ファイルの RIFF サイズフィールド
-  自体が典型的なキャプチャレートで約 3〜4 時間という物理的な上限を持つ——これは上記の
-  Groq 自身の 1 時間あたりの音声予算をはるかに超えているため、実用上のセッション長の
-  制約にはならない。
-- git はローカルのみ。指示がない限り push しない。生成物の言語は英語。
-
-## 対象外（明示）
-話者分離、翻訳、要約／LLM による後処理、CLI の一括・ディレクトリ・複数ファイル処理（GUI の
-キューは GUI 限定）、リアルタイム／ストリーミング、リモート URL 入力（ローカルファイルのみ）、
-複数ユーザーアカウント／認証（ローカル 1 ユーザーの履歴のみ、ログイン無し）、DB の構築／
-ホスティング／バックアップ自動化、同一 DB を指す以上のデバイス間同期（last-write-wins、
-競合解決なし）。詳細は `SPEC.md`。
-
-## アーキテクチャ
-共有の `packages/core` エンジン（ffmpeg 正規化・無音ベースの分割・Groq クライアント＋
-リトライ・スティッチ・各形式レンダラ——UI も DB も持たない）を、2 つのフロントが囲む。
-`packages/cli` はこれを直接ラップする。`apps/desktop` は Rust シェル経由でのみ到達し、その
-シェルが全特権操作（ffmpeg・Groq 呼び出し・DB アクセス）を担い、`packages/core`（エンジンと
-DB 層）を stdio/IPC 上の監督付き Node **サイドカー**として動かす——Rust 自身は SQL を実行せず、
-GUI 経由で ffmpeg・Groq・DB に実際に到達するのはこのサイドカーだけ。webview はシークレット・
-ファイルシステム・DB に直接触れない。サイドカーの各コマンドは毎回新しく短命なプロセスであり、
-Rust は応答が返るだけでなくプロセスが実際に終了するまで待つ——そのためプロセス自身の DB
-接続は、居座り続けるのではなく本当にアイドルになった瞬間に終了できるよう設定されている。
-
-```mermaid
-flowchart TD
-    cli["packages/cli<br/>transcribe (single file)"]
-    subgraph desktop["apps/desktop (Tauri)"]
-        webview["webview: React + Vite<br/>no secrets / fs / DB"]
-        rust["src-tauri Rust shell<br/>owns ffmpeg, Groq, DB access"]
-        webview -->|"invoke() — Tauri command"| rust
-        rust -->|"emit() — recording level"| webview
-    end
-    core["packages/core<br/>engine: normalize · silence-chunk · Groq client + retry · stitch · render<br/>+ history/dictionary/notes DB layer (Drizzle ORM over pg)"]
-    ffmpeg(["ffmpeg on PATH"])
-    groq(["Groq hosted Whisper — HTTP API"])
-    db[("PostgreSQL — DATABASE_URL")]
-
-    cli -->|"import (thin wrapper + DB layer)"| core
-    rust -->|"spawn, stdio/IPC — sidecar, one process per command"| core
-    core -->|"normalize + split at silence"| ffmpeg
-    core -->|"HTTP transcription requests"| groq
-    core -->|"history/dictionary/notes/search read/write (Drizzle/pg)"| db
-```
-
-## 開発（ゲート付きパイプライン）
-このリポジトリは `scripts/run.sh` のゲート付きパイプラインで作られる（仕様確定 → 失敗する
-テスト → design gate → 計画 → 機能ごとの build → 受け入れ）。任意の段階から再開できる:
-```sh
-sh scripts/run.sh from build                 # この段階から最後まで実行
-INTERACTIVE=1 sh scripts/run.sh from build   # 可視 TUI / 通知付きで進捗を見ながら
-```
-合否基準は `ACCEPTANCE.md`、段階定義は `pipeline.yaml`。この README 2 ファイルは `SPEC.md`
-から（`sh scripts/run.sh readme` で）生成され、手書きではない。
+- Groq の無料枠（1 リクエスト 25 MB、1 時間あたり 7,200 音声秒、1 日 2,000 リクエスト）の範囲で動かす。
+- Linux ではシステム音声を録音できない（ALSA にループバックがないため）。
+- API キーと DB の URL は OS のキーチェーンではなく、所有者のみ読めるローカルファイルに平文で保存する。1 人で使う個人ツールとしての判断で、共有マシンで使うなら見直しが要る。
+- 話者分離、翻訳、要約、リアルタイム文字起こし、URL 入力、複数ユーザーは対象外。複数の PC は同じ DB を指すだけで、競合の解決はしない（後勝ち）。
