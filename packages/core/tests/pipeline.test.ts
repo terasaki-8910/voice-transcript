@@ -4,8 +4,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { runPipeline } from "../src/pipeline.js";
 import type { AudioBackend, AudioChunk } from "../src/audio.js";
-import type { Transcriber, TranscribeParams, TranscriptResult } from "../src/types.js";
-import { CHUNK_TARGET_BYTES, MAX_UPLOAD_BYTES } from "../src/config.js";
+import type { PipelineEvent, Transcriber, TranscribeParams, TranscriptResult } from "../src/types.js";
+import { CHUNK_TARGET_BYTES, FREE_TIER_AUDIO_SECONDS_PER_HOUR, MAX_UPLOAD_BYTES } from "../src/config.js";
 
 const MB = 1024 * 1024;
 const MAX = CHUNK_TARGET_BYTES;
@@ -288,5 +288,100 @@ describe("B5 - temp artifacts are removed whether the run succeeds or fails", ()
     await expect(
       runPipeline("in.m4a", { audio, transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
     ).rejects.toThrow("the real error");
+  });
+});
+
+describe("progress events and Groq's hourly audio budget", () => {
+  function longAudio(durationSec: number) {
+    // 4 chunks' worth of bytes, silence every 10 minutes.
+    const silences = Array.from({ length: Math.floor(durationSec / 600) }, (_, i) => (i + 1) * 600);
+    return makeAudio({ durationSec, bytes: 4 * MAX - MB, silences });
+  }
+
+  it("flags audio longer than the free tier's hourly budget before transcribing", async () => {
+    const events: PipelineEvent[] = [];
+    const progress: string[] = [];
+    await runPipeline("in.m4a", {
+      audio: longAudio(9000),
+      transcriber: makeTranscriber(),
+      maxBytes: MAX,
+      model: "whisper-large-v3-turbo",
+      onEvent: (e) => events.push(e),
+      onProgress: (m) => progress.push(m),
+    });
+
+    expect(events[0]).toEqual({ type: "over-hourly-budget", audioSeconds: 9000, budgetSeconds: FREE_TIER_AUDIO_SECONDS_PER_HOUR });
+    expect(progress.some((m) => m.includes("150 min") && m.includes("120 min"))).toBe(true);
+  });
+
+  it("does not flag audio within the budget", async () => {
+    const events: PipelineEvent[] = [];
+    await runPipeline("in.m4a", {
+      audio: longAudio(4674),
+      transcriber: makeTranscriber(),
+      maxBytes: MAX,
+      model: "whisper-large-v3-turbo",
+      onEvent: (e) => events.push(e),
+    });
+    expect(events.some((e) => e.type === "over-hourly-budget")).toBe(false);
+  });
+
+  it("reports the chunk plan and each finished chunk", async () => {
+    const events: PipelineEvent[] = [];
+    await runPipeline("in.m4a", {
+      audio: longAudio(9000),
+      transcriber: makeTranscriber(),
+      maxBytes: MAX,
+      model: "whisper-large-v3-turbo",
+      onEvent: (e) => events.push(e),
+    });
+    const planned = events.find((e) => e.type === "chunks-planned");
+    expect(planned).toMatchObject({ type: "chunks-planned" });
+    const total = planned?.type === "chunks-planned" ? planned.total : 0;
+    expect(total).toBeGreaterThan(1);
+    const done = events.filter((e) => e.type === "chunk-done");
+    expect(done.map((e) => (e.type === "chunk-done" ? e.done : 0))).toEqual(Array.from({ length: total }, (_, i) => i + 1));
+  });
+
+  it("forwards a chunk's rate-limit wait with its 1-based index and resume time", async () => {
+    const events: PipelineEvent[] = [];
+    const progress: string[] = [];
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    const transcriber = makeTranscriber(async (p, idx) => {
+      if (idx === 1) p.onRateLimitWait?.(992_500);
+      return { text: `seg${String(idx)}`, segments: [] };
+    });
+    await runPipeline("in.m4a", {
+      audio: longAudio(9000),
+      transcriber,
+      maxBytes: MAX,
+      model: "whisper-large-v3-turbo",
+      onEvent: (e) => events.push(e),
+      onProgress: (m) => progress.push(m),
+      now: () => now,
+    });
+    const wait = events.find((e) => e.type === "rate-limit-wait");
+    expect(wait).toMatchObject({ type: "rate-limit-wait", chunk: 2, waitSeconds: 993, resumeAt: new Date(now + 992_500).toISOString() });
+    expect(progress.some((m) => m.includes("waiting 16m33s"))).toBe(true);
+  });
+
+  it("aborts the other chunks once one fails for good, and reports the real error", async () => {
+    let siblingAborted = false;
+    const transcriber = makeTranscriber(async (p, idx) => {
+      if (idx === 0) throw new Error("chunk 0 failed");
+      // A sibling sitting in a long rate-limit wait.
+      await new Promise<void>((_, reject) => {
+        p.signal?.addEventListener("abort", () => {
+          siblingAborted = true;
+          reject(p.signal?.reason);
+        });
+      });
+      return { text: "never", segments: [] };
+    });
+
+    await expect(
+      runPipeline("in.m4a", { audio: longAudio(9000), transcriber, maxBytes: MAX, model: "whisper-large-v3-turbo" }),
+    ).rejects.toThrow("chunk 0 failed");
+    expect(siblingAborted).toBe(true);
   });
 });

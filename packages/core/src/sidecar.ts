@@ -16,6 +16,7 @@ import type { AudioBackend } from "./audio.js";
 import { GroqClient } from "./groq.js";
 import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
+import { PROGRESS_EVENT_PREFIX } from "./config.js";
 import { render } from "./formats.js";
 import { createDb } from "./db/client.js";
 import {
@@ -239,6 +240,10 @@ export async function handleTranscribe(
       model: args.model,
       language: args.language,
       onProgress: (msg) => process.stderr.write(`${msg}\n`),
+      // The Rust shell streams stderr while this runs and forwards each
+      // prefixed line to the webview as a progress event (commands.rs);
+      // the plain onProgress lines above stay for its error log.
+      onEvent: (event) => process.stderr.write(`${PROGRESS_EVENT_PREFIX}${JSON.stringify(event)}\n`),
     });
     // Custom dictionary (word replacement) applied here -- after
     // runPipeline, before render()/recordHistory() -- so the stored history

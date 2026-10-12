@@ -25,6 +25,7 @@ import {
   main,
 } from "../src/sidecar.js";
 import type { SidecarDeps } from "../src/sidecar.js";
+import { PROGRESS_EVENT_PREFIX } from "../src/config.js";
 import type { AudioBackend, AudioChunk } from "../src/audio.js";
 import type { Transcriber } from "../src/types.js";
 import type { HistoryRecord } from "../src/db/history.js";
@@ -118,6 +119,25 @@ describe("testConnection", () => {
 });
 
 describe("transcribe", () => {
+  it("writes each pipeline event to stderr as one prefixed JSON line for the Rust shell", async () => {
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const { deps } = makeDeps();
+      await handleTranscribe({ filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" }, deps);
+    } finally {
+      spy.mockRestore();
+    }
+    const events = written
+      .filter((line) => line.startsWith(PROGRESS_EVENT_PREFIX))
+      .map((line) => JSON.parse(line.slice(PROGRESS_EVENT_PREFIX.length)) as { type: string });
+    expect(events.map((e) => e.type)).toEqual(["chunks-planned", "chunk-done"]);
+    expect(written.every((line) => line.endsWith("\n"))).toBe(true);
+  });
+
   it("returns the rendered transcript and records success history", async () => {
     const { deps, recordHistory } = makeDeps();
     const result = await handleTranscribe(

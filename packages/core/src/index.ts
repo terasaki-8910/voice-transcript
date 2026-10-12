@@ -4,6 +4,7 @@ export type {
   TranscriptResult,
   TranscribeParams,
   Transcriber,
+  PipelineEvent,
 } from "./types.js";
 
 export {
@@ -11,6 +12,10 @@ export {
   MAX_UPLOAD_BYTES,
   CHUNK_TARGET_BYTES,
   MAX_RETRIES,
+  FREE_TIER_AUDIO_SECONDS_PER_HOUR,
+  MAX_RATE_LIMIT_WAIT_MS,
+  MAX_RATE_LIMIT_WAITS,
+  PROGRESS_EVENT_PREFIX,
   GROQ_TRANSCRIPTION_ENDPOINT,
   OUTPUT_FORMATS,
 } from "./config.js";
@@ -25,7 +30,7 @@ export { render } from "./formats.js";
 
 export { stitchChunks } from "./stitch.js";
 
-export { GroqClient, GroqApiError } from "./groq.js";
+export { GroqClient, GroqApiError, parseRetryAfterMs, formatWait } from "./groq.js";
 
 export { runPipeline } from "./pipeline.js";
 
