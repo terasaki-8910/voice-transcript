@@ -147,7 +147,7 @@ export async function runPipeline(
         transcribeChunk(chunk, index, total, deps, controller.signal).then(
           (value) => {
             done++;
-            deps.onEvent?.({ type: "chunk-done", done, total });
+            deps.onEvent?.({ type: "chunk-done", chunk: index + 1, done, total });
             return value;
           },
           (error: unknown) => {

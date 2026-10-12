@@ -5,8 +5,10 @@
 // the previous one succeeded or failed.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { transcribe } from "../../lib/tauri";
-import type { TranscribeRequest, TranscribeResponse } from "../../lib/tauri";
+import { onTranscribeProgress, transcribe } from "../../lib/tauri";
+import type { TranscribeProgress, TranscribeRequest, TranscribeResponse } from "../../lib/tauri";
+import { applyProgressEvent } from "./queueProgress";
+import type { QueueProgress } from "./queueProgress";
 import { useVoiceInputSettings } from "../preferences/VoiceInputSettingsContext";
 
 export type QueueItemStatus = "queued" | "transcribing" | "done" | "failed";
@@ -27,6 +29,8 @@ export interface QueueItem {
   origin?: QueueItemOrigin;
   result?: TranscribeResponse;
   error?: string;
+  // Only while status is "transcribing" -- cleared once it finishes either way.
+  progress?: QueueProgress;
 }
 
 interface QueueContextValue {
@@ -59,11 +63,41 @@ export interface QueueProviderProps {
   children: ReactNode;
   // Injectable for tests -- defaults to the real Tauri-backed transcribe().
   transcribeFn?: (request: TranscribeRequest) => Promise<TranscribeResponse>;
+  // Same, for the progress events that arrive while transcribeFn runs.
+  subscribeProgressFn?: (handler: (progress: TranscribeProgress) => void) => Promise<() => void>;
 }
 
-export function QueueProvider({ children, transcribeFn = transcribe }: QueueProviderProps) {
+export function QueueProvider({
+  children,
+  transcribeFn = transcribe,
+  subscribeProgressFn = onTranscribeProgress,
+}: QueueProviderProps) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const processingRef = useRef(false);
+
+  // Attributed by runId (the item id sent with the request), and only to an
+  // item still transcribing -- a late event can never repaint a row that
+  // has already finished or been retried.
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let disposed = false;
+    void subscribeProgressFn(({ runId, event }) => {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === runId && item.status === "transcribing"
+            ? { ...item, progress: applyProgressEvent(item.progress, event) }
+            : item,
+        ),
+      );
+    }).then((fn) => {
+      if (disposed) fn();
+      else unsubscribe = fn;
+    });
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [subscribeProgressFn]);
   // Settings > Voice input's model/language, instead of a hardcoded default
   // -- ACCEPTANCE G12. autoDetectLanguage stays the default (Groq's
   // language param omitted); toggling it off in Settings sends the chosen
@@ -87,7 +121,9 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
 
   const retry = (id: string) => {
     setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: "queued", error: undefined, result: undefined } : item)),
+      prev.map((item) =>
+        item.id === id ? { ...item, status: "queued", error: undefined, result: undefined, progress: undefined } : item,
+      ),
     );
   };
 
@@ -108,13 +144,20 @@ export function QueueProvider({ children, transcribeFn = transcribe }: QueueProv
       model,
       format: "txt",
       language: autoDetectLanguage ? undefined : language,
+      runId: next.id,
     })
       .then((result) => {
-        setItems((prev) => prev.map((item) => (item.id === next.id ? { ...item, status: "done", result } : item)));
+        setItems((prev) =>
+          prev.map((item) => (item.id === next.id ? { ...item, status: "done", result, progress: undefined } : item)),
+        );
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        setItems((prev) => prev.map((item) => (item.id === next.id ? { ...item, status: "failed", error: message } : item)));
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === next.id ? { ...item, status: "failed", error: message, progress: undefined } : item,
+          ),
+        );
       })
       .finally(() => {
         processingRef.current = false;

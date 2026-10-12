@@ -35,8 +35,8 @@ export type PipelineEvent =
   // of it will have to wait for that budget to free up.
   | { type: "over-hourly-budget"; audioSeconds: number; budgetSeconds: number }
   | { type: "chunks-planned"; total: number }
-  | { type: "chunk-done"; done: number; total: number }
-  // chunk is 1-based. resumeAt is an ISO timestamp.
+  // chunk is 1-based in both of these. resumeAt is an ISO timestamp.
+  | { type: "chunk-done"; chunk: number; done: number; total: number }
   | { type: "rate-limit-wait"; chunk: number; total: number; waitSeconds: number; resumeAt: string };
 
 export interface Transcriber {

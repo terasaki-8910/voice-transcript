@@ -10,14 +10,14 @@
 // level since QueueRow has no injectable seam for them (consistent with
 // how other direct Tauri API calls are mocked elsewhere in this suite).
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../src/i18n/I18nContext";
 import { DisplayPreferencesProvider } from "../../src/features/preferences/DisplayPreferencesContext";
 import { VoiceInputSettingsProvider } from "../../src/features/preferences/VoiceInputSettingsContext";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { QueueRow } from "../../src/features/queue/QueueRow";
 import { SelectionProvider } from "../../src/features/selection/SelectionContext";
-import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
+import type { TranscribeProgress, TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
 const save = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -29,13 +29,19 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }));
 
-function RowHarness({ transcribeFn }: { transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse> }) {
+function RowHarness({
+  transcribeFn,
+  subscribeProgressFn,
+}: {
+  transcribeFn: (request: TranscribeRequest) => Promise<TranscribeResponse>;
+  subscribeProgressFn?: (handler: (progress: TranscribeProgress) => void) => Promise<() => void>;
+}) {
   return (
     <I18nProvider>
       <DisplayPreferencesProvider>
         <VoiceInputSettingsProvider>
           <SelectionProvider>
-            <QueueProvider transcribeFn={transcribeFn}>
+            <QueueProvider transcribeFn={transcribeFn} subscribeProgressFn={subscribeProgressFn}>
               <RowList />
             </QueueProvider>
           </SelectionProvider>
@@ -163,3 +169,40 @@ describe("QueueRow", () => {
     expect(screen.queryByRole("button", { name: "Remove from queue" })).toBeNull();
   });
 });
+
+describe("QueueRow progress", () => {
+  it("shows the over-budget notice, then the parts count, then when a rate-limit wait ends", async () => {
+    let emit: ((p: TranscribeProgress) => void) | undefined;
+    const requests: TranscribeRequest[] = [];
+    render(
+      <RowHarness
+        transcribeFn={(r) => {
+          requests.push(r);
+          return new Promise<TranscribeResponse>(() => {});
+        }}
+        subscribeProgressFn={async (handler) => {
+          emit = handler;
+          return () => {};
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const runId = requests[0].runId;
+
+    act(() => {
+      emit?.({ runId, event: { type: "over-hourly-budget", audioSeconds: 9000, budgetSeconds: 7200 } });
+      emit?.({ runId, event: { type: "chunks-planned", total: 5 } });
+      emit?.({ runId, event: { type: "chunk-done", chunk: 1, done: 1, total: 5 } });
+    });
+    expect(screen.getByText(/150 min of audio is over the free tier's 120 min per hour/)).toBeDefined();
+    expect(screen.getByText("1 of 5 parts done")).toBeDefined();
+
+    const resumeAt = "2026-10-12T10:16:40.000Z";
+    act(() => emit?.({ runId, event: { type: "rate-limit-wait", chunk: 4, total: 5, waitSeconds: 990, resumeAt } }));
+    const time = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(resumeAt));
+    expect(screen.getByText(`Waiting for Groq's free-tier limit to reset. Resumes around ${time}.`)).toBeDefined();
+    expect(screen.queryByText("1 of 5 parts done")).toBeNull();
+  });
+});
+
