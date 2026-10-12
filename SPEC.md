@@ -22,6 +22,16 @@ history of past runs.
   normalized file and any chunks are written to per-run temp directories that
   are removed once the run finishes, success or failure alike (added
   2026-09-30, user-reported: previously never cleaned up).
+- **Rate limit (added 2026-10-12, user-reported: a 2.5-hour file failed with
+  a 429).** Audio past the free tier's 7,200 audio-seconds per hour can't
+  finish inside one window however it is chunked. A 429 that states its wait
+  (`retry-after`, or the body's "try again in ...") is slept out and that
+  chunk retried, up to 6 waits of at most 65 minutes each; a longer ask (the
+  daily budget) fails at once, saying so. Chunks still go out in parallel, so
+  a file over the budget finishes on its own about an hour after it started.
+  When one chunk fails for good, the others are aborted rather than left
+  sleeping. The GUI row shows the over-budget notice, parts done, and the
+  time a wait ends (streamed from the sidecar while the run is in progress).
 - **Auth:** `GROQ_API_KEY` read from the environment only.
 
 ## Architecture (monorepo)

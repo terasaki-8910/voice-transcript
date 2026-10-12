@@ -5,9 +5,18 @@
 // environment and are never passed as a command argument or returned in a
 // response (see .claude/agents/tauri-capability-reviewer.md).
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+
+/// Prefix of the sidecar's structured progress lines on stderr (one JSON
+/// object after it). Must match PROGRESS_EVENT_PREFIX in
+/// packages/core/src/config.ts.
+const PROGRESS_EVENT_PREFIX: &str = "@@progress ";
+/// Webview event carrying one of those progress objects, tagged with the
+/// queue item it belongs to.
+pub const EVENT_TRANSCRIBE_PROGRESS: &str = "transcribe-progress";
 
 // camelCase: the webview passes `{ filePath, model, language, format }`
 // (JS convention); serde maps that onto these snake_case Rust fields.
@@ -18,6 +27,24 @@ pub struct TranscribeRequest {
     pub model: String,
     pub language: Option<String>,
     pub format: String,
+    // The queue item's id, echoed back on every EVENT_TRANSCRIBE_PROGRESS
+    // so the webview never attributes one run's progress to another.
+    pub run_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscribeProgress {
+    pub run_id: Option<String>,
+    // A PipelineEvent (packages/core/src/types.ts), passed through as-is.
+    pub event: serde_json::Value,
+}
+
+/// The JSON object on a sidecar progress line, or None for any other line
+/// (plain progress text, a stack trace) or a malformed one.
+fn parse_progress_line(line: &str) -> Option<serde_json::Value> {
+    let json = line.strip_prefix(PROGRESS_EVENT_PREFIX)?;
+    serde_json::from_str::<serde_json::Value>(json).ok().filter(|v| v.is_object())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,6 +94,27 @@ async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
     arg_json: &str,
     extra_env: Vec<(&str, String)>,
 ) -> Result<T, String> {
+    run_sidecar(app, command, arg_json, extra_env, |_| {}).await
+}
+
+/// Spawns the sidecar and reads its output as it arrives, handing every
+/// stderr line to `on_stderr_line` while the process is still running --
+/// `transcribe` uses that to forward progress, which matters once a run can
+/// sit for most of an hour waiting out Groq's rate limit. Otherwise the same
+/// contract `.output()` gave: a nonzero exit is a transport failure carrying
+/// stderr (minus the structured progress lines, which are noise there), and
+/// stdout is the one-line JSON envelope.
+async fn run_sidecar<T, F>(
+    app: &tauri::AppHandle,
+    command: &str,
+    arg_json: &str,
+    extra_env: Vec<(&str, String)>,
+    mut on_stderr_line: F,
+) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+    F: FnMut(&str) + Send,
+{
     let mut sidecar_command = app
         .shell()
         .sidecar("core-sidecar")
@@ -78,17 +126,34 @@ async fn call_sidecar_with_env<T: for<'de> Deserialize<'de>>(
         sidecar_command = sidecar_command.env(key, value);
     }
 
-    let output = sidecar_command
-        .output()
-        .await
-        .map_err(|e| format!("failed to spawn sidecar: {e}"))?;
+    let (mut events, _child) = sidecar_command.spawn().map_err(|e| format!("failed to spawn sidecar: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("sidecar exited with {:?}: {stderr}", output.status));
+    let mut code = None;
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    while let Some(event) = events.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                stdout.push_str(&String::from_utf8_lossy(&line));
+                stdout.push('\n');
+            }
+            CommandEvent::Stderr(line) => {
+                let line = String::from_utf8_lossy(&line);
+                on_stderr_line(&line);
+                if !line.starts_with(PROGRESS_EVENT_PREFIX) {
+                    stderr.push_str(&line);
+                    stderr.push('\n');
+                }
+            }
+            CommandEvent::Terminated(payload) => code = payload.code,
+            _ => {}
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    if code != Some(0) {
+        return Err(format!("sidecar exited with code {code:?}: {stderr}"));
+    }
+
     let envelope: SidecarEnvelope<T> = serde_json::from_str(stdout.trim())
         .map_err(|e| format!("sidecar returned invalid JSON: {e} (stdout: {stdout})"))?;
 
@@ -208,7 +273,14 @@ pub async fn transcribe(
     // login_shell_path's doc comment for why a GUI launch doesn't have one.
     extra_env.extend(login_shell_path());
 
-    call_sidecar_with_env(&app, "transcribe", &arg_json, extra_env).await
+    let emitter = app.clone();
+    let run_id = request.run_id;
+    run_sidecar(&app, "transcribe", &arg_json, extra_env, move |line| {
+        if let Some(event) = parse_progress_line(line) {
+            let _ = emitter.emit(EVENT_TRANSCRIBE_PROGRESS, TranscribeProgress { run_id: run_id.clone(), event });
+        }
+    })
+    .await
 }
 
 // F18 (gui-history). The sidecar owns all DB access (list/get/delete); this
@@ -576,6 +648,38 @@ pub async fn delete_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_progress_line_reads_a_prefixed_json_object() {
+        let event = parse_progress_line(r#"@@progress {"type":"chunk-done","done":1,"total":5}"#).expect("a progress line");
+        assert_eq!(event["type"], "chunk-done");
+        assert_eq!(event["total"], 5);
+    }
+
+    #[test]
+    fn parse_progress_line_ignores_plain_and_malformed_lines() {
+        assert!(parse_progress_line("normalizing audio").is_none());
+        assert!(parse_progress_line("@@progress not json").is_none());
+        assert!(parse_progress_line("@@progress 42").is_none());
+        assert!(parse_progress_line(r#"{"type":"chunk-done"}"#).is_none());
+    }
+
+    #[test]
+    fn transcribe_request_run_id_is_optional() {
+        let with: TranscribeRequest =
+            serde_json::from_str(r#"{"filePath":"a.m4a","model":"m","format":"txt","runId":"q1"}"#).expect("with runId");
+        assert_eq!(with.run_id.as_deref(), Some("q1"));
+        let without: TranscribeRequest =
+            serde_json::from_str(r#"{"filePath":"a.m4a","model":"m","format":"txt"}"#).expect("without runId");
+        assert!(without.run_id.is_none());
+    }
+
+    #[test]
+    fn transcribe_progress_serializes_camel_case_for_the_webview() {
+        let payload = TranscribeProgress { run_id: Some("q1".into()), event: serde_json::json!({ "type": "chunks-planned", "total": 3 }) };
+        let json = serde_json::to_value(payload).expect("serializes");
+        assert_eq!(json, serde_json::json!({ "runId": "q1", "event": { "type": "chunks-planned", "total": 3 } }));
+    }
 
     // Regression test for a real bug reported from an installed .dmg,
     // 2026-07-13: ffmpeg was on PATH for every terminal-launched `tauri dev`

@@ -14,6 +14,8 @@ import { FiDownload, FiTrash } from "react-icons/fi";
 import { useI18n } from "../../i18n/I18nContext";
 import { useQueue } from "./QueueContext";
 import type { QueueItem } from "./QueueContext";
+import { latestResume } from "./queueProgress";
+import type { QueueProgress } from "./queueProgress";
 import { useSelection } from "../selection/SelectionContext";
 import { pickSavePath, exportTranscript, copyToClipboard, addDictionaryEntry } from "../../lib/tauri";
 import { useDisplayPreferences } from "../preferences/DisplayPreferencesContext";
@@ -31,6 +33,41 @@ const CHIP_CLASS: Record<QueueItem["status"], string> = {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// What a transcribing row says beyond its chip: that the file is over the
+// free tier's hourly budget, and either when a rate-limit wait ends or how
+// many parts are done. A wait can run most of an hour, so it states the
+// resume time rather than leaving the row looking stuck.
+function ProgressLines({ progress }: { progress: QueueProgress }) {
+  const { t, lang } = useI18n();
+  const resumeAt = latestResume(progress);
+  const time = resumeAt
+    ? new Intl.DateTimeFormat(lang === "ja" ? "ja-JP" : "en-US", { hour: "2-digit", minute: "2-digit" }).format(
+        new Date(resumeAt),
+      )
+    : undefined;
+  return (
+    <>
+      {progress.overBudget && (
+        <div className="row-meta">
+          {t("progressOverBudget")
+            .replace("{minutes}", String(Math.round(progress.overBudget.audioSeconds / 60)))
+            .replace("{budget}", String(Math.round(progress.overBudget.budgetSeconds / 60)))}
+        </div>
+      )}
+      {time ? (
+        <div className="row-meta">{t("progressRateLimitWait").replace("{time}", time)}</div>
+      ) : (
+        progress.total !== undefined &&
+        progress.total > 1 && (
+          <div className="row-meta">
+            {t("progressParts").replace("{done}", String(progress.done)).replace("{total}", String(progress.total))}
+          </div>
+        )
+      )}
+    </>
+  );
 }
 
 export function QueueRow({ item }: { item: QueueItem }) {
@@ -119,6 +156,7 @@ export function QueueRow({ item }: { item: QueueItem }) {
           <span className="filename">{item.fileName}</span>
           <span className={CHIP_CLASS[item.status]}>{statusLabel[item.status]}</span>
         </div>
+        {item.status === "transcribing" && item.progress && <ProgressLines progress={item.progress} />}
         {item.status === "failed" && item.error && <div className="row-meta fail-reason">{item.error}</div>}
         {exportError && <div className="row-meta fail-reason">{exportError}</div>}
         {item.status === "done" && expanded && item.result && (

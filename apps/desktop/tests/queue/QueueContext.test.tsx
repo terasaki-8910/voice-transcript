@@ -4,10 +4,10 @@
 // module mocking is needed here (unlike QueueView/App-level tests, which
 // also mount useDragDrop).
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueueProvider, useQueue } from "../../src/features/queue/QueueContext";
 import { VoiceInputSettingsProvider, useVoiceInputSettings } from "../../src/features/preferences/VoiceInputSettingsContext";
-import type { TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
+import type { TranscribeProgress, TranscribeRequest, TranscribeResponse } from "../../src/lib/tauri";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -238,3 +238,63 @@ describe("QueueContext reads Voice input settings (G12)", () => {
     expect(transcribeFn.mock.calls[callsBeforeSecondBatch][0].language).toBe("fr");
   });
 });
+
+describe("QueueContext progress", () => {
+  function ProgressInspector() {
+    const { items, addFiles } = useQueue();
+    return (
+      <div>
+        <button type="button" onClick={() => addFiles(["/audio/long.m4a"])}>
+          add
+        </button>
+        {items.map((item) => (
+          <div key={item.id} data-testid="item" data-id={item.id}>
+            {item.status}:{item.progress ? `${String(item.progress.done)}/${String(item.progress.total)}` : "none"}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  it("attributes progress to the transcribing item by runId and clears it when done", async () => {
+    let emit: ((p: TranscribeProgress) => void) | undefined;
+    const subscribeProgressFn = vi.fn(async (handler: (p: TranscribeProgress) => void) => {
+      emit = handler;
+      return () => {};
+    });
+    const pending = deferred<TranscribeResponse>();
+    const requests: TranscribeRequest[] = [];
+    render(
+      <VoiceInputSettingsProvider>
+        <QueueProvider
+          transcribeFn={(r) => {
+            requests.push(r);
+            return pending.promise;
+          }}
+          subscribeProgressFn={subscribeProgressFn}
+        >
+          <ProgressInspector />
+        </QueueProvider>
+      </VoiceInputSettingsProvider>,
+    );
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const id = screen.getByTestId("item").getAttribute("data-id");
+    expect(requests[0].runId).toBe(id);
+
+    act(() => {
+      emit?.({ runId: "someone-else", event: { type: "chunks-planned", total: 9 } });
+      emit?.({ runId: id, event: { type: "chunks-planned", total: 5 } });
+      emit?.({ runId: id, event: { type: "chunk-done", chunk: 1, done: 1, total: 5 } });
+    });
+    expect(screen.getByTestId("item").textContent).toBe("transcribing:1/5");
+
+    pending.resolve({ text: "t", rendered: "t" });
+    await waitFor(() => expect(screen.getByTestId("item").textContent).toBe("done:none"));
+
+    // A straggler after completion never repaints the finished row.
+    act(() => emit?.({ runId: id, event: { type: "chunks-planned", total: 5 } }));
+    expect(screen.getByTestId("item").textContent).toBe("done:none");
+  });
+});
+

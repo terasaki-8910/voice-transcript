@@ -6,6 +6,7 @@
 // Rust structs by hand (no codegen wired up) -- see
 // .claude/skills/tauri-command-scaffold/SKILL.md.
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 // Import from the "./types" subpath, not the package root -- the root
@@ -15,7 +16,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 // types.ts has no runtime code and no Blob usage, so this subpath avoids
 // that entirely while still importing the real, shared type (not a
 // hand-duplicated copy that could drift).
-import type { OutputFormat } from "@voice-transcript/core/types";
+import type { OutputFormat, PipelineEvent } from "@voice-transcript/core/types";
 
 export function ping(): Promise<string> {
   return invoke("ping");
@@ -26,6 +27,25 @@ export interface TranscribeRequest {
   model: string;
   language?: string;
   format: OutputFormat;
+  // Echoed back on every progress event for this call (the queue item id).
+  runId?: string;
+}
+
+export interface TranscribeProgress {
+  runId?: string | null;
+  event: PipelineEvent;
+}
+
+// Progress the Rust shell forwards from the sidecar while a transcribe()
+// call is still running (commands.rs EVENT_TRANSCRIBE_PROGRESS). Resolves
+// to an unsubscribe function -- a no-op one outside a Tauri runtime (unit
+// tests), rather than rejecting.
+export async function onTranscribeProgress(handler: (progress: TranscribeProgress) => void): Promise<() => void> {
+  try {
+    return await listen<TranscribeProgress>("transcribe-progress", (event) => handler(event.payload));
+  } catch {
+    return () => {};
+  }
 }
 
 export interface TranscribeResponse {
