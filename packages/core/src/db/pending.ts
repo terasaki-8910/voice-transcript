@@ -14,6 +14,7 @@ import type { HistoryRecordInput } from "./history.js";
 import { listDictionary } from "./dictionary.js";
 import { applyDictionary } from "../dictionary.js";
 import type { DictionaryEntry } from "../dictionary.js";
+import { errorMessage } from "../errors.js";
 
 const PENDING_VERSION = 1;
 const LOCK_NAME = ".lock";
@@ -126,7 +127,7 @@ export async function flushPendingHistory(
         }
         file = parsed;
       } catch (err) {
-        console.error(`[history] pending record ${name} is unreadable; kept as ${name}.bad:`, err);
+        console.error(`[history] pending record ${name} is unreadable; kept as ${name}.bad: ${errorMessage(err)}`);
         await rename(path, `${path}.bad`).catch(() => {});
         continue;
       }
@@ -142,11 +143,11 @@ export async function flushPendingHistory(
       } catch (err) {
         const attempts = (file.attempts ?? 0) + 1;
         if (attempts >= MAX_FLUSH_ATTEMPTS) {
-          console.error(`[history] pending record ${name} failed ${String(attempts)} times; kept as ${name}.bad:`, err);
+          console.error(`[history] pending record ${name} failed ${String(attempts)} times; kept as ${name}.bad: ${errorMessage(err)}`);
           await rename(path, `${path}.bad`).catch(() => {});
           continue;
         }
-        console.error(`[history] failed to flush pending record ${name}; will retry later:`, err);
+        console.error(`[history] failed to flush pending record ${name}; will retry later: ${errorMessage(err)}`);
         await writeFileAtomic(path, { ...file, attempts }).catch(() => {});
         break;
       }
@@ -180,19 +181,19 @@ export async function recordHistoryOrDefer(
     await ensureSchema(db, opts.migrationsFolder);
     id = await recordHistory(db, input);
   } catch (err) {
-    console.error("[history] failed to record history (non-blocking):", err);
+    console.error(`[history] failed to record history (non-blocking): ${errorMessage(err)}`);
     try {
       await savePendingHistory(opts.pendingDir, { startedAt, dictionaryApplied: opts.dictionaryApplied, input });
       return { pending: true };
     } catch (saveErr) {
-      console.error(`[history] could not save to ${opts.pendingDir}; this record is lost:`, saveErr);
+      console.error(`[history] could not save to ${opts.pendingDir}; this record is lost: ${errorMessage(saveErr)}`);
       return { pending: false };
     }
   }
   try {
     await flushPendingHistory(db, opts.pendingDir, { loadDictionary: () => listDictionary(db) });
   } catch (err) {
-    console.error("[history] flushing pending records failed (non-blocking):", err);
+    console.error(`[history] flushing pending records failed (non-blocking): ${errorMessage(err)}`);
   }
   return { id, pending: false };
 }

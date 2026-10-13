@@ -2,6 +2,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Db } from "./client.js";
+import { errorMessage } from "../errors.js";
 
 // H4: this file only ever calls drizzle-orm's own migrate() -- no raw SQL
 // or tagged-template query lives anywhere in packages/core/src/db/**
@@ -35,7 +36,7 @@ export async function ensureSchema(db: Db, migrationsFolder: string | undefined)
   try {
     await migrate(db, { migrationsFolder });
   } catch (err) {
-    console.error("[db] schema migration skipped (non-blocking):", err);
+    console.error(`[db] schema migration skipped (non-blocking): ${errorMessage(err)}`);
   }
 }
 

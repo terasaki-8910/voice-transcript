@@ -68,3 +68,4 @@ export { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 
 export { applyDictionary } from "./dictionary.js";
 export type { DictionaryEntry } from "./dictionary.js";
+export { errorMessage } from "./errors.js";

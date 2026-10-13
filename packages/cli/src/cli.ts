@@ -12,6 +12,7 @@ import {
   ensureSchema,
   listDictionary,
   applyDictionary,
+  errorMessage,
 } from "@voice-transcript/core";
 import { parseArgs, UsageError } from "./args.js";
 
@@ -69,10 +70,6 @@ async function defaultFileExists(path: string): Promise<boolean> {
   }
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 // ACCEPTANCE H5, enforced here (not just trusted from the injected
 // recordHistory): a history-recording failure must never surface as a
 // thrown error out of main() -- it can only ever affect the exit code via
@@ -108,7 +105,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   const makeTranscriber = deps.makeTranscriber ?? ((apiKey: string) => new GroqClient({ apiKey }));
   const writeFile = deps.writeFile ?? ((path: string, data: string) => fsWriteFile(path, data));
   const fileExists = deps.fileExists ?? defaultFileExists;
-  const pendingDir = deps.pendingDir ?? pendingHistoryDir(env);
+  // process.env, not `env`: index.ts hands main() only GROQ_API_KEY, so
+  // `env` would miss APPDATA / XDG_DATA_HOME / VOICE_TRANSCRIPT_PENDING_DIR
+  // and park records somewhere the desktop app never looks.
+  const pendingDir = deps.pendingDir ?? pendingHistoryDir(process.env);
   const recordHistory =
     deps.recordHistory ??
     ((input: HistoryRecordInput, opts: { dictionaryApplied: boolean }) =>

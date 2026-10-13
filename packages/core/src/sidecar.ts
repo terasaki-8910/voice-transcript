@@ -18,7 +18,9 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { PROGRESS_EVENT_PREFIX } from "./config.js";
 import { render } from "./formats.js";
-import { DrizzleQueryError } from "drizzle-orm/errors";
+import { errorMessage } from "./errors.js";
+
+export { errorMessage };
 import { createDb } from "./db/client.js";
 import {
   listHistory,
@@ -187,7 +189,7 @@ async function fetchDictionarySafe(
     await ensureSchema(db, migrationsFolder(env));
     return { entries: await listDictionary(db), loaded: true };
   } catch (err) {
-    console.error("[dictionary] failed to load dictionary (non-blocking):", err);
+    console.error(`[dictionary] failed to load dictionary (non-blocking): ${errorMessage(err)}`);
     return { entries: [], loaded: false };
   }
 }
@@ -307,7 +309,7 @@ export async function handleListHistory(deps: SidecarDeps = {}): Promise<History
     try {
       await run();
     } catch (err) {
-      console.error("[history] flushing pending records failed (non-blocking):", err);
+      console.error(`[history] flushing pending records failed (non-blocking): ${errorMessage(err)}`);
     }
   };
   if (deps.listHistory) {
@@ -539,14 +541,6 @@ export async function handleImportDictionary(
         return importDictionaryEntries(db, entries);
       })();
   return { ...result, skipped: result.skipped + skipped };
-}
-
-// drizzle wraps every driver failure as "Failed query: <SQL> params: ..."
-// and keeps the actual reason (connection timeout, auth failure, ...) in
-// `cause`. The SQL tells the user nothing; the reason does.
-export function errorMessage(err: unknown): string {
-  if (err instanceof DrizzleQueryError && err.cause instanceof Error) return err.cause.message;
-  return err instanceof Error ? err.message : String(err);
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
