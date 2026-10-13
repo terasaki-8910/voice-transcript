@@ -3,6 +3,7 @@
 // Tauri Rust shell spawns (F15 desktop-ipc, F18 gui-history). All IO is
 // injected, same DI shape as packages/cli/tests/cli.test.ts.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import {
   handlePing,
   handleTestConnection,
@@ -22,6 +23,7 @@ import {
   handleUpdateNote,
   handleDeleteNote,
   parseDictionaryImport,
+  errorMessage,
   main,
 } from "../src/sidecar.js";
 import type { SidecarDeps } from "../src/sidecar.js";
@@ -584,5 +586,24 @@ describe("main (argv protocol)", () => {
     const parsed = JSON.parse(chunks.join(""));
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toMatch(/unknown sidecar command/i);
+  });
+});
+
+describe("errorMessage", () => {
+  it("reports the driver's reason, not the SQL, for a failed drizzle query", () => {
+    const cause = new Error("Connection terminated due to connection timeout");
+    const err = new DrizzleQueryError('select "transcriptions"."id" from "transcriptions" limit $1', [50], cause);
+    expect(errorMessage(err)).toBe("Connection terminated due to connection timeout");
+  });
+
+  it("falls back to the wrapper's own message when drizzle kept no cause", () => {
+    expect(errorMessage(new DrizzleQueryError("select 1", []))).toMatch(/^Failed query: select 1/);
+  });
+
+  it("passes other errors and non-errors through unchanged", () => {
+    expect(errorMessage(new Error("GROQ_API_KEY environment variable is not set."))).toBe(
+      "GROQ_API_KEY environment variable is not set.",
+    );
+    expect(errorMessage("plain string")).toBe("plain string");
   });
 });

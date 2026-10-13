@@ -18,6 +18,7 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { PROGRESS_EVENT_PREFIX } from "./config.js";
 import { render } from "./formats.js";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { createDb } from "./db/client.js";
 import {
   recordHistorySafe,
@@ -492,7 +493,11 @@ export async function handleImportDictionary(
   return { ...result, skipped: result.skipped + skipped };
 }
 
-function errorMessage(err: unknown): string {
+// drizzle wraps every driver failure as "Failed query: <SQL> params: ..."
+// and keeps the actual reason (connection timeout, auth failure, ...) in
+// `cause`. The SQL tells the user nothing; the reason does.
+export function errorMessage(err: unknown): string {
+  if (err instanceof DrizzleQueryError && err.cause instanceof Error) return err.cause.message;
   return err instanceof Error ? err.message : String(err);
 }
 
