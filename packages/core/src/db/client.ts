@@ -26,8 +26,19 @@ export type Db = ReturnType<typeof drizzle<typeof schema>>;
 // allowExitOnIdle only lets the process exit once genuinely idle, which
 // waits for the write to flush first. Keep this property if the driver
 // ever changes.
+//
+// connectionTimeoutMillis: pg's default is no timeout, so an unreachable
+// server (e.g. the home server's VPN is down) left every command waiting on
+// the OS's own TCP connect timeout -- over a minute -- and the GUI piled up
+// a hung sidecar per history/notes call meanwhile. A reachable server
+// answers in well under a second, so 10 s only ever cuts off a dead one.
+export const DB_CONNECT_TIMEOUT_MS = 10_000;
+
 export function createDb(): Db | undefined {
   const url = process.env.DATABASE_URL;
   if (!url) return undefined;
-  return drizzle({ connection: { connectionString: url, allowExitOnIdle: true }, schema });
+  return drizzle({
+    connection: { connectionString: url, allowExitOnIdle: true, connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS },
+    schema,
+  });
 }

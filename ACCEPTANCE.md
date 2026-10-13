@@ -125,7 +125,11 @@ integration acceptance.
   `PreferencesView.test.tsx`'s "test connection" suite). A failed background
   History refresh shows that same real error alongside the existing
   reassurance message instead of swallowing it
-  (`HistoryView.test.tsx`'s syncError-rendering test).
+  (`HistoryView.test.tsx`'s syncError-rendering test). That error is the
+  driver's reason, never drizzle's "Failed query: <SQL>" wrapper, and a
+  connection attempt to an unreachable server fails within 10 s
+  (`sidecar.test.ts`'s `errorMessage` suite; `db/client.ts`'s
+  `DB_CONNECT_TIMEOUT_MS`).
 - **G14** — Settings > Voice input has a "Remove silent stretches before
   sending" toggle, off by default (also for settings saved before it
   existed), persisted like the other Voice input settings, and the queue

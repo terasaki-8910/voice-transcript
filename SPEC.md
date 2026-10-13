@@ -337,7 +337,12 @@ history of past runs.
   webview never receives the URL back either way, only this pass/fail
   result. The same real error is now also shown (not just a generic "can't
   reach the database" message) wherever a background history refresh fails
-  (History view), for the same reason.
+  (History view), for the same reason. (2026-10-13, user-reported: with
+  Tailscale stopped, the History view showed drizzle's "Failed query: <SQL>
+  params: ..." wrapper instead of a reason. Every sidecar error now reports
+  the driver error drizzle wraps, and a connection attempt gives up after
+  10 s instead of waiting out the OS's TCP connect timeout -- over a minute,
+  during which the GUI piled up a hung sidecar per history/notes call.)
 - **History refresh timing (2026-10-06, user-reported: history written from
   another window, machine, or the CLI didn't appear until the app restarted).**
   The list refetches on app start, when the History tab opens, when the window
