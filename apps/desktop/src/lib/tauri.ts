@@ -29,6 +29,8 @@ export interface TranscribeRequest {
   format: OutputFormat;
   // Echoed back on every progress event for this call (the queue item id).
   runId?: string;
+  // Cut stretches of complete silence before upload; absent = off.
+  trimSilence?: boolean;
 }
 
 export interface TranscribeProgress {

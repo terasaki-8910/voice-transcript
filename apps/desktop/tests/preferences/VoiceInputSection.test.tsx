@@ -22,7 +22,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 function SettingsProbe() {
-  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId, autoTrashRecordings } =
+  const { model, autoDetectLanguage, language, audioSource, micDeviceId, outputDeviceId, autoTrashRecordings, trimSilence } =
     useVoiceInputSettings();
   return (
     <div>
@@ -33,6 +33,7 @@ function SettingsProbe() {
       <p data-testid="probe-mic">{micDeviceId ?? ""}</p>
       <p data-testid="probe-output">{outputDeviceId ?? ""}</p>
       <p data-testid="probe-auto-trash">{String(autoTrashRecordings)}</p>
+      <p data-testid="probe-trim-silence">{String(trimSilence)}</p>
     </div>
   );
 }
@@ -174,6 +175,32 @@ describe("VoiceInputSection", () => {
       unmount();
       renderSection();
       await waitFor(() => expect(screen.getByTestId("probe-auto-trash").textContent).toBe("false"));
+    });
+  });
+
+  describe("trim silence", () => {
+    const LABEL = "Remove silent stretches before sending";
+
+    it("defaults to off, including for a settings blob saved before it existed", async () => {
+      window.localStorage.setItem(
+        "voice-transcript-voice-input-settings",
+        JSON.stringify({ model: "whisper-large-v3" }),
+      );
+      renderSection();
+      await waitFor(() => expect(screen.getByLabelText(LABEL)).toBeDefined());
+      expect(screen.getByLabelText(LABEL)).toHaveProperty("checked", false);
+      expect(screen.getByTestId("probe-trim-silence").textContent).toBe("false");
+    });
+
+    it("checking it updates the context and persists across a remount", async () => {
+      const { unmount } = renderSection();
+      await waitFor(() => expect(screen.getByLabelText(LABEL)).toBeDefined());
+      fireEvent.click(screen.getByLabelText(LABEL));
+      await waitFor(() => expect(screen.getByTestId("probe-trim-silence").textContent).toBe("true"));
+
+      unmount();
+      renderSection();
+      await waitFor(() => expect(screen.getByTestId("probe-trim-silence").textContent).toBe("true"));
     });
   });
 });
