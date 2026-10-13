@@ -204,3 +204,21 @@ describe("B4 - ffmpeg not installed", () => {
     expect(err.join("")).toMatch(/ffmpeg/i);
   });
 });
+
+describe("--trim-silence reaches the pipeline", () => {
+  it("runs silence detection only when the flag is given", async () => {
+    const withTrim: AudioBackend = {
+      ...makeAudio(),
+      detectSilenceIntervals: vi.fn(async () => []),
+      keepIntervals: vi.fn(async () => ({ path: "/tmp/t.flac", bytes: 1, duration: 120 })),
+    };
+    const on = makeDeps({ audio: withTrim });
+    expect(await main(["input.m4a", "--trim-silence"], on.deps)).toBe(0);
+    expect(withTrim.detectSilenceIntervals).toHaveBeenCalledTimes(1);
+
+    const withoutFlag: AudioBackend = { ...withTrim, detectSilenceIntervals: vi.fn(async () => []) };
+    const off = makeDeps({ audio: withoutFlag });
+    expect(await main(["input.m4a"], off.deps)).toBe(0);
+    expect(withoutFlag.detectSilenceIntervals).not.toHaveBeenCalled();
+  });
+});

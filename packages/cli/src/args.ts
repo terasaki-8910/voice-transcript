@@ -7,12 +7,13 @@ export interface CliOptions {
   format: OutputFormat; // default "txt"
   model: string; // default DEFAULT_MODEL
   language?: string; // default: auto-detect
+  trimSilence: boolean; // default false; takes no value
 }
 
 export class UsageError extends Error {}
 
 const USAGE =
-  "Usage: transcribe <audio-file> [-o, --output <file>] [--format txt|srt|vtt|json] [--model <name>] [--language <code>]";
+  "Usage: transcribe <audio-file> [-o, --output <file>] [--format txt|srt|vtt|json] [--model <name>] [--language <code>] [--trim-silence]";
 
 function isOutputFormat(value: string): value is OutputFormat {
   return (OUTPUT_FORMATS as readonly string[]).includes(value);
@@ -24,6 +25,7 @@ export function parseArgs(argv: string[]): CliOptions {
   let format: OutputFormat = "txt";
   let model: string = DEFAULT_MODEL;
   let language: string | undefined;
+  let trimSilence = false;
 
   const valueFor = (flag: string, i: number): string => {
     const value = argv[i + 1];
@@ -60,6 +62,9 @@ export function parseArgs(argv: string[]): CliOptions {
         language = valueFor(arg, i);
         i++;
         break;
+      case "--trim-silence":
+        trimSilence = true;
+        break;
       default:
         if (arg.startsWith("-")) {
           throw new UsageError(`Unknown option "${arg}".\n${USAGE}`);
@@ -75,5 +80,5 @@ export function parseArgs(argv: string[]): CliOptions {
     throw new UsageError(USAGE);
   }
 
-  return { input, output, format, model, language };
+  return { input, output, format, model, language, trimSilence };
 }
