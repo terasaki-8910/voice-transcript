@@ -60,6 +60,10 @@ export interface TranscribeResponse {
   // failed). Transcript notes (below) need it to attach a note to a Queue
   // item, not only to a row already listed in History.
   id?: number;
+  // True only when the history write failed and the sidecar parked the
+  // record in its durable outbox; it reaches History once the database is
+  // reachable again (packages/core/src/db/pending.ts).
+  historyPending?: boolean;
 }
 
 export function transcribe(request: TranscribeRequest): Promise<TranscribeResponse> {

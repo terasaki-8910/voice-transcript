@@ -18,10 +18,11 @@ import type { Transcriber } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { PROGRESS_EVENT_PREFIX } from "./config.js";
 import { render } from "./formats.js";
-import { DrizzleQueryError } from "drizzle-orm/errors";
+import { errorMessage } from "./errors.js";
+
+export { errorMessage };
 import { createDb } from "./db/client.js";
 import {
-  recordHistorySafe,
   listHistory,
   getHistoryById,
   deleteHistoryEntry,
@@ -36,6 +37,7 @@ import {
   importDictionaryEntries,
 } from "./db/dictionary.js";
 import type { DictionaryRecord, ImportResult } from "./db/dictionary.js";
+import { recordHistoryOrDefer, flushPendingHistory, pendingHistoryDir } from "./db/pending.js";
 import { applyDictionary } from "./dictionary.js";
 import type { DictionaryEntry } from "./dictionary.js";
 import { listNotes, addNote, updateNote, deleteNote } from "./db/notes.js";
@@ -134,6 +136,15 @@ export interface TranscribeResponse {
   // non-fatal to the transcription per ACCEPTANCE H5) -- the GUI treats a
   // missing id as "notes aren't available here," not an error.
   id?: number;
+  // True only when the history write failed and the record was parked in the
+  // durable outbox (db/pending.ts) to be added once the database is reachable.
+  historyPending?: boolean;
+}
+
+// Outcome of one history write; see recordHistoryOrDefer.
+export interface HistoryWriteResult {
+  id?: number;
+  pending: boolean;
 }
 
 // Same injection shape as packages/cli/src/cli.ts's CliDeps -- lets tests
@@ -142,7 +153,9 @@ export interface SidecarDeps {
   env?: Record<string, string | undefined>;
   audio?: AudioBackend;
   makeTranscriber?: (apiKey: string) => Transcriber;
-  recordHistory?: (input: HistoryRecordInput) => Promise<number | undefined>;
+  recordHistory?: (input: HistoryRecordInput, opts: { dictionaryApplied: boolean }) => Promise<HistoryWriteResult>;
+  // Flushes the pending-history outbox; handleListHistory calls it before listing.
+  flushPending?: () => Promise<unknown>;
   listHistory?: () => Promise<HistoryRecord[]>;
   getHistory?: (id: number) => Promise<HistoryRecord | undefined>;
   deleteHistoryEntry?: (id: number) => Promise<void>;
@@ -161,20 +174,23 @@ export interface SidecarDeps {
 }
 
 // Used by handleTranscribe: a dictionary fetch failure is caught and logged,
-// never fatal -- same non-blocking rule recordHistorySafe applies to H5.
+// never fatal -- same non-blocking rule recordHistoryOrDefer applies to H5.
+// `loaded` distinguishes an empty dictionary from one that could not be read
+// (DB down): a record written without it is flagged so the outbox flush
+// applies the dictionary later.
 async function fetchDictionarySafe(
   env: Record<string, string | undefined>,
   deps: SidecarDeps,
-): Promise<DictionaryEntry[]> {
-  if (deps.listDictionary) return deps.listDictionary();
+): Promise<{ entries: DictionaryEntry[]; loaded: boolean }> {
+  if (deps.listDictionary) return { entries: await deps.listDictionary(), loaded: true };
   try {
     const db = createDb();
-    if (!db) return [];
+    if (!db) return { entries: [], loaded: true };
     await ensureSchema(db, migrationsFolder(env));
-    return await listDictionary(db);
+    return { entries: await listDictionary(db), loaded: true };
   } catch (err) {
-    console.error("[dictionary] failed to load dictionary (non-blocking):", err);
-    return [];
+    console.error(`[dictionary] failed to load dictionary (non-blocking): ${errorMessage(err)}`);
+    return { entries: [], loaded: false };
   }
 }
 
@@ -223,7 +239,12 @@ export async function handleTranscribe(
   const makeTranscriber = deps.makeTranscriber ?? ((key: string) => new GroqClient({ apiKey: key }));
   const recordHistory =
     deps.recordHistory ??
-    ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input, migrationsFolder(env)));
+    ((input: HistoryRecordInput, opts: { dictionaryApplied: boolean }) =>
+      recordHistoryOrDefer(createDb(), input, {
+        migrationsFolder: migrationsFolder(env),
+        pendingDir: pendingHistoryDir(env),
+        dictionaryApplied: opts.dictionaryApplied,
+      }));
 
   await audio.assertAvailable();
 
@@ -234,6 +255,7 @@ export async function handleTranscribe(
     formats: [args.format],
   };
 
+  const startedAt = new Date();
   try {
     const transcriber = makeTranscriber(apiKey);
     const rawResult = await runPipeline(args.filePath, {
@@ -252,13 +274,23 @@ export async function handleTranscribe(
     // runPipeline, before render()/recordHistory() -- so the stored history
     // text, the rendered/exported output, and this response's text are all
     // the corrected text. runPipeline() itself stays DB-free and pure.
-    const dictionaryEntries = await fetchDictionarySafe(env, deps);
-    const result = applyDictionary(rawResult, dictionaryEntries);
+    const dictionary = await fetchDictionarySafe(env, deps);
+    const result = applyDictionary(rawResult, dictionary.entries);
     const rendered = render(result, args.format);
-    const id = await recordHistory({ ...historyBase, status: "success", result });
-    return { text: result.text, rendered, language: result.language, duration: result.duration, id };
+    const written = await recordHistory(
+      { ...historyBase, status: "success", result, startedAt },
+      { dictionaryApplied: dictionary.loaded },
+    );
+    return {
+      text: result.text,
+      rendered,
+      language: result.language,
+      duration: result.duration,
+      id: written.id,
+      ...(written.pending ? { historyPending: true } : {}),
+    };
   } catch (err) {
-    await recordHistory({ ...historyBase, status: "failed" });
+    await recordHistory({ ...historyBase, status: "failed", startedAt }, { dictionaryApplied: true }); // no transcript, nothing to correct later
     throw err;
   }
 }
@@ -267,11 +299,29 @@ export async function handleTranscribe(
 // (not an error) when DATABASE_URL is unset -- an empty history list is a
 // valid, displayable state, not a failure (mirrors H5's "never blocking"
 // spirit for reads too).
+//
+// Before listing, any records parked in the pending-history outbox are
+// flushed (db/pending.ts): the GUI refetches history on start, tab open,
+// window focus and queue completion, so this is what makes a database
+// reconnect visible. A flush problem is logged, never fatal to the listing.
 export async function handleListHistory(deps: SidecarDeps = {}): Promise<HistoryRecord[]> {
-  if (deps.listHistory) return deps.listHistory();
+  const flush = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+    } catch (err) {
+      console.error(`[history] flushing pending records failed (non-blocking): ${errorMessage(err)}`);
+    }
+  };
+  if (deps.listHistory) {
+    if (deps.flushPending) await flush(deps.flushPending);
+    return deps.listHistory();
+  }
   const db = createDb();
   if (!db) return [];
   await ensureSchema(db, migrationsFolder(process.env));
+  await flush(() =>
+    flushPendingHistory(db, pendingHistoryDir(), { loadDictionary: () => listDictionary(db) }),
+  );
   return listHistory(db);
 }
 
@@ -491,14 +541,6 @@ export async function handleImportDictionary(
         return importDictionaryEntries(db, entries);
       })();
   return { ...result, skipped: result.skipped + skipped };
-}
-
-// drizzle wraps every driver failure as "Failed query: <SQL> params: ..."
-// and keeps the actual reason (connection timeout, auth failure, ...) in
-// `cause`. The SQL tells the user nothing; the reason does.
-export function errorMessage(err: unknown): string {
-  if (err instanceof DrizzleQueryError && err.cause instanceof Error) return err.cause.message;
-  return err instanceof Error ? err.message : String(err);
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {

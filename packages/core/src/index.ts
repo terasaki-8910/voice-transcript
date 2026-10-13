@@ -42,12 +42,17 @@ export { createDb } from "./db/client.js";
 export type { Db } from "./db/client.js";
 export {
   recordHistory,
-  recordHistorySafe,
   listHistory,
   getHistoryById,
   deleteHistoryEntry,
   searchHistory,
 } from "./db/history.js";
+export {
+  pendingHistoryDir,
+  savePendingHistory,
+  flushPendingHistory,
+  recordHistoryOrDefer,
+} from "./db/pending.js";
 export type { HistoryRecordInput, HistoryRecord, HistorySearchResult } from "./db/history.js";
 export {
   listDictionary,
@@ -63,3 +68,4 @@ export { ensureSchema, defaultMigrationsFolder } from "./db/migrate.js";
 
 export { applyDictionary } from "./dictionary.js";
 export type { DictionaryEntry } from "./dictionary.js";
+export { errorMessage } from "./errors.js";

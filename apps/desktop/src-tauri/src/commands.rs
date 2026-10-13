@@ -61,6 +61,11 @@ pub struct TranscribeResponse {
     // whenever the sidecar didn't write a history row (no DATABASE_URL, or
     // the write itself failed; see sidecar.ts's TranscribeResponse comment).
     pub id: Option<i64>,
+    // True only when the sidecar parked the history record in its durable
+    // outbox because the database was unreachable. Must be declared here:
+    // this struct is re-serialized to the webview, which drops unknown fields.
+    #[serde(rename = "historyPending", default)]
+    pub history_pending: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -842,6 +847,25 @@ mod tests {
         let json = r#"{"text":"hi","rendered":"hi","language":null,"duration":null}"#;
         let parsed: TranscribeResponse = serde_json::from_str(json).expect("id must be optional");
         assert_eq!(parsed.id, None);
+    }
+
+    #[test]
+    fn transcribe_response_history_pending_defaults_to_false_and_decodes_true() {
+        let absent = r#"{"text":"hi","rendered":"hi"}"#;
+        let parsed: TranscribeResponse = serde_json::from_str(absent).expect("historyPending must be optional");
+        assert!(!parsed.history_pending);
+        let present = r#"{"text":"hi","rendered":"hi","historyPending":true}"#;
+        let parsed: TranscribeResponse = serde_json::from_str(present).expect("must decode historyPending");
+        assert!(parsed.history_pending);
+    }
+
+    #[test]
+    fn transcribe_response_serializes_history_pending_as_camel_case_for_the_webview() {
+        let parsed: TranscribeResponse =
+            serde_json::from_str(r#"{"text":"hi","rendered":"hi","historyPending":true}"#).unwrap();
+        let out = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(out["historyPending"], serde_json::json!(true));
+        assert!(out.get("history_pending").is_none());
     }
 
     #[test]

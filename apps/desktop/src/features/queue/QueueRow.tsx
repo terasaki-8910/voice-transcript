@@ -158,6 +158,9 @@ export function QueueRow({ item }: { item: QueueItem }) {
         </div>
         {item.status === "transcribing" && item.progress && <ProgressLines progress={item.progress} />}
         {item.status === "failed" && item.error && <div className="row-meta fail-reason">{item.error}</div>}
+        {item.status === "done" && item.result?.historyPending && (
+          <div className="row-meta">{t("historyPending")}</div>
+        )}
         {exportError && <div className="row-meta fail-reason">{exportError}</div>}
         {item.status === "done" && expanded && item.result && (
           <>

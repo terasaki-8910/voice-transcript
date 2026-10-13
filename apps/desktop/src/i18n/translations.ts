@@ -28,6 +28,8 @@ export const translations = {
     progressRateLimitWait: "Waiting for Groq's free-tier limit to reset. Resumes around {time}.",
     progressOverBudget:
       "{minutes} min of audio is over the free tier's {budget} min per hour, so the rest waits for the limit to reset.",
+    historyPending:
+      "Couldn't reach the database, so this isn't in History yet. It will be added automatically once the database is reachable, even if you quit the app.",
     view: "View",
     retry: "Retry",
     dropHint: "Drop audio files here, or use Add files",
@@ -171,6 +173,8 @@ export const translations = {
     progressParts: "{total} パート中 {done} パート完了",
     progressRateLimitWait: "Groq の無料枠の上限に達したため待機中です。{time} ごろ再開します。",
     progressOverBudget: "音声が {minutes} 分あり、無料枠（1 時間あたり {budget} 分）を超えるため、超えた分は枠が空いてから処理します。",
+    historyPending:
+      "データベースにつながらないため、まだ履歴に入っていません。つながったら自動で追加されます（アプリを終了しても消えません）。",
     view: "表示",
     retry: "再試行",
     dropHint: "音声ファイルをここにドロップ、または「ファイルを追加」",

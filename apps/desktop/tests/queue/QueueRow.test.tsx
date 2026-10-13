@@ -80,6 +80,23 @@ describe("QueueRow", () => {
     expect(screen.queryByText("hello world")).toBeNull();
   });
 
+  it("a done item whose history write was deferred says so; otherwise the notice is absent", async () => {
+    const { unmount } = render(
+      <RowHarness
+        transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi", historyPending: true })}
+      />,
+    );
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    expect(screen.getByText(/isn't in History yet/)).toBeDefined();
+    unmount();
+
+    render(<RowHarness transcribeFn={() => Promise.resolve({ text: "hi", rendered: "hi" })} />);
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(screen.getByText("Done")).toBeDefined());
+    expect(screen.queryByText(/isn't in History yet/)).toBeNull();
+  });
+
   it("a failed item shows the Failed chip, its error, and can be retried", async () => {
     let attempt = 0;
     render(

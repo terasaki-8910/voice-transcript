@@ -3,6 +3,9 @@
 // Tauri Rust shell spawns (F15 desktop-ipc, F18 gui-history). All IO is
 // injected, same DI shape as packages/cli/tests/cli.test.ts.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import {
   handlePing,
@@ -30,7 +33,7 @@ import type { SidecarDeps } from "../src/sidecar.js";
 import { PROGRESS_EVENT_PREFIX } from "../src/config.js";
 import type { AudioBackend, AudioChunk } from "../src/audio.js";
 import type { Transcriber } from "../src/types.js";
-import type { HistoryRecord } from "../src/db/history.js";
+import type { HistoryRecord, HistoryRecordInput } from "../src/db/history.js";
 import type { DictionaryRecord } from "../src/db/dictionary.js";
 import type { TranscriptNoteRecord } from "../src/db/notes.js";
 
@@ -73,7 +76,7 @@ function makeAudio(): AudioBackend {
 // leak the file-level DATABASE_URL comment above already warns about.
 function makeDeps(overrides: Partial<SidecarDeps> = {}): { deps: SidecarDeps; recordHistory: ReturnType<typeof vi.fn>; transcriber: Transcriber } {
   const transcriber: Transcriber = { transcribe: vi.fn(async () => HELLO) };
-  const recordHistory = vi.fn(async () => 1);
+  const recordHistory = vi.fn(async (_input: HistoryRecordInput, _opts: { dictionaryApplied: boolean }) => ({ id: 1, pending: false }));
   const deps: SidecarDeps = {
     env: { GROQ_API_KEY: "gsk_dummy_key_for_tests" },
     audio: makeAudio(),
@@ -176,12 +179,13 @@ describe("transcribe", () => {
     // only from a later listHistory() call.
     expect(result.id).toBe(1);
     expect(recordHistory).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceFileName: "input.m4a", status: "success" }),
+      expect.objectContaining({ sourceFileName: "input.m4a", status: "success", startedAt: expect.any(Date) }),
+      { dictionaryApplied: true },
     );
   });
 
   it("omits id when recordHistory records nothing (no DB configured)", async () => {
-    const { deps } = makeDeps({ recordHistory: vi.fn(async () => undefined) });
+    const { deps } = makeDeps({ recordHistory: vi.fn(async () => ({ pending: false })) });
     const result = await handleTranscribe(
       { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" },
       deps,
@@ -208,6 +212,7 @@ describe("transcribe", () => {
     expect(result.rendered).toContain("HI world");
     expect(recordHistory).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ text: "HI world" }) }),
+      { dictionaryApplied: true },
     );
   });
 
@@ -223,6 +228,7 @@ describe("transcribe", () => {
     ).rejects.toThrow("upstream boom");
     expect(recordHistory).toHaveBeenCalledWith(
       expect.objectContaining({ sourceFileName: "input.m4a", status: "failed" }),
+      expect.anything(),
     );
   });
 });
@@ -243,6 +249,59 @@ function makeRecord(overrides: Partial<HistoryRecord> = {}): HistoryRecord {
     ...overrides,
   };
 }
+
+describe("H6 - deferred history writes", () => {
+  const args = { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" as const };
+
+  it("returns historyPending: true when the write was deferred", async () => {
+    const { deps } = makeDeps({ recordHistory: vi.fn(async () => ({ pending: true })) });
+    const result = await handleTranscribe(args, deps);
+    expect(result.historyPending).toBe(true);
+    expect(result.id).toBeUndefined();
+  });
+
+  it("omits historyPending when the record was written", async () => {
+    const { deps } = makeDeps();
+    expect("historyPending" in (await handleTranscribe(args, deps))).toBe(false);
+  });
+
+  it("writes a pending file through the default writer when the history write throws", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vt-sidecar-pending-"));
+    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/none");
+    try {
+      const { deps } = makeDeps({
+        env: { GROQ_API_KEY: "gsk_dummy_key_for_tests", VOICE_TRANSCRIPT_PENDING_DIR: dir, MIGRATIONS_DIR: "/nonexistent" },
+      });
+      delete deps.recordHistory;
+      const result = await handleTranscribe(args, deps);
+      expect(result.historyPending).toBe(true);
+      const files = await readdir(dir);
+      expect(files).toHaveLength(1);
+      const body = JSON.parse(await readFile(join(dir, files[0]), "utf8"));
+      expect(body.input.result.text).toBe("hello world");
+      expect(body.dictionaryApplied).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("flushes the outbox before listing", async () => {
+    const order: string[] = [];
+    const flushPending = vi.fn(async () => void order.push("flush"));
+    const listHistory = vi.fn(async () => (order.push("list"), []));
+    await handleListHistory({ flushPending, listHistory });
+    expect(order).toEqual(["flush", "list"]);
+  });
+
+  it("still lists when the flush throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const record = makeRecord();
+    const flushPending = vi.fn(async () => {
+      throw new Error("flush boom");
+    });
+    await expect(handleListHistory({ flushPending, listHistory: vi.fn(async () => [record]) })).resolves.toEqual([record]);
+  });
+});
 
 describe("listHistory", () => {
   it("returns the injected list", async () => {

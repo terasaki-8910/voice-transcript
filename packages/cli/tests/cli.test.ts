@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 import { main } from "../src/cli.js";
 import type { CliDeps } from "../src/cli.js";
 import { FfmpegNotFoundError } from "@voice-transcript/core";
-import type { AudioBackend, AudioChunk, Transcriber } from "@voice-transcript/core";
+import type { AudioBackend, AudioChunk, Transcriber, HistoryRecordInput } from "@voice-transcript/core";
 
 const HELLO = { text: "hello world", segments: [{ start: 0, end: 2, text: "hello world" }] };
 
@@ -34,12 +34,12 @@ function makeDeps(overrides: Partial<CliDeps> = {}) {
   const transcriber: Transcriber = { transcribe: vi.fn(async () => HELLO) };
   const makeTranscriber = vi.fn((_key: string) => transcriber);
   const writeFile = vi.fn(async (_p: string, _d: string) => {});
-  const recordHistory = vi.fn(async () => 1);
+  const recordHistory = vi.fn(async (_input: HistoryRecordInput, _opts: { dictionaryApplied: boolean }) => ({ id: 1, pending: false }));
   // Defaults to [] for the same reason recordHistory is stubbed: without
   // it, main() would fall through to a real createDb() + network call for
   // the dictionary fetch that now runs on every transcribe (see cli.ts's
   // fetchDictionary hook, mirroring sidecar.ts's handleTranscribe).
-  const fetchDictionary = vi.fn(async () => []);
+  const fetchDictionary = vi.fn(async () => ({ entries: [] as { word: string; replacement: string }[], loaded: true }));
   const deps: CliDeps = {
     env: { GROQ_API_KEY: "gsk_dummy_key_for_tests" },
     stdout: (s: string) => out.push(s),
@@ -133,13 +133,14 @@ describe("A5 - output routing", () => {
 describe("custom dictionary applied on the CLI path (parity with the GUI sidecar)", () => {
   it("applies the fetched dictionary to stdout and the recorded history text", async () => {
     const { deps, out, recordHistory } = makeDeps({
-      fetchDictionary: vi.fn(async () => [{ word: "hello", replacement: "HI" }]),
+      fetchDictionary: vi.fn(async () => ({ entries: [{ word: "hello", replacement: "HI" }], loaded: true })),
     });
     const code = await main(["input.m4a"], deps);
     expect(code).toBe(0);
     expect(out.join("")).toContain("HI world");
     expect(recordHistory).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ text: "HI world" }) }),
+      { dictionaryApplied: true },
     );
   });
 });
@@ -156,7 +157,9 @@ describe("H1/H5 - history recorded on every completed run", () => {
         formats: ["srt"],
         status: "success",
         result: expect.objectContaining({ text: HELLO.text, segments: HELLO.segments }),
+        startedAt: expect.any(Date),
       }),
+      { dictionaryApplied: true },
     );
   });
 
@@ -175,6 +178,7 @@ describe("H1/H5 - history recorded on every completed run", () => {
     expect(recordHistory).toHaveBeenCalledTimes(1);
     expect(recordHistory).toHaveBeenCalledWith(
       expect.objectContaining({ sourceFileName: "input.m4a", status: "failed" }),
+      expect.anything(),
     );
   });
 
@@ -189,6 +193,34 @@ describe("H1/H5 - history recorded on every completed run", () => {
     expect(code).toBe(0);
     expect(out.join("")).toContain("hello world");
     expect(err.join("")).toMatch(/history.*non-blocking/i);
+  });
+});
+
+describe("H6 - deferred history writes", () => {
+  it("prints one stderr line naming the outbox when the record was deferred", async () => {
+    const recordHistory = vi.fn(async () => ({ pending: true }));
+    const { deps, out, err } = makeDeps({ recordHistory, pendingDir: "/tmp/pending-x" });
+    const code = await main(["input.m4a"], deps);
+    expect(code).toBe(0);
+    expect(out.join("")).toContain("hello world");
+    const lines = err.join("").split("\n").filter((l) => l.startsWith("[history]"));
+    expect(lines).toEqual([
+      "[history] database unreachable; saved to /tmp/pending-x and it will be added to history the next time the CLI or the app reaches the database",
+    ]);
+  });
+
+  it("flags the record as not dictionary-corrected when the dictionary could not be loaded", async () => {
+    const { deps, recordHistory } = makeDeps({
+      fetchDictionary: vi.fn(async () => ({ entries: [], loaded: false })),
+    });
+    await main(["input.m4a"], deps);
+    expect(recordHistory).toHaveBeenCalledWith(expect.anything(), { dictionaryApplied: false });
+  });
+
+  it("prints nothing about the outbox when the record was written", async () => {
+    const { deps, err } = makeDeps();
+    await main(["input.m4a"], deps);
+    expect(err.join("")).not.toContain("[history]");
   });
 });
 

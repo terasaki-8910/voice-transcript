@@ -589,6 +589,23 @@ history of past runs.
   shown everywhere a name appears (the row, the suggested export filename,
   confirm dialogs, search results) and is itself searchable alongside the
   transcript body and notes.
+- **Deferred history writes (added 2026-10-13, user-reported: a 75-minute
+  recording was transcribed while the home Postgres server was unreachable
+  and the result existed only in the in-memory queue):** the non-blocking
+  H5 write is now also non-lossy. When the write fails (and `DATABASE_URL`
+  is set), the record is saved as a JSON file in a per-user outbox shared
+  by the CLI and the desktop sidecar (macOS `~/Library/Application
+  Support/voice-transcript/pending-history`, Windows `%APPDATA%\voice-transcript\pending-history`,
+  Linux `${XDG_DATA_HOME:-~/.local/share}/voice-transcript/pending-history`;
+  files are owner-only, written atomically). The outbox is flushed into the
+  database, oldest first, after any successful history write and whenever
+  the GUI lists history (start, tab open, window focus, queue completion),
+  so a reconnect becomes visible without user action; a lock file keeps
+  concurrent processes from flushing at once. A record keeps the time the
+  run actually happened as its started-at, and if the dictionary could not
+  be loaded during the run it is applied at flush time. The CLI prints a
+  one-line stderr notice when it defers, and a done queue row shows that
+  the entry is not in History yet.
 
 ## Release automation
 - A manually triggered GitHub Actions workflow, `.github/workflows/release.yml`
