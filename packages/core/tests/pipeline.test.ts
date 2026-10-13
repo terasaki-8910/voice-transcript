@@ -385,3 +385,118 @@ describe("progress events and Groq's hourly audio budget", () => {
     expect(siblingAborted).toBe(true);
   });
 });
+
+describe("silence trimming (opt-in)", () => {
+  // 4 min file with a 30 s silence at 60-90 s. Kept: [0, 60.5] and [89.5, 240];
+  // 210.5 + ... computed below. The trimmed file is what gets chunked/sent.
+  const SILENCE = { start: 60, end: 90 };
+  const KEPT = [
+    { start: 0, end: 60.5 },
+    { start: 89.5, end: 240 },
+  ];
+  const TRIMMED_SEC = 60.5 + 150.5;
+
+  function trimAudio(silences: Array<{ start: number; end: number }>, durationSec = 240) {
+    const audio = makeAudio({ durationSec, bytes: 1 * MB, silences: [] });
+    const trimmed = { path: "/tmp/trimmed.flac", bytes: 1 * MB, duration: TRIMMED_SEC };
+    audio.detectSilenceIntervals = vi.fn(async () => silences);
+    audio.keepIntervals = vi.fn(async () => trimmed);
+    return audio;
+  }
+
+  const base = { maxBytes: MAX, model: "whisper-large-v3-turbo" };
+
+  it("is off by default: the new backend methods are never called", async () => {
+    const audio = trimAudio([SILENCE]);
+    const result = await runPipeline("in.m4a", { audio, transcriber: makeTranscriber(), ...base });
+    expect(audio.detectSilenceIntervals).not.toHaveBeenCalled();
+    expect(audio.keepIntervals).not.toHaveBeenCalled();
+    expect(result.segments).toEqual([{ start: 0, end: 1, text: "seg0" }]);
+    expect(result.duration).toBe(1);
+  });
+
+  it("cuts the silence, sends the compacted audio, and maps output to the original timeline", async () => {
+    const audio = trimAudio([SILENCE]);
+    const progress: string[] = [];
+    const transcriber = makeTranscriber(async () => ({
+      text: "a b",
+      segments: [
+        { start: 10, end: 12, text: "a" },
+        { start: 70, end: 72, text: "b" }, // after the cut: compacted 70 s is original 99 s
+      ],
+    }));
+    const result = await runPipeline("in.m4a", {
+      audio,
+      transcriber,
+      trimSilence: true,
+      onProgress: (m) => progress.push(m),
+      ...base,
+    });
+
+    expect(audio.detectSilenceIntervals).toHaveBeenCalledWith("/tmp/normalized.wav", -60, 2);
+    expect(audio.keepIntervals).toHaveBeenCalledWith("/tmp/normalized.wav", KEPT);
+    // The chunk analysed and cut downstream is the trimmed file.
+    expect(audio.detectSilences).toHaveBeenCalledWith("/tmp/trimmed.flac");
+    expect(audio.splitAt).toHaveBeenCalledWith("/tmp/trimmed.flac", []);
+    expect(transcriber.calls).toHaveLength(1);
+    expect(result.segments).toEqual([
+      { start: 10, end: 12, text: "a" },
+      { start: 99, end: 101, text: "b" },
+    ]);
+    expect(result.duration).toBe(240);
+    expect(progress).toContain("finding silent stretches");
+    expect(progress.some((m) => m.startsWith("trimmed 29s of silence; sending 4 of 4 min"))).toBe(true);
+  });
+
+  it("does not re-encode when there is nothing to remove", async () => {
+    const audio = trimAudio([{ start: 10, end: 11 }]);
+    const progress: string[] = [];
+    await runPipeline("in.m4a", {
+      audio,
+      transcriber: makeTranscriber(),
+      trimSilence: true,
+      onProgress: (m) => progress.push(m),
+      ...base,
+    });
+    expect(audio.detectSilenceIntervals).toHaveBeenCalledTimes(1);
+    expect(audio.keepIntervals).not.toHaveBeenCalled();
+    expect(audio.detectSilences).toHaveBeenCalledWith("/tmp/normalized.wav");
+    expect(progress).toContain("no silent stretches to trim");
+  });
+
+  it("fails clearly when the backend cannot trim", async () => {
+    const audio = makeAudio({ durationSec: 240, bytes: 1 * MB, silences: [] });
+    await expect(
+      runPipeline("in.m4a", { audio, transcriber: makeTranscriber(), trimSilence: true, ...base }),
+    ).rejects.toThrow(/does not support silence trimming/);
+  });
+
+  it("measures the hourly budget on the trimmed duration", async () => {
+    const audio = makeAudio({ durationSec: 9000, bytes: 1 * MB, silences: [] });
+    audio.detectSilenceIntervals = vi.fn(async () => [{ start: 1000, end: 3000 }]);
+    audio.keepIntervals = vi.fn(async () => ({ path: "/tmp/trimmed.flac", bytes: 1 * MB, duration: 7001 }));
+    const events: PipelineEvent[] = [];
+    await runPipeline("in.m4a", {
+      audio,
+      transcriber: makeTranscriber(),
+      trimSilence: true,
+      onEvent: (e) => events.push(e),
+      ...base,
+    });
+    // 7001 s sent is under the 7200 s budget, though 9000 s was recorded.
+    expect(events.some((e) => e.type === "over-hourly-budget")).toBe(false);
+
+    const audio2 = makeAudio({ durationSec: 9000, bytes: 1 * MB, silences: [] });
+    audio2.detectSilenceIntervals = vi.fn(async () => [{ start: 1000, end: 2000 }]);
+    audio2.keepIntervals = vi.fn(async () => ({ path: "/tmp/trimmed.flac", bytes: 1 * MB, duration: 8001 }));
+    const events2: PipelineEvent[] = [];
+    await runPipeline("in.m4a", {
+      audio: audio2,
+      transcriber: makeTranscriber(),
+      trimSilence: true,
+      onEvent: (e) => events2.push(e),
+      ...base,
+    });
+    expect(events2[0]).toEqual({ type: "over-hourly-budget", audioSeconds: 8001, budgetSeconds: FREE_TIER_AUDIO_SECONDS_PER_HOUR });
+  });
+});

@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { NORMALIZED_SAMPLE_RATE } from "./config.js";
+import type { Interval } from "./timeline.js";
 
 export interface AudioChunk {
   path: string;
@@ -30,6 +34,13 @@ export interface AudioBackend {
   // tests keeps compiling unchanged. Safe to call with nothing created
   // (no-op) and safe to call more than once; never rejects.
   cleanup?(): Promise<void>;
+  // Silence trimming (opt-in). Optional for the same reason as cleanup?:
+  // existing test mocks keep compiling. detectSilenceIntervals returns the
+  // silent stretches (seconds) quieter than noiseDb and at least minSec long;
+  // keepIntervals writes a new 16 kHz mono FLAC (in a tracked temp dir) that
+  // holds only the given parts of `file`, back to back.
+  detectSilenceIntervals?(file: string, noiseDb: number, minSec: number): Promise<Interval[]>;
+  keepIntervals?(file: string, kept: Interval[]): Promise<NormalizedAudio>;
 }
 
 export class FfmpegNotFoundError extends Error {}
@@ -86,6 +97,49 @@ function parseSilenceStarts(stderr: string): number[] {
   return times;
 }
 
+// silencedetect prints "silence_start: <s>" and later "silence_end: <s> |
+// silence_duration: <s>" lines on stderr, in order. A silence_start with no
+// matching end means the file ends silent; it closes at durationSec.
+export function parseSilenceIntervals(stderr: string, durationSec: number): Interval[] {
+  const intervals: Interval[] = [];
+  let open: number | undefined;
+  const re = /silence_(start|end):\s*(-?\d+(?:\.\d+)?)/g;
+  for (const match of stderr.matchAll(re)) {
+    const t = Math.max(0, parseFloat(match[2]));
+    if (match[1] === "start") {
+      open = t;
+    } else if (open !== undefined) {
+      intervals.push({ start: open, end: Math.max(open, t) });
+      open = undefined;
+    }
+  }
+  if (open !== undefined) intervals.push({ start: open, end: Math.max(open, durationSec) });
+  return intervals;
+}
+
+// Passes through only the given byte ranges ([start, end), ascending and
+// non-overlapping) of the stream, whatever the chunk sizes it arrives in.
+export function createRangeFilter(byteRanges: Array<{ start: number; end: number }>): Transform {
+  let position = 0; // absolute offset of the next incoming byte
+  let index = 0; // first range that is not yet fully behind us
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      const chunkStart = position;
+      const chunkEnd = position + chunk.length;
+      position = chunkEnd;
+      while (index < byteRanges.length && byteRanges[index].start < chunkEnd) {
+        const range = byteRanges[index];
+        const from = Math.max(range.start, chunkStart);
+        const to = Math.min(range.end, chunkEnd);
+        if (to > from) this.push(chunk.subarray(from - chunkStart, to - chunkStart));
+        if (range.end > chunkEnd) break; // continues in the next chunk
+        index++;
+      }
+      callback();
+    },
+  });
+}
+
 async function probeDuration(file: string): Promise<number> {
   const { stdout } = await run("ffprobe", [
     "-v", "error",
@@ -106,7 +160,7 @@ async function probeDuration(file: string): Promise<number> {
 async function normalize(file: string, makeTmpDir: MakeTmpDir): Promise<NormalizedAudio> {
   const dir = await makeTmpDir();
   const outPath = join(dir, "normalized.flac");
-  await run("ffmpeg", ["-y", "-i", file, "-ac", "1", "-ar", "16000", "-vn", "-c:a", "flac", outPath]);
+  await run("ffmpeg", ["-y", "-i", file, "-ac", "1", "-ar", String(NORMALIZED_SAMPLE_RATE), "-vn", "-c:a", "flac", outPath]);
   const [{ size }, duration] = await Promise.all([stat(outPath), probeDuration(outPath)]);
   return { path: outPath, bytes: size, duration };
 }
@@ -119,6 +173,78 @@ async function detectSilences(file: string): Promise<number[]> {
     "-",
   ]);
   return parseSilenceStarts(stderr);
+}
+
+async function detectSilenceIntervals(file: string, noiseDb: number, minSec: number): Promise<Interval[]> {
+  const { stderr } = await run("ffmpeg", [
+    "-i", file,
+    "-af", `silencedetect=noise=${String(noiseDb)}dB:d=${String(minSec)}`,
+    "-f", "null",
+    "-",
+  ]);
+  // Only needed when the file ends silent, but cheap enough to always ask.
+  return parseSilenceIntervals(stderr, await probeDuration(file));
+}
+
+function spawnError(cmd: string, err: NodeJS.ErrnoException): Error {
+  return err.code === "ENOENT" ? new FfmpegNotFoundError(`${cmd} was not found on PATH; install ffmpeg`) : err;
+}
+
+// Decodes `file` to raw 16-bit mono PCM, forwards only the kept samples to a
+// second ffmpeg that encodes them as FLAC. Done by byte range in Node (not an
+// aselect/atrim filter) because aselect works on whole audio frames, so cuts
+// would drift, and a filter expression with thousands of cuts can exceed
+// Windows' 32,767-character command line limit.
+async function keepIntervals(file: string, kept: Interval[], makeTmpDir: MakeTmpDir): Promise<NormalizedAudio> {
+  const dir = await makeTmpDir();
+  const outPath = join(dir, "trimmed.flac");
+  const byteRanges = kept.map((part) => ({
+    start: Math.round(part.start * NORMALIZED_SAMPLE_RATE) * 2,
+    end: Math.round(part.end * NORMALIZED_SAMPLE_RATE) * 2,
+  }));
+
+  const decoder = spawn("ffmpeg", [
+    "-v", "error", "-i", file, "-vn", "-ac", "1", "-ar", String(NORMALIZED_SAMPLE_RATE), "-f", "s16le", "-",
+  ]);
+  const encoder = spawn("ffmpeg", [
+    "-y", "-v", "error", "-f", "s16le", "-ar", String(NORMALIZED_SAMPLE_RATE), "-ac", "1", "-i", "-",
+    "-c:a", "flac", outPath,
+  ]);
+
+  const exited = (name: string, child: typeof decoder): Promise<void> =>
+    new Promise((resolve, reject) => {
+      let tail = "";
+      child.stderr.on("data", (chunk: Buffer) => {
+        tail = (tail + chunk.toString()).slice(-2000);
+      });
+      child.on("error", (err: NodeJS.ErrnoException) => reject(spawnError("ffmpeg", err)));
+      child.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`ffmpeg (${name}) exited with code ${String(code)}: ${tail}`)),
+      );
+    });
+  const decoderExit = exited("decode", decoder);
+  const encoderExit = exited("encode", encoder);
+  // Settled up front so a rejection while we are still awaiting the pipe is never "unhandled".
+  const exits = Promise.allSettled([decoderExit, encoderExit]);
+
+  try {
+    // Ignore EPIPE-style stdin errors here; the encoder's exit code carries the real cause.
+    encoder.stdin.on("error", () => {});
+    await Promise.all([
+      // A broken pipe here is a symptom; the failing process's exit code and stderr are the cause.
+      pipeline(decoder.stdout, createRangeFilter(byteRanges), encoder.stdin).catch(() => {}),
+      decoderExit,
+      encoderExit,
+    ]);
+  } catch (err) {
+    decoder.kill();
+    encoder.kill();
+    await exits;
+    throw err;
+  }
+
+  const [{ size }, duration] = await Promise.all([stat(outPath), probeDuration(outPath)]);
+  return { path: outPath, bytes: size, duration };
 }
 
 async function splitAt(file: string, boundaries: number[], makeTmpDir: MakeTmpDir): Promise<AudioChunk[]> {
@@ -171,6 +297,8 @@ export function createFfmpegBackend(): AudioBackend {
     assertAvailable,
     probeDuration,
     detectSilences,
+    detectSilenceIntervals,
+    keepIntervals: (file: string, kept: Interval[]) => keepIntervals(file, kept, trackedTmpDir),
     normalize: (file: string) => normalize(file, trackedTmpDir),
     splitAt: (file: string, boundaries: number[]) => splitAt(file, boundaries, trackedTmpDir),
     async readBytes(chunk: AudioChunk): Promise<Uint8Array> {

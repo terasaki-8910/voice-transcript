@@ -28,6 +28,9 @@ export type { AudioBackend, AudioChunk, NormalizedAudio } from "./audio.js";
 
 export { render } from "./formats.js";
 
+export { planKeptIntervals, createTimeMap, remapToOriginal } from "./timeline.js";
+export type { Interval, TimeMap } from "./timeline.js";
+
 export { stitchChunks } from "./stitch.js";
 
 export { GroqClient, GroqApiError, parseRetryAfterMs, formatWait } from "./groq.js";

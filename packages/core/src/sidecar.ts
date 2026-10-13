@@ -118,6 +118,7 @@ export interface TranscribeArgs {
   model: string;
   language?: string;
   format: OutputFormat;
+  trimSilence?: boolean; // default false
 }
 
 export interface TranscribeResponse {
@@ -239,6 +240,7 @@ export async function handleTranscribe(
       transcriber,
       model: args.model,
       language: args.language,
+      trimSilence: args.trimSilence,
       onProgress: (msg) => process.stderr.write(`${msg}\n`),
       // The Rust shell streams stderr while this runs and forwards each
       // prefixed line to the webview as a progress event (commands.rs);
