@@ -36,7 +36,7 @@ image is a real run (17 s of speech synthesized with `say`).
 
 Queued files are processed one at a time, each showing its state (queued, transcribing, done,
 failed). One failure never stops the rest, and a failed file can be retried. The CLI handles one
-file at a time with the same engine and produces the same text.
+file at a time with the same engine and produces the same text. Optionally, stretches of complete silence can be cut before upload so less audio counts against Groq's hourly limit; timestamps still match the original recording.
 
 <p>
   <img src="docs/screenshots/queue-en.png" alt="Queue: done, failed, transcribing and queued states" width="49%">
@@ -182,13 +182,14 @@ pnpm --filter @voice-transcript/cli transcribe "$PWD/lecture.m4a" --format srt -
 | `--format <txt\|srt\|vtt\|json>` | Output format | `txt` |
 | `--model <name>` | `whisper-large-v3-turbo` / `whisper-large-v3` | `whisper-large-v3-turbo` |
 | `--language <code>` | Pin the spoken language | auto-detect |
+| `--trim-silence` | Remove stretches of complete silence (2 s or longer, below -60 dBFS) before sending; timestamps stay on the original timeline | off |
 
 ## Development
 
 ```sh
 pnpm install
 pnpm --filter desktop tauri dev   # desktop dev loop
-pnpm -r test                      # core 95 / cli 18 / desktop 316 tests
+pnpm -r test                      # core 138 / cli 23 / desktop 323 tests
 pnpm -r lint && pnpm -r typecheck
 cd apps/desktop/src-tauri && cargo test && cargo clippy   # 45 Rust tests
 ```
