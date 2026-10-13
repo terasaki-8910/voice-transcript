@@ -185,6 +185,21 @@ integration acceptance.
   in list order, bulk export writes them to one file, and bulk Remove confirms
   once before trashing audio or deleting entries (`bulkSelection.test.ts` for
   the range and format rules, `HistoryBulkSelection.test.tsx` for the UI).
+- **H9** — A history write that fails because the database is unreachable is
+  not lost: the record is saved to a durable per-user outbox (owner-only JSON
+  files, atomic write; directory per platform, overridable with
+  `VOICE_TRANSCRIPT_PENDING_DIR`) and flushed into the database, oldest first
+  with its original started-at, after the next successful history write or
+  history listing from either the CLI or the app. Concurrent flushers are
+  excluded by a lock (a stale one is taken over), a corrupt file is set aside
+  as `.bad` without blocking the rest, the dictionary is applied at flush when
+  the run could not load it, and a flush failure never breaks the transcription
+  or the listing. With no `DATABASE_URL` nothing is saved. The transcribe
+  response carries `historyPending`, the CLI prints a stderr notice, and the
+  queue row shows a notice (`packages/core/tests/pending.test.ts`,
+  `packages/core/tests/sidecar.test.ts`, `packages/cli/tests/cli.test.ts`,
+  `apps/desktop/tests/queue/QueueRow.test.tsx`, and the Rust
+  `transcribe_response_*history_pending*` tests in `commands.rs`).
 
 ## I. Release automation (GitHub Actions)
 - **I1** — `.github/workflows/release.yml` exists, triggers only on
