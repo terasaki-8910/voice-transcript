@@ -18,12 +18,18 @@ import type { DictionaryEntry } from "../dictionary.js";
 const PENDING_VERSION = 1;
 const LOCK_NAME = ".lock";
 const LOCK_STALE_MS = 5 * 60 * 1000;
+// Flushes only run once ensureSchema() has reached the database, so a record
+// whose insert keeps failing is the problem itself (it would otherwise block
+// every record behind it forever); a dropped connection mid-flush is a rare,
+// one-off failure that a handful of attempts absorbs.
+const MAX_FLUSH_ATTEMPTS = 5;
 
 export interface PendingHistoryFile {
   version: 1;
   startedAt: string;
   dictionaryApplied: boolean;
   input: Omit<HistoryRecordInput, "startedAt">;
+  attempts?: number; // failed flushes so far
 }
 
 export function pendingHistoryDir(
@@ -54,9 +60,15 @@ export async function savePendingHistory(
     input,
   };
   const base = `${file.startedAt.replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}`;
-  const tmp = join(dir, `${base}.tmp`);
+  await writeFileAtomic(join(dir, `${base}.json`), file);
+}
+
+// Owner-only (transcripts are private), and never visible half-written:
+// listPendingFiles() only picks up *.json, and rename() is atomic.
+async function writeFileAtomic(path: string, file: PendingHistoryFile): Promise<void> {
+  const tmp = path.replace(/\.json$/, ".tmp");
   await writeFile(tmp, JSON.stringify(file), { mode: 0o600 });
-  await rename(tmp, join(dir, `${base}.json`));
+  await rename(tmp, path);
 }
 
 async function listPendingFiles(dir: string): Promise<string[]> {
@@ -128,7 +140,14 @@ export async function flushPendingHistory(
         await unlink(path);
         saved++;
       } catch (err) {
+        const attempts = (file.attempts ?? 0) + 1;
+        if (attempts >= MAX_FLUSH_ATTEMPTS) {
+          console.error(`[history] pending record ${name} failed ${String(attempts)} times; kept as ${name}.bad:`, err);
+          await rename(path, `${path}.bad`).catch(() => {});
+          continue;
+        }
         console.error(`[history] failed to flush pending record ${name}; will retry later:`, err);
+        await writeFileAtomic(path, { ...file, attempts }).catch(() => {});
         break;
       }
     }

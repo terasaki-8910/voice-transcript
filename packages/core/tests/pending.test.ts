@@ -119,6 +119,24 @@ describe("flushPendingHistory", () => {
     expect(await readdir(dir)).toHaveLength(2);
   });
 
+  it("sets aside a record that keeps failing so it cannot block the ones behind it", async () => {
+    await savePendingHistory(dir, { startedAt: new Date(Date.UTC(2026, 9, 13, 0)), dictionaryApplied: true, input: input("poison") });
+    await savePendingHistory(dir, { startedAt: new Date(Date.UTC(2026, 9, 13, 1)), dictionaryApplied: true, input: input("ok") });
+    mockRecord.mockImplementation(async (_db, rec) => {
+      if (rec.sourceFileName === "poison") throw new Error("value too long");
+      return 7;
+    });
+    for (let i = 0; i < 4; i++) {
+      await expect(flushPendingHistory(db, dir)).resolves.toEqual({ saved: 0, remaining: 2 });
+    }
+    // The fifth failure gives up on it, and the next record goes in.
+    await expect(flushPendingHistory(db, dir)).resolves.toEqual({ saved: 1, remaining: 0 });
+    const left = await readdir(dir);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatch(/\.json\.bad$/);
+    expect(JSON.parse(await readFile(join(dir, left[0]), "utf8")).attempts).toBe(4);
+  });
+
   it("renames a corrupt file to .bad and still flushes the rest", async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "0000-corrupt.json"), "{not json");
