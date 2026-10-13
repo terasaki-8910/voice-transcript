@@ -105,6 +105,18 @@ export function VoiceInputSection() {
 
       <hr className="modal-divider" />
 
+      <label className="modal-checkbox-row">
+        <input
+          type="checkbox"
+          checked={trimSilence}
+          onChange={(e) => setSettings({ trimSilence: e.target.checked })}
+        />
+        {t("voiceInputTrimSilence")}
+      </label>
+      <p className="settings-hint">{t("voiceInputTrimSilenceDescription")}</p>
+
+      <hr className="modal-divider" />
+
       <label htmlFor="voice-input-source">
         {t("voiceInputSourceLabel")}
         <span className="select-wrap">
@@ -168,18 +180,6 @@ export function VoiceInputSection() {
           <p className="settings-hint">{t("voiceInputOutputDescription")}</p>
         </>
       )}
-
-      <hr className="modal-divider" />
-
-      <label className="modal-checkbox-row">
-        <input
-          type="checkbox"
-          checked={trimSilence}
-          onChange={(e) => setSettings({ trimSilence: e.target.checked })}
-        />
-        {t("voiceInputTrimSilence")}
-      </label>
-      <p className="settings-hint">{t("voiceInputTrimSilenceDescription")}</p>
 
       <hr className="modal-divider" />
 
