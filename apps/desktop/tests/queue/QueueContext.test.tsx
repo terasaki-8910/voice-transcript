@@ -187,6 +187,9 @@ function SettingsInspector() {
       >
         force-french
       </button>
+      <button type="button" onClick={() => setSettings({ trimSilence: true })}>
+        trim-on
+      </button>
     </div>
   );
 }
@@ -236,6 +239,32 @@ describe("QueueContext reads Voice input settings (G12)", () => {
     fireEvent.click(screen.getByText("add"));
     await waitFor(() => expect(transcribeFn.mock.calls.length).toBeGreaterThan(callsBeforeSecondBatch));
     expect(transcribeFn.mock.calls[callsBeforeSecondBatch][0].language).toBe("fr");
+  });
+});
+
+describe("QueueContext sends trimSilence", () => {
+  it("is false by default and true once the setting is on", async () => {
+    window.localStorage.clear();
+    const transcribeFn = vi.fn((_request: TranscribeRequest) => Promise.resolve({ text: "", rendered: "" }));
+    render(
+      <VoiceInputSettingsProvider>
+        <SettingsInspector />
+        <QueueProvider transcribeFn={transcribeFn}>
+          <QueueInspector />
+        </QueueProvider>
+      </VoiceInputSettingsProvider>,
+    );
+
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(transcribeFn.mock.calls.length).toBeGreaterThanOrEqual(1));
+    expect(transcribeFn.mock.calls[0][0].trimSilence).toBe(false);
+
+    await waitFor(() => expect(screen.getByTestId("a.m4a").textContent).toContain("done"));
+    fireEvent.click(screen.getByText("trim-on"));
+    const before = transcribeFn.mock.calls.length;
+    fireEvent.click(screen.getByText("add"));
+    await waitFor(() => expect(transcribeFn.mock.calls.length).toBeGreaterThan(before));
+    expect(transcribeFn.mock.calls[before][0].trimSilence).toBe(true);
   });
 });
 

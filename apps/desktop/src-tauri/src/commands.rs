@@ -30,6 +30,10 @@ pub struct TranscribeRequest {
     // The queue item's id, echoed back on every EVENT_TRANSCRIBE_PROGRESS
     // so the webview never attributes one run's progress to another.
     pub run_id: Option<String>,
+    // Cut stretches of complete silence before upload (Settings > Voice
+    // input). Absent from older callers = off.
+    #[serde(default)]
+    pub trim_silence: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -251,6 +255,7 @@ pub async fn transcribe(
         "model": request.model,
         "language": request.language,
         "format": request.format,
+        "trimSilence": request.trim_silence,
     })
     .to_string();
 
@@ -672,6 +677,16 @@ mod tests {
         let without: TranscribeRequest =
             serde_json::from_str(r#"{"filePath":"a.m4a","model":"m","format":"txt"}"#).expect("without runId");
         assert!(without.run_id.is_none());
+    }
+
+    #[test]
+    fn transcribe_request_trim_silence_defaults_to_false() {
+        let without: TranscribeRequest =
+            serde_json::from_str(r#"{"filePath":"a.m4a","model":"m","format":"txt"}"#).expect("without trimSilence");
+        assert!(!without.trim_silence);
+        let with: TranscribeRequest =
+            serde_json::from_str(r#"{"filePath":"a.m4a","model":"m","format":"txt","trimSilence":true}"#).expect("with trimSilence");
+        assert!(with.trim_silence);
     }
 
     #[test]

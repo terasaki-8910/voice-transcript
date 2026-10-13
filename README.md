@@ -26,7 +26,7 @@
 
 ### 長時間音声の文字起こし
 
-複数ファイルをキューに積むと、1 件ずつ順に処理し、ファイルごとに状態（待機・文字起こし中・完了・失敗）を表示する。1 件が失敗してもほかは止まらず、失敗したものは再試行できる。CLI は 1 ファイルずつ、同じエンジンで同じテキストを出す。
+複数ファイルをキューに積むと、1 件ずつ順に処理し、ファイルごとに状態（待機・文字起こし中・完了・失敗）を表示する。1 件が失敗してもほかは止まらず、失敗したものは再試行できる。CLI は 1 ファイルずつ、同じエンジンで同じテキストを出す。オプションで、完全な無音区間を削ってから送ることもでき、Groq の1時間あたりの上限に数えられる音声を減らせる。タイムスタンプは元の音声の時刻のまま。
 
 <p>
   <img src="docs/screenshots/queue-ja.png" alt="キュー：完了・失敗・文字起こし中・待機の各状態" width="49%">
@@ -136,13 +136,14 @@ pnpm --filter @voice-transcript/cli transcribe "$PWD/lecture.m4a" --format srt -
 | `--format <txt\|srt\|vtt\|json>` | 出力形式 | `txt` |
 | `--model <name>` | `whisper-large-v3-turbo` / `whisper-large-v3` | `whisper-large-v3-turbo` |
 | `--language <code>` | 話す言語を固定する | 自動判定 |
+| `--trim-silence` | 2 秒以上続く完全な無音（-60 dBFS 未満）を削ってから送る。タイムスタンプは元の音声の時刻のまま | オフ |
 
 ## 開発
 
 ```sh
 pnpm install
 pnpm --filter desktop tauri dev   # デスクトップアプリの開発
-pnpm -r test                      # core 95 / cli 18 / desktop 316 件
+pnpm -r test                      # core 138 / cli 23 / desktop 323 件
 pnpm -r lint && pnpm -r typecheck
 cd apps/desktop/src-tauri && cargo test && cargo clippy   # Rust 45 件
 ```

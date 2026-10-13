@@ -132,6 +132,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       transcriber,
       model: options.model,
       language: options.language,
+      trimSilence: options.trimSilence,
       onProgress: (msg) => stderr(`${msg}\n`),
     });
     // Custom dictionary (word replacement) -- same hook point as the GUI's

@@ -33,6 +33,7 @@ export function VoiceInputSection() {
     outputDeviceId,
     autoTrashRecordings,
     autoStopSilenceMinutes,
+    trimSilence,
     setSettings,
   } = useVoiceInputSettings();
   const [devices, setDevices] = useState<InputDevice[]>([]);
@@ -101,6 +102,18 @@ export function VoiceInputSection() {
           </select>
         </span>
       </label>
+
+      <hr className="modal-divider" />
+
+      <label className="modal-checkbox-row">
+        <input
+          type="checkbox"
+          checked={trimSilence}
+          onChange={(e) => setSettings({ trimSilence: e.target.checked })}
+        />
+        {t("voiceInputTrimSilence")}
+      </label>
+      <p className="settings-hint">{t("voiceInputTrimSilenceDescription")}</p>
 
       <hr className="modal-divider" />
 

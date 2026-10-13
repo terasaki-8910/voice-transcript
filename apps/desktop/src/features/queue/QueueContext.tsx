@@ -102,7 +102,7 @@ export function QueueProvider({
   // -- ACCEPTANCE G12. autoDetectLanguage stays the default (Groq's
   // language param omitted); toggling it off in Settings sends the chosen
   // override, mirroring packages/cli's --language flag.
-  const { model, autoDetectLanguage, language } = useVoiceInputSettings();
+  const { model, autoDetectLanguage, language, trimSilence } = useVoiceInputSettings();
 
   const addFiles = (filePaths: string[], origin?: QueueItemOrigin) => {
     setItems((prev) => [
@@ -145,6 +145,7 @@ export function QueueProvider({
       format: "txt",
       language: autoDetectLanguage ? undefined : language,
       runId: next.id,
+      trimSilence,
     })
       .then((result) => {
         setItems((prev) =>
@@ -162,7 +163,7 @@ export function QueueProvider({
       .finally(() => {
         processingRef.current = false;
       });
-  }, [items, transcribeFn, model, autoDetectLanguage, language]);
+  }, [items, transcribeFn, model, autoDetectLanguage, language, trimSilence]);
 
   const value = useMemo<QueueContextValue>(() => ({ items, addFiles, retry, remove }), [items]);
 

@@ -22,6 +22,20 @@ history of past runs.
   normalized file and any chunks are written to per-run temp directories that
   are removed once the run finishes, success or failure alike (added
   2026-09-30, user-reported: previously never cleaned up).
+- **Silence trimming (added 2026-10-13, user-requested, opt-in; off by
+  default everywhere).** Removes stretches of complete silence from the
+  normalized audio before it is chunked and sent, so less audio counts against
+  Groq's free-tier budget (7,200 audio-seconds per hour, 28,800 per day) and
+  Whisper is not fed long silence. The rule is fixed, not tunable: a stretch
+  counts only if it is below -60 dBFS and lasts at least 2 s, and 0.5 s of it
+  is kept on each side (a stretch [a, b] removes [a + 0.5, b - 0.5]), so joined
+  speech keeps a 1 s pause and nothing at an edge is clipped. Microphone room
+  noise usually sits above -60 dBFS and passes through; the digital silence of
+  system-audio capture is removed. Cuts are exact to the sample, and output
+  timestamps are mapped back to the original timeline (SRT/VTT still sync with
+  the source file; the result's duration is the original's). When nothing
+  qualifies, the file is not re-encoded. The trimmed file lives in a per-run
+  temp directory cleaned up like the others.
 - **Rate limit (added 2026-10-12, user-reported: a 2.5-hour file failed with
   a 429).** Audio past the free tier's 7,200 audio-seconds per hour can't
   finish inside one window however it is chunked. A 429 that states its wait
@@ -83,6 +97,8 @@ history of past runs.
   - `--format <txt|srt|vtt|json>` — output format (default: `txt`)
   - `--model <name>` — Whisper model (default: `whisper-large-v3-turbo`)
   - `--language <code>` — force language (default: auto-detect)
+  - `--trim-silence` — remove stretches of complete silence before sending
+    (see Silence trimming above; takes no value; default: off)
 - Exit code `0` on success; non-zero on error, with a message on stderr.
 - Unchanged by the GUI addition; still single-file. It does read the same
   history/dictionary DB layer as the GUI (records one history entry per run,
@@ -268,6 +284,10 @@ history of past runs.
   next). Reachable via the sidebar's Settings item, the native menu's
   **Preferences...** item, and its platform shortcut (Cmd+,/Ctrl+,) — all
   three open the same dialog, defaulting to the Voice input section.
+- **Settings > Voice input has a "Remove silent stretches before sending"
+  toggle (silence trimming, above; off by default).** The queue sends its
+  value with each file's model/language, so changing it affects the next
+  file started.
 - **Voice input's model/language become the GUI's actual transcription
   defaults** (previously the GUI silently hardcoded
   `whisper-large-v3-turbo` and never sent a language at all, despite this

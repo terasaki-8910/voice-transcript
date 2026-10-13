@@ -1,9 +1,19 @@
 import { basename } from "node:path";
 import type { AudioBackend, AudioChunk, NormalizedAudio } from "./audio.js";
 import { planChunks } from "./chunk.js";
-import { CHUNK_TARGET_BYTES, FREE_TIER_AUDIO_SECONDS_PER_HOUR, MAX_UPLOAD_BYTES } from "./config.js";
+import {
+  CHUNK_TARGET_BYTES,
+  FREE_TIER_AUDIO_SECONDS_PER_HOUR,
+  MAX_UPLOAD_BYTES,
+  NORMALIZED_SAMPLE_RATE,
+  TRIM_SILENCE_MIN_SEC,
+  TRIM_SILENCE_NOISE_DB,
+  TRIM_SILENCE_PAD_SEC,
+} from "./config.js";
 import { formatWait } from "./groq.js";
 import { stitchChunks } from "./stitch.js";
+import { createTimeMap, planKeptIntervals, remapToOriginal } from "./timeline.js";
+import type { TimeMap } from "./timeline.js";
 import type { PipelineEvent, Transcriber, TranscriptResult } from "./types.js";
 
 export interface PipelineDeps {
@@ -11,6 +21,7 @@ export interface PipelineDeps {
   transcriber: Transcriber;
   model: string;
   language?: string;
+  trimSilence?: boolean; // default false; see trimSilenceStretches()
   maxBytes?: number; // default CHUNK_TARGET_BYTES
   onProgress?: (msg: string) => void;
   onEvent?: (event: PipelineEvent) => void;
@@ -86,8 +97,47 @@ async function splitWithinCap(
   }
 }
 
-// assertAvailable -> normalize -> detectSilences -> planChunks -> splitAt ->
-// transcribe each chunk (offset = cumulative duration) -> stitchChunks.
+// Cuts stretches of complete silence out of the normalized audio. Returns the
+// file to use from here on, plus the map back to the original timeline when
+// something was actually cut (undefined = file untouched, nothing to remap).
+async function trimSilenceStretches(
+  normalized: NormalizedAudio,
+  deps: PipelineDeps,
+): Promise<{ audio: NormalizedAudio; map?: TimeMap }> {
+  deps.onProgress?.("finding silent stretches");
+  const { detectSilenceIntervals, keepIntervals } = deps.audio;
+  if (!detectSilenceIntervals || !keepIntervals) {
+    throw new Error("this audio backend does not support silence trimming");
+  }
+  const silences = await detectSilenceIntervals.call(
+    deps.audio,
+    normalized.path,
+    TRIM_SILENCE_NOISE_DB,
+    TRIM_SILENCE_MIN_SEC,
+  );
+  const kept = planKeptIntervals(silences, normalized.duration, {
+    minSilenceSec: TRIM_SILENCE_MIN_SEC,
+    padSec: TRIM_SILENCE_PAD_SEC,
+    sampleRate: NORMALIZED_SAMPLE_RATE,
+  });
+  const map = createTimeMap(kept);
+  const removedSec = normalized.duration - map.keptSeconds;
+  if (kept.length === 1 && removedSec <= 0) {
+    deps.onProgress?.("no silent stretches to trim");
+    return { audio: normalized };
+  }
+  const trimmed = await keepIntervals.call(deps.audio, normalized.path, kept);
+  deps.onProgress?.(
+    `trimmed ${formatWait(removedSec * 1000)} of silence; sending ` +
+      `${formatWait(trimmed.duration * 1000)} of ${formatWait(normalized.duration * 1000)}`,
+  );
+  return { audio: trimmed, map };
+}
+
+// assertAvailable -> normalize -> (optional trimSilenceStretches) ->
+// detectSilences -> planChunks -> splitAt ->
+// transcribe each chunk (offset = cumulative duration) -> stitchChunks
+// -> (if trimmed) remapToOriginal, so timestamps stay on the source's timeline.
 // Promise.all rejects on the first chunk failure, so a transient failure
 // never silently drops that chunk's text (D2): the whole run fails loudly.
 // That first failure also aborts every other chunk still in flight -- a
@@ -119,7 +169,13 @@ export async function runPipeline(
 
   try {
     deps.onProgress?.("normalizing audio");
-    const normalized = await deps.audio.normalize(inputFile);
+    const original = await deps.audio.normalize(inputFile);
+
+    let normalized = original;
+    let timeMap: TimeMap | undefined;
+    if (deps.trimSilence) {
+      ({ audio: normalized, map: timeMap } = await trimSilenceStretches(original, deps));
+    }
 
     if (normalized.duration > FREE_TIER_AUDIO_SECONDS_PER_HOUR) {
       deps.onProgress?.(
@@ -158,7 +214,8 @@ export async function runPipeline(
       ),
     );
 
-    return stitchChunks(transcribed);
+    const stitched = stitchChunks(transcribed);
+    return timeMap ? remapToOriginal(stitched, timeMap, original.duration) : stitched;
   } finally {
     try {
       await deps.audio.cleanup?.();

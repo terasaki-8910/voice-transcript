@@ -72,6 +72,10 @@ export interface VoiceInputSettings {
   // Minutes of silence after which a recording stops itself; 0 is off. Read
   // when a recording starts, so a change mid-recording applies to the next one.
   autoStopSilenceMinutes: number;
+  // Cut stretches of complete silence before upload (2 s or longer, below
+  // -60 dBFS; packages/core's TRIM_SILENCE_*). Off by default: it changes
+  // what is sent, so it has to be chosen. Read by QueueContext per file.
+  trimSilence: boolean;
 }
 
 const DEFAULT_SETTINGS: VoiceInputSettings = {
@@ -86,6 +90,7 @@ const DEFAULT_SETTINGS: VoiceInputSettings = {
   outputDeviceId: undefined,
   autoTrashRecordings: true,
   autoStopSilenceMinutes: 0,
+  trimSilence: false,
 };
 
 function readStoredSettings(): VoiceInputSettings {

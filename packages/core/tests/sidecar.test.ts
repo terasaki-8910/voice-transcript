@@ -138,6 +138,29 @@ describe("transcribe", () => {
     expect(written.every((line) => line.endsWith("\n"))).toBe(true);
   });
 
+  it("passes trimSilence through to the pipeline, and omitting it means off", async () => {
+    const trimAudio = (): AudioBackend => ({
+      ...makeAudio(),
+      detectSilenceIntervals: vi.fn(async () => [{ start: 20, end: 60 }]),
+      keepIntervals: vi.fn(async () => ({ path: "/tmp/t.flac", bytes: 1000, duration: 81 })),
+    });
+    const on = trimAudio();
+    await handleTranscribe(
+      { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt", trimSilence: true },
+      makeDeps({ audio: on }).deps,
+    );
+    expect(on.detectSilenceIntervals).toHaveBeenCalledTimes(1);
+    expect(on.keepIntervals).toHaveBeenCalledTimes(1);
+
+    const off = trimAudio();
+    await handleTranscribe(
+      { filePath: "input.m4a", model: "whisper-large-v3-turbo", format: "txt" },
+      makeDeps({ audio: off }).deps,
+    );
+    expect(off.detectSilenceIntervals).not.toHaveBeenCalled();
+    expect(off.keepIntervals).not.toHaveBeenCalled();
+  });
+
   it("returns the rendered transcript and records success history", async () => {
     const { deps, recordHistory } = makeDeps();
     const result = await handleTranscribe(

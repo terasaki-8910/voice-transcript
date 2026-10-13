@@ -11,6 +11,7 @@ integration acceptance.
 - **A3** — With `GROQ_API_KEY` unset, running against a valid file exits non-zero with an error mentioning the missing key; no ffmpeg or API call is made.
 - **A4** — `--format` accepts exactly `txt|srt|vtt|json`; any other value exits non-zero with an error.
 - **A5** — Default output goes to stdout; `-o <file>` writes to that file (stdout carries no transcript, only logs go to stderr).
+- **A6** — `--trim-silence` is a boolean flag that takes no value (`--trim-silence file.m4a` parses `file.m4a` as the input), defaults to off, and when given is passed into the pipeline (`packages/cli/tests/args.test.ts`, `cli.test.ts`).
 
 ## B. Audio handling (unit, mocked ffmpeg/API)
 - **B1** — When the 16 kHz-mono encode is ≤ 20 MB (`CHUNK_TARGET_BYTES`), the pipeline makes exactly **one** transcription request (no chunking).
@@ -23,6 +24,17 @@ integration acceptance.
   `packages/core/tests/pipeline.test.ts`'s "B5" suite plus `packages/core/tests/audio.test.ts`
   against the real filesystem). A failing cleanup never changes the run's own reported
   success/failure.
+- **B6** — Silence trimming (opt-in, default off). Off: the audio backend's
+  silence-interval/keep methods are never called and requests and output are
+  identical to a run without the option. On: only stretches at least 2 s long
+  and below -60 dBFS are removed, with 0.5 s kept on each side of each (a
+  stretch [a, b] removes [a + 0.5, b - 0.5]); cuts are sample-exact; output
+  segment timestamps are mapped back to the ORIGINAL timeline and stay
+  monotonic; the result's duration is the original duration; the hourly-budget
+  check measures the trimmed audio actually sent; when nothing qualifies, no
+  re-encode happens; the trimmed temp file is removed with the other temp
+  dirs (`packages/core/tests/timeline.test.ts`, `pipeline.test.ts`'s "silence
+  trimming" suite, `audio.test.ts` against real ffmpeg when installed).
 
 ## C. Output format correctness (unit)
 - **C1** — `--format srt` output parses as valid SRT (sequential integer indices; `HH:MM:SS,mmm --> HH:MM:SS,mmm` timing lines).
@@ -114,6 +126,13 @@ integration acceptance.
   History refresh shows that same real error alongside the existing
   reassurance message instead of swallowing it
   (`HistoryView.test.tsx`'s syncError-rendering test).
+- **G14** — Settings > Voice input has a "Remove silent stretches before
+  sending" toggle, off by default (also for settings saved before it
+  existed), persisted like the other Voice input settings, and the queue
+  sends it as `trimSilence` with each transcribe request; the Rust
+  `TranscribeRequest` treats a missing `trimSilence` as false and forwards it
+  to the sidecar (`VoiceInputSection.test.tsx`, `QueueContext.test.tsx`,
+  `commands.rs` unit tests, `sidecar.test.ts`).
 
 ## H. Transcription history (Postgres)
 - **H1** — Every completed run (CLI or GUI) writes one history record:

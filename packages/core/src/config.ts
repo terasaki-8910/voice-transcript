@@ -18,6 +18,21 @@ export const MAX_RATE_LIMIT_WAIT_MS = 65 * 60 * 1000;
 // MAX_RETRIES: those are short exponential backoffs for transient failures.
 export const MAX_RATE_LIMIT_WAITS = 6;
 
+// The sample rate (Hz, mono) every file is normalized to before it is analyzed,
+// cut, or uploaded; 16 kHz is what Whisper resamples to internally anyway.
+export const NORMALIZED_SAMPLE_RATE = 16_000;
+
+// Optional silence trimming (a stretch counts as "complete silence" only if
+// it is all of the following; deliberately not user-tunable):
+// far below any speech, so a microphone's room noise (usually above it)
+// passes through while the digital silence of system-audio capture does not.
+export const TRIM_SILENCE_NOISE_DB = -60;
+// Shorter gaps are normal pauses and not worth cutting.
+export const TRIM_SILENCE_MIN_SEC = 2;
+// Kept on each side of a removed stretch so joined speech still has a 1 s
+// pause and nothing at the edge of the speech is clipped.
+export const TRIM_SILENCE_PAD_SEC = 0.5;
+
 // Prefix of the stderr lines the desktop sidecar writes for PipelineEvents
 // (one JSON object per line after it). apps/desktop/src-tauri/src/commands.rs
 // matches the same literal -- change both together.
