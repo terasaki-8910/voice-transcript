@@ -143,7 +143,7 @@ pnpm --filter @voice-transcript/cli transcribe "$PWD/lecture.m4a" --format srt -
 ```sh
 pnpm install
 pnpm --filter desktop tauri dev   # デスクトップアプリの開発
-pnpm -r test                      # core 164 / cli 26 / desktop 324 件
+pnpm -r test                      # core 165 / cli 26 / desktop 324 件
 pnpm -r lint && pnpm -r typecheck
 cd apps/desktop/src-tauri && cargo test && cargo clippy   # Rust 45 件
 ```
