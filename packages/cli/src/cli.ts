@@ -6,7 +6,8 @@ import {
   GroqClient,
   runPipeline,
   createDb,
-  recordHistorySafe,
+  recordHistoryOrDefer,
+  pendingHistoryDir,
   defaultMigrationsFolder,
   ensureSchema,
   listDictionary,
@@ -24,29 +25,38 @@ export interface CliDeps {
   fileExists?: (path: string) => Promise<boolean>;
   // ACCEPTANCE H1/H5: records one history entry per completed run (success
   // or failure). Must never throw -- the default wires createDb() +
-  // recordHistorySafe() (packages/core/src/db), which already guarantees
+  // recordHistoryOrDefer() (packages/core/src/db), which already guarantees
   // that: no DATABASE_URL or an unreachable DB never blocks or corrupts the
   // transcription result, it only logs and returns.
-  // The returned id (a transcriptions.id) exists for the GUI's transcript
-  // notes feature -- the CLI has no use for it, but the type has to match
-  // recordHistorySafe's real signature (packages/core/src/db/history.ts).
-  recordHistory?: (input: HistoryRecordInput) => Promise<number | undefined>;
+  // `pending` is true when the database was unreachable and the record was
+  // parked in the durable outbox (packages/core/src/db/pending.ts) instead.
+  recordHistory?: (
+    input: HistoryRecordInput,
+    opts: { dictionaryApplied: boolean },
+  ) => Promise<{ id?: number; pending: boolean }>;
+  // Where the outbox lives; only used for the "saved to" message.
+  pendingDir?: string;
   // Custom dictionary (word replacement), applied to every run same as the
   // GUI (packages/core/src/sidecar.ts's handleTranscribe) so CLI/GUI parity
   // (ACCEPTANCE G4) holds. Must never throw -- the default logs and returns
   // [] on any failure, same non-blocking rule as history.
-  fetchDictionary?: () => Promise<DictionaryEntry[]>;
+  // `loaded: false` means the dictionary could not be read (DB down), which
+  // is different from an empty dictionary: a deferred history record is then
+  // flagged so the dictionary is applied when it is flushed.
+  fetchDictionary?: () => Promise<{ entries: DictionaryEntry[]; loaded: boolean }>;
 }
 
-async function defaultFetchDictionary(stderr: (s: string) => void): Promise<DictionaryEntry[]> {
+async function defaultFetchDictionary(
+  stderr: (s: string) => void,
+): Promise<{ entries: DictionaryEntry[]; loaded: boolean }> {
   try {
     const db = createDb();
-    if (!db) return [];
+    if (!db) return { entries: [], loaded: true };
     await ensureSchema(db, defaultMigrationsFolder());
-    return await listDictionary(db);
+    return { entries: await listDictionary(db), loaded: true };
   } catch (err) {
     stderr(`[dictionary] failed to load dictionary (non-blocking): ${errorMessage(err)}\n`);
-    return [];
+    return { entries: [], loaded: false };
   }
 }
 
@@ -68,12 +78,19 @@ function errorMessage(err: unknown): string {
 // thrown error out of main() -- it can only ever affect the exit code via
 // the transcription's OWN success/failure, never via history bookkeeping.
 async function safeRecordHistory(
-  recordHistory: (input: HistoryRecordInput) => Promise<number | undefined>,
+  recordHistory: NonNullable<CliDeps["recordHistory"]>,
   input: HistoryRecordInput,
+  dictionaryApplied: boolean,
+  pendingDir: string,
   stderr: (s: string) => void,
 ): Promise<void> {
   try {
-    await recordHistory(input);
+    const { pending } = await recordHistory(input, { dictionaryApplied });
+    if (pending) {
+      stderr(
+        `[history] database unreachable; saved to ${pendingDir} and it will be added to history the next time the CLI or the app reaches the database\n`,
+      );
+    }
   } catch (err) {
     stderr(`[history] failed to record history (non-blocking): ${errorMessage(err)}\n`);
   }
@@ -91,9 +108,15 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   const makeTranscriber = deps.makeTranscriber ?? ((apiKey: string) => new GroqClient({ apiKey }));
   const writeFile = deps.writeFile ?? ((path: string, data: string) => fsWriteFile(path, data));
   const fileExists = deps.fileExists ?? defaultFileExists;
+  const pendingDir = deps.pendingDir ?? pendingHistoryDir(env);
   const recordHistory =
     deps.recordHistory ??
-    ((input: HistoryRecordInput) => recordHistorySafe(createDb(), input, defaultMigrationsFolder()));
+    ((input: HistoryRecordInput, opts: { dictionaryApplied: boolean }) =>
+      recordHistoryOrDefer(createDb(), input, {
+        migrationsFolder: defaultMigrationsFolder(),
+        pendingDir,
+        dictionaryApplied: opts.dictionaryApplied,
+      }));
   const fetchDictionary = deps.fetchDictionary ?? (() => defaultFetchDictionary(stderr));
 
   let options;
@@ -125,6 +148,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     return 1;
   }
 
+  const startedAt = new Date();
   try {
     const transcriber = makeTranscriber(apiKey);
     const rawResult = await runPipeline(options.input, {
@@ -138,8 +162,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     // Custom dictionary (word replacement) -- same hook point as the GUI's
     // sidecar.ts: after runPipeline, before render()/history, so stdout/the
     // written file and the recorded history text are both corrected.
-    const dictionaryEntries = await fetchDictionary();
-    const result = applyDictionary(rawResult, dictionaryEntries);
+    const dictionary = await fetchDictionary();
+    const result = applyDictionary(rawResult, dictionary.entries);
     const rendered = render(result, options.format);
     if (options.output) {
       await writeFile(options.output, rendered);
@@ -155,7 +179,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         formats: [options.format],
         status: "success",
         result,
+        startedAt,
       },
+      dictionary.loaded,
+      pendingDir,
       stderr,
     );
     return 0;
@@ -168,7 +195,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         language: options.language,
         formats: [options.format],
         status: "failed",
+        startedAt,
       },
+      true,
+      pendingDir,
       stderr,
     );
     stderr(`${errorMessage(err)}\n`);
