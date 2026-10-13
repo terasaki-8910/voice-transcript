@@ -129,7 +129,7 @@ async function trimSilenceStretches(
   const trimmed = await keepIntervals.call(deps.audio, normalized.path, kept);
   deps.onProgress?.(
     `trimmed ${formatWait(removedSec * 1000)} of silence; sending ` +
-      `${String(Math.round(trimmed.duration / 60))} of ${String(Math.round(normalized.duration / 60))} min`,
+      `${formatWait(trimmed.duration * 1000)} of ${formatWait(normalized.duration * 1000)}`,
   );
   return { audio: trimmed, map };
 }

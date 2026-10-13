@@ -445,7 +445,7 @@ describe("silence trimming (opt-in)", () => {
     ]);
     expect(result.duration).toBe(240);
     expect(progress).toContain("finding silent stretches");
-    expect(progress.some((m) => m.startsWith("trimmed 29s of silence; sending 4 of 4 min"))).toBe(true);
+    expect(progress).toContain("trimmed 29s of silence; sending 3m31s of 4m00s");
   });
 
   it("does not re-encode when there is nothing to remove", async () => {
