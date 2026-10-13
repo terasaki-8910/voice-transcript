@@ -3,12 +3,17 @@ export { createDb } from "./client.js";
 export type { Db } from "./client.js";
 export {
   recordHistory,
-  recordHistorySafe,
   listHistory,
   getHistoryById,
   deleteHistoryEntry,
   searchHistory,
 } from "./history.js";
+export {
+  pendingHistoryDir,
+  savePendingHistory,
+  flushPendingHistory,
+  recordHistoryOrDefer,
+} from "./pending.js";
 export type { HistoryRecordInput, HistoryRecord, HistorySearchResult } from "./history.js";
 export {
   listDictionary,

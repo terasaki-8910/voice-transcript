@@ -1,6 +1,5 @@
 import { eq, desc, count, ilike, or, and, exists, inArray } from "drizzle-orm";
 import { transcriptions, transcriptNotes } from "./schema.js";
-import { ensureSchema } from "./migrate.js";
 import type { Db } from "./client.js";
 import type { Segment, TranscriptResult } from "../types.js";
 
@@ -30,6 +29,10 @@ export interface HistoryRecordInput {
   formats: string[];
   status: "success" | "failed";
   result?: TranscriptResult;
+  // When the run actually happened. Omitted for a normal write (the DB
+  // defaults to now()); set for a deferred write (db/pending.ts) so the
+  // entry sorts at the time it ran, not at the time the outbox was flushed.
+  startedAt?: Date;
 }
 
 export interface HistoryRecord {
@@ -68,38 +71,12 @@ export async function recordHistory(db: Db, input: HistoryRecordInput): Promise<
       language: input.language,
       formats: input.formats,
       status: input.status,
+      ...(input.startedAt ? { startedAt: input.startedAt } : {}),
       transcriptText: input.result?.text ?? null,
       segments: input.result?.segments ?? null,
     })
     .returning({ id: transcriptions.id });
   return row.id;
-}
-
-// ACCEPTANCE H5: if the DB is unset or unreachable, the write fails loudly
-// (logged) and never throws -- the caller's transcription result is never
-// blocked or corrupted by a history-write failure. ensureSchema() runs
-// first (also inside this try/catch) so a freshly-configured, empty
-// database gets its tables created automatically instead of every write
-// failing with "relation does not exist" until someone runs the migration
-// by hand. Returns undefined (not just on failure, but also whenever there
-// is no DB to write to) -- callers use this as the signal for "notes
-// aren't available for this transcription," not as an error.
-export async function recordHistorySafe(
-  db: Db | undefined,
-  input: HistoryRecordInput,
-  migrationsFolder: string | undefined,
-): Promise<number | undefined> {
-  if (!db) {
-    console.error("[history] DATABASE_URL not set; history not recorded");
-    return undefined;
-  }
-  try {
-    await ensureSchema(db, migrationsFolder);
-    return await recordHistory(db, input);
-  } catch (err) {
-    console.error("[history] failed to record history (non-blocking):", err);
-    return undefined;
-  }
 }
 
 // ACCEPTANCE H2: list past runs, newest first.
