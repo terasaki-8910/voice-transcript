@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:local": "tauri build --debug --config src-tauri/tauri.local.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -71,11 +71,11 @@
 // layer (packages/core/src/db/history.ts's searchHistory).
 //
 // In-app updates add tauri-plugin-updater and tauri-plugin-process, both
-// driven from the webview (features/updater/). The updater only ever
-// fetches the endpoint fixed in tauri.conf.json (this repo's latest GitHub
-// release's latest.json) and refuses any package whose minisign signature
-// doesn't match the pubkey there, so a webview script can't point it at
-// anything else. Grants are the two calls the app makes and no more:
+// driven from the webview (features/updater/). The endpoint is fixed in
+// tauri.conf.json (this repo's latest GitHub release's latest.json; check()
+// accepts a proxy/headers from JS but no URL) and any package whose minisign
+// signature doesn't match the pubkey there is refused, so a webview script
+// can't get anything else installed. Grants are the two calls the app makes and no more:
 // updater:allow-check, updater:allow-download-and-install, and
 // process:allow-restart (relaunch after installing on macOS/Linux; the
 // Windows installer exits and restarts the app itself).
