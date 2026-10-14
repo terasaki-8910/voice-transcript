@@ -112,6 +112,8 @@ Groq の無料枠は 1 リクエスト 25 MB まで。ffmpeg で 16 kHz モノ�
 
 [Releases](https://github.com/terasaki-8910/voice-transcript/releases/latest) から OS に合ったインストーラを入れ、設定 > 接続 で Groq の API キーを入れる。履歴・辞書・注釈・検索を使う場合は PostgreSQL の接続文字列も入れる（DB 自体は自分で用意する）。ffmpeg が `PATH` 上に必要。
 
+0.6.0 からはアプリ自身がアップデートする。起動時に新しいバージョンがあればダイアログで知らせ、「今すぐアップデート」「後で」「このバージョンは通知しない」を選べる。設定 > 一般 からも確認できる。0.6.0 だけは手で入れる必要がある。アップデート用のファイルは署名してあり、署名が合わないものはインストールしない。macOS ではアプリに Apple の署名がないため、アップデートのたびにマイクとシステム音声の許可を聞き直される。
+
 macOS で「壊れているため開けません」と出る場合: リリースは Apple の署名と公証をしていないため、ダウンロード時の quarantine 属性で Gatekeeper に止められる。`/Applications` に移したあと、次のコマンドで解除できる。
 
 ```sh
@@ -143,12 +145,13 @@ pnpm --filter @voice-transcript/cli transcribe "$PWD/lecture.m4a" --format srt -
 ```sh
 pnpm install
 pnpm --filter desktop tauri dev   # デスクトップアプリの開発
-pnpm -r test                      # core 165 / cli 26 / desktop 324 件
+pnpm --filter desktop build:local # 署名鍵なしのローカル debug ビルド
+pnpm -r test                      # core 165 / cli 26 / desktop 338 件
 pnpm -r lint && pnpm -r typecheck
-cd apps/desktop/src-tauri && cargo test && cargo clippy   # Rust 45 件
+cd apps/desktop/src-tauri && cargo test && cargo clippy   # Rust 52 件
 ```
 
-ESLint には絵文字とハードコードした色（hex）を禁止する独自ルールを入れ、色はデザイントークンだけで指定する。リリースは GitHub Actions の `release.yml` を手動で実行し、3 つの OS のインストーラを GitHub Release に上げる。
+ESLint には絵文字とハードコードした色（hex）を禁止する独自ルールを入れ、色はデザイントークンだけで指定する。リリースは GitHub Actions の `release.yml` を手動で実行し、3 つの OS のインストーラと、署名したアップデート用ファイル、アプリが参照する `latest.json` を GitHub Release に上げる。
 
 Claude Code を使って開発した。仕様は `SPEC.md`、合否の基準は `ACCEPTANCE.md` に書き、完了の判定はテスト・lint・型チェックで機械的に行った。図は `docs/diagrams/src/` のスクリプトから生成している。
 
