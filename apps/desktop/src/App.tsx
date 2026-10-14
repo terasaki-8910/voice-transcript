@@ -12,6 +12,9 @@
 // QueueView's own toolbar. HistoryNavProvider (back/forward through
 // individually-View'd History entries) sits inside NavProvider -- it calls
 // useNav() internally to switch to the History tab when navigating.
+//
+// In-app updates (2026-10-14): UpdaterProvider wraps AppShell, which renders
+// UpdateDialog whenever the provider opens it (launch check or Settings).
 import { useEffect, useRef, useState } from "react";
 import { QueueProvider, useQueue } from "./features/queue/QueueContext";
 import type { QueueItemStatus } from "./features/queue/QueueContext";
@@ -23,6 +26,8 @@ import { NavProvider } from "./features/nav/NavContext";
 import { SelectionProvider } from "./features/selection/SelectionContext";
 import { PreferencesView } from "./features/preferences/PreferencesView";
 import { SearchModal } from "./features/search/SearchModal";
+import { UpdaterProvider, useUpdater } from "./features/updater/UpdaterContext";
+import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { useMenuEvents } from "./features/menu/useMenuEvents";
 import { useVoiceInputSettings } from "./features/preferences/VoiceInputSettingsContext";
 import { useI18n } from "./i18n/I18nContext";
@@ -112,6 +117,8 @@ export function AppShell() {
     void setMenuLanguage(lang).catch(() => {});
   }, [lang]);
 
+  const { dialogOpen: updateDialogOpen } = useUpdater();
+
   return (
     <>
       <AppLayout
@@ -121,6 +128,7 @@ export function AppShell() {
       />
       {showPreferences && <PreferencesView onClose={() => setShowPreferences(false)} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
+      {updateDialogOpen && <UpdateDialog />}
     </>
   );
 }
@@ -133,7 +141,9 @@ export function App() {
           <HistoryNavProvider>
             <SelectionProvider>
               <RecordingProvider>
-                <AppShell />
+                <UpdaterProvider>
+                  <AppShell />
+                </UpdaterProvider>
               </RecordingProvider>
             </SelectionProvider>
           </HistoryNavProvider>

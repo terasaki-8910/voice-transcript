@@ -9,6 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 // Import from the "./types" subpath, not the package root -- the root
 // barrel (src/index.ts) re-exports groq.ts, which apps/desktop's tsconfig
 // (lib: DOM+node, unlike packages/core's node-only lib) transitively
@@ -483,4 +486,45 @@ export interface RecordingResult {
 
 export function stopRecording(): Promise<RecordingResult> {
   return invoke("stop_recording");
+}
+
+// In-app updates. The endpoint and signing key live in tauri.conf.json; the
+// plugin verifies the download against that key before installing anything.
+export interface AvailableUpdate {
+  version: string;
+  currentVersion: string;
+  // Downloads, verifies, and installs the update. `total` is undefined when
+  // the server sends no Content-Length. On Windows the installer exits the
+  // app itself; on macOS/Linux the caller relaunches afterwards.
+  install: (onProgress: (downloaded: number, total: number | undefined) => void) => Promise<void>;
+}
+
+export async function checkForUpdate(): Promise<AvailableUpdate | null> {
+  const update = await check();
+  if (!update) return null;
+  return {
+    version: update.version,
+    currentVersion: update.currentVersion,
+    install: async (onProgress) => {
+      let downloaded = 0;
+      let total: number | undefined;
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength;
+          onProgress(0, total);
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          onProgress(downloaded, total);
+        }
+      });
+    },
+  };
+}
+
+export function relaunchApp(): Promise<void> {
+  return relaunch();
+}
+
+export function getAppVersion(): Promise<string> {
+  return getVersion();
 }

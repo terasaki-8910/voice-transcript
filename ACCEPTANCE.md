@@ -476,3 +476,34 @@ integration acceptance.
   source file name/transcript body/notes rather than replacing the file
   name in the query, and is what's displayed for a matching result once set
   (`apps/desktop/tests/search/SearchModal.test.tsx`'s custom-title case).
+
+## U. In-app updates
+- **U1** — A launch check that finds a newer version opens the update
+  dialog showing both versions with Update now / Later / Skip this
+  version; finding nothing, or a failed check, shows nothing
+  (`apps/desktop/tests/updater/UpdateDialog.test.tsx`).
+- **U2** — Later, Escape, and a backdrop click close the dialog (a click
+  inside the panel doesn't), and the next launch prompts for the same
+  version again (same file).
+- **U3** — Skip this version suppresses the launch prompt for that version
+  only; a newer version prompts again (same file).
+- **U4** — Update now reports download progress, relaunches only after the
+  install succeeds, can't be dismissed while downloading, and on failure
+  shows the error with a Retry and no relaunch (same file).
+- **U5** — Update now is disabled, with a note, while a file is queued or
+  transcribing (same file; recording uses the same `busy` check in
+  `UpdateDialog.tsx`).
+- **U6** — Settings > General shows the running version; its manual check
+  reports up to date or the error, shows a skipped version, and Escape on a
+  dialog opened from there closes only the dialog, not Settings (same
+  file).
+- **U7** — The capability grants are exactly `updater:allow-check`,
+  `updater:allow-download-and-install`, and `process:allow-restart`, with a
+  single https endpoint and the pubkey in `tauri.conf.json` (G3-style
+  review by `tauri-capability-reviewer`, 2026-10-14: no findings).
+- **U8** — Manual, not vitest-checkable: a build pointed at a served
+  `latest.json` and a signed newer bundle downloads it, verifies it,
+  replaces itself, and relaunches as the new version (done locally on
+  macOS 2026-10-14: 0.5.9 -> 0.6.0); and after a release run, the
+  GitHub Release carries `latest.json` plus a `.sig` for each update
+  bundle.

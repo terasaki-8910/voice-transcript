@@ -66,10 +66,18 @@ jobs:
       - name: Build the sidecar for this platform
         run: pnpm --filter @voice-transcript/core build:sidecar
 
+      # The signing key pair is what the in-app updater trusts: tauri.conf.json
+      # carries the public key, these secrets the private key and its
+      # password. With them set, createUpdaterArtifacts signs each platform's
+      # update bundle and tauri-action adds latest.json to the release -- the
+      # file every installed copy polls. Losing the private key means
+      # installed copies can never verify another update.
       - name: Build and publish the desktop app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tagName: ${{ inputs.version }}

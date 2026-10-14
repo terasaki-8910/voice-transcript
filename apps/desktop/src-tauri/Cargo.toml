@@ -1,6 +1,6 @@
 [package]
 name = "voice-transcript-desktop"
-version = "0.5.2"
+version = "0.6.0"
 description = "Voice Transcript desktop app -- Rust shell + React webview, sharing @voice-transcript/core via a Node sidecar"
 authors = ["you"]
 license = "MIT"
@@ -26,3 +26,8 @@ tauri-plugin-opener = "2.5.4"
 tauri-plugin-clipboard-manager = "2.3.2"
 cpal = "0.17.1"
 hound = "3.5.1"
+# Held below the releases that require tauri ^2.12 so adding the updater
+# doesn't also upgrade the tauri runtime (wry/tao) underneath; lift these
+# together with `tauri` and @tauri-apps/api.
+tauri-plugin-updater = "~2.12.0"
+tauri-plugin-process = "~2.3.1"

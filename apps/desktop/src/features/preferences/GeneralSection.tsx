@@ -2,9 +2,11 @@
 // UI language and theme already have dedicated, more-discoverable controls
 // in the sidebar footer (LanguageToggle/ThemeToggle); duplicating them here
 // too would be exactly the "scattered redundant controls" ui.md warns
-// against, not an improvement.
+// against, not an improvement. The running version and "Check for updates"
+// sit below, after a divider (features/updater/UpdatesSettings.tsx).
 import { useI18n } from "../../i18n/I18nContext";
 import { useDisplayPreferences } from "./DisplayPreferencesContext";
+import { UpdatesSettings } from "../updater/UpdatesSettings";
 
 export function GeneralSection() {
   const { t } = useI18n();
@@ -16,6 +18,8 @@ export function GeneralSection() {
         <input type="checkbox" checked={breakAtPeriod} onChange={(e) => setBreakAtPeriod(e.target.checked)} />
         {t("breakAtPeriodLabel")}
       </label>
+      <hr className="modal-divider" />
+      <UpdatesSettings />
     </div>
   );
 }

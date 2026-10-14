@@ -55,11 +55,20 @@ same way but the version is picked automatically, not asked each time:
 - Read the latest existing tag (`git tag -l` / `gh release list`) and bump the PATCH
   (third) number by default -- e.g. v0.1.3 -> v0.1.4. Only bump minor/major if the change
   is clearly that scale (a judgment call, not automatic).
+- Bump the version in all four places (apps/desktop/package.json, src-tauri/Cargo.toml,
+  src-tauri/Cargo.lock, src-tauri/tauri.conf.json) in a `chore(desktop): bump version`
+  commit -- installed copies only update when the release's version is higher than theirs.
 - `gh workflow run release.yml -f title="Voice Transcript vX.Y.Z" -f version="vX.Y.Z"`,
-  then monitor to completion same as always.
+  then monitor to completion same as always. Afterwards confirm the release has
+  `latest.json` and a `.sig` per update bundle -- without them installed copies never
+  see the release (SPEC.md > In-app updates).
 - After code changes are verified (tests/typecheck/lint green) and BEFORE pushing/
-  releasing, also build a local debug app (`pnpm --filter desktop tauri build --debug`)
-  and copy the resulting `.app` to `/Applications` (overwriting the previous install,
-  quitting it first if running) -- gives immediate local use without waiting on/
-  downloading the GitHub release. Do this in addition to the real release, not instead
-  of it.
+  releasing, also build a local debug app (`pnpm --filter desktop build:local` -- plain
+  `tauri build` now fails locally without the updater signing key) and copy the
+  resulting `.app` to `/Applications` (overwriting the previous install, quitting it
+  first if running) -- gives immediate local use without waiting on/downloading the
+  GitHub release. Do this in addition to the real release, not instead of it.
+- Updater signing key: private key at `~/.tauri/voice-transcript-updater.key`, password
+  in the macOS Keychain (service `voice-transcript-updater-key`), both also stored as
+  repo secrets. Never commit either, never regenerate the pair (installed copies trust
+  only the public key already shipped).
