@@ -1,6 +1,6 @@
 {
   "name": "@voice-transcript/desktop",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "license": "MIT",
   "description": "Tauri desktop app for Voice Transcript (Windows/Linux/macOS) -- React webview + Rust shell, sharing @voice-transcript/core via a Node sidecar.",
