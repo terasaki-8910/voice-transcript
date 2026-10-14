@@ -30,6 +30,7 @@ import { HistoryProvider } from "../src/features/history/HistoryContext";
 import { HistoryNavProvider } from "../src/features/history/HistoryNavContext";
 import { NavProvider } from "../src/features/nav/NavContext";
 import { SelectionProvider } from "../src/features/selection/SelectionContext";
+import { UpdaterProvider } from "../src/features/updater/UpdaterContext";
 import type { HistoryEntry, TranscribeRequest, TranscribeResponse, TrashResult } from "../src/lib/tauri";
 
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -42,6 +43,16 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => {}),
+}));
+
+// App() mounts the real UpdaterProvider, whose launch check and version
+// lookup would otherwise go through the invoke() mock above.
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn(async () => null),
+}));
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(async () => "0.0.0"),
 }));
 
 describe("App", () => {
@@ -100,8 +111,10 @@ function AppShellHarness({
                   <HistoryNavProvider>
                     <SelectionProvider>
                       <RecordingProvider>
-                        <AddFilesButton />
-                        <AppShell />
+                        <UpdaterProvider checkOnLaunch={false} getVersionFn={async () => "0.0.0"}>
+                          <AddFilesButton />
+                          <AppShell />
+                        </UpdaterProvider>
                       </RecordingProvider>
                     </SelectionProvider>
                   </HistoryNavProvider>

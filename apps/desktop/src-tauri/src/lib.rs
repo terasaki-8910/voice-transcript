@@ -69,6 +69,16 @@
 // once, space-separated terms ANDed together. Same proxy pattern, no new
 // capability grant; the actual query lives entirely in the sidecar/DB
 // layer (packages/core/src/db/history.ts's searchHistory).
+//
+// In-app updates add tauri-plugin-updater and tauri-plugin-process, both
+// driven from the webview (features/updater/). The updater only ever
+// fetches the endpoint fixed in tauri.conf.json (this repo's latest GitHub
+// release's latest.json) and refuses any package whose minisign signature
+// doesn't match the pubkey there, so a webview script can't point it at
+// anything else. Grants are the two calls the app makes and no more:
+// updater:allow-check, updater:allow-download-and-install, and
+// process:allow-restart (relaunch after installing on macOS/Linux; the
+// Windows installer exits and restarts the app itself).
 mod commands;
 mod config;
 mod menu;
@@ -81,6 +91,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(recording::RecordingManager::new())
         .menu(|app| menu::build(app, "en"))
         .on_menu_event(menu::handle_event)

@@ -1,0 +1,80 @@
+/* Update dialog (UpdateDialog.tsx) and the Updates block in Settings >
+   General. Reuses .modal/.modal-overlay from preferences.css; only what's
+   specific to updates lives here. */
+@import "../../styles/tokens.css";
+
+/* Can open from Settings > General, on top of the Settings modal. */
+.update-overlay {
+  z-index: 11;
+}
+
+.update-versions {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  color: var(--color-ink);
+}
+
+.update-progress {
+  height: 4px;
+  margin: 0 0 var(--space-4);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* --color-signal is the token for in-progress fill. */
+.update-progress-fill {
+  height: 100%;
+  background: var(--color-signal);
+}
+
+/* Unknown size: a pulse (keyframes in queue.css, motion-gated), not an
+   invented percentage. */
+.update-progress-fill.indeterminate {
+  width: 100%;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.update-error {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* Skip sits apart on the left; Later and Update now stay together on the
+   right, primary last -- the macOS update-prompt arrangement. */
+.update-actions .update-skip {
+  margin-right: auto;
+}
+
+.update-modal .btn-primary:disabled,
+.update-modal .btn-link:disabled,
+.updates-settings .btn-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+.update-modal button:focus-visible,
+.updates-settings button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.updates-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.updates-settings-row .modal-status {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+/* Out-specifies .settings-hint's muted color, whichever stylesheet loads
+   last. */
+.updates-settings .fail-reason {
+  color: var(--color-danger);
+}
